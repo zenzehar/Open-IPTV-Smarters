@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Backspace
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -43,6 +44,11 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import kotlinx.coroutines.delay
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -88,62 +94,63 @@ fun SearchScreen(
     }
     BackHandler { onBack() }
 
+    val keyboard = LocalSoftwareKeyboardController.current
+    val fieldFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        delay(100)
+        runCatching { fieldFocus.requestFocus() }
+        keyboard?.show()
+    }
+
     Column(
-        Modifier
-            .fillMaxSize()
-            .padding(horizontal = 28.dp, vertical = 20.dp),
+        Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(R.string.nav_search), style = MaterialTheme.typography.headlineMedium)
-            Spacer(Modifier.width(20.dp))
-            Text(
-                query.ifEmpty { stringResource(R.string.search_type_name) },
-                style = MaterialTheme.typography.titleLarge,
-                color = if (query.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant
-                else MaterialTheme.colorScheme.primary,
-            )
             Spacer(Modifier.weight(1f))
             OutlinedButton(onClick = onBack) { Text(stringResource(R.string.common_done)) }
         }
-
-        Spacer(Modifier.height(20.dp))
-
-        Row(Modifier.fillMaxSize()) {
-            OnScreenKeyboard(
-                onKey = { if (query.length < 40) query += it },
-                onSpace = { if (query.length < 40) query += " " },
-                onBackspace = { query = query.dropLast(1) },
-                onClear = { query = "" },
-            )
-
-            Spacer(Modifier.width(28.dp))
-
-            Column(Modifier.weight(1f).fillMaxSize()) {
-                when {
-                    query.isBlank() -> Hint(stringResource(R.string.search_start_hint))
-                    query.trim().length < 2 -> Hint(stringResource(R.string.common_keep_typing))
-                    !anyResults -> Hint(stringResource(R.string.search_no_results, query))
-                    else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        if (channelResults.isNotEmpty()) {
-                            item { SectionHeader(stringResource(R.string.common_channels)) }
-                            items(channelResults, key = { "c${it.key}" }) { row ->
-                                SearchResultRow(row = row, onClick = { onPlayChannel(row.primary) })
+        Spacer(Modifier.height(8.dp))
+        // Android's installed, currently selected IME (Gboard, SwiftKey, TV keyboard, etc.)
+        // is the ONLY keyboard. Never draw a second custom QWERTY on top of it.
+        OutlinedTextField(
+            value = query,
+            onValueChange = { if (it.length <= 100) query = it },
+            label = { Text(stringResource(R.string.search_type_name)) },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
+            modifier = Modifier.fillMaxWidth().focusRequester(fieldFocus),
+        )
+        Spacer(Modifier.height(12.dp))
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            when {
+                query.isBlank() -> Hint(stringResource(R.string.search_start_hint))
+                query.trim().length < 2 -> Hint(stringResource(R.string.common_keep_typing))
+                !anyResults -> Hint(stringResource(R.string.search_no_results, query))
+                else -> LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    if (channelResults.isNotEmpty()) {
+                        item { SectionHeader(stringResource(R.string.common_channels)) }
+                        items(channelResults, key = { "c${it.key}" }) { row ->
+                            SearchResultRow(row = row, onClick = { onPlayChannel(row.primary) })
+                        }
+                    }
+                    if (movieResults.isNotEmpty()) {
+                        item { SectionHeader(stringResource(R.string.nav_movies)) }
+                        items(movieResults, key = { "m${it.id}" }) { movie ->
+                            VodResultRow(movie.displayTitle, movie.posterUrl, movie.year?.toString()) {
+                                onPlayMovie(movie)
                             }
                         }
-                        if (movieResults.isNotEmpty()) {
-                            item { SectionHeader(stringResource(R.string.nav_movies)) }
-                            items(movieResults, key = { "m${it.id}" }) { movie ->
-                                VodResultRow(movie.displayTitle, movie.posterUrl, movie.year?.toString()) {
-                                    onPlayMovie(movie)
-                                }
-                            }
-                        }
-                        if (seriesResults.isNotEmpty()) {
-                            item { SectionHeader(stringResource(R.string.nav_shows)) }
-                            items(seriesResults, key = { "s${it.id}" }) { show ->
-                                VodResultRow(show.displayTitle, show.posterUrl, show.year?.toString()) {
-                                    onOpenSeries(show)
-                                }
+                    }
+                    if (seriesResults.isNotEmpty()) {
+                        item { SectionHeader(stringResource(R.string.nav_shows)) }
+                        items(seriesResults, key = { "s${it.id}" }) { show ->
+                            VodResultRow(show.displayTitle, show.posterUrl, show.year?.toString()) {
+                                onOpenSeries(show)
                             }
                         }
                     }
