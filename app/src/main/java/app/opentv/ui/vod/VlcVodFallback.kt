@@ -95,6 +95,7 @@ fun VlcVodFallback(
     val profileId by graph.settings.activeProfileId.collectAsState()
     val scope = rememberCoroutineScope()
     var layout by remember { mutableStateOf<VLCVideoLayout?>(null) }
+    var attachedLayout by remember { mutableStateOf<VLCVideoLayout?>(null) }
     var positionMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
     var playing by remember { mutableStateOf(false) }
@@ -134,6 +135,7 @@ fun VlcVodFallback(
     }
 
     suspend fun persistPosition() {
+        if (finished) return // Never overwrite the completed episode with an end-of-stream zero.
         val pos = player.time.coerceAtLeast(0L)
         val duration = player.length.coerceAtLeast(0L)
         if (pos > 5_000L && duration > 0L) {
@@ -154,13 +156,27 @@ fun VlcVodFallback(
         // AndroidView can recreate its surface while the player is already attached.
         // Do not attach the same VLC MediaPlayer again: it produces the exact warning
         // "Can't set view when already attached" despite playback working underneath.
-        if (initialized) return@LaunchedEffect
+        if (initialized) {
+            // The Compose AndroidView can be replaced on rotation or resize.
+            // Keep playback alive, but rebind the native video output to the new view.
+            if (attachedLayout !== surface) {
+                try {
+                    if (player.vlcVout.areViewsAttached()) player.detachViews()
+                    player.attachViews(surface, null, true, false)
+                    attachedLayout = surface
+                    errorText = null
+                } catch (e: Exception) {
+                    errorText = "VLC video surface could not be restored: ${e.localizedMessage ?: "unknown error"}"
+                }
+            }
+            return@LaunchedEffect
+        }
         try {
             val resumeFrom = graph.playbackPositions.get(profileId, mediaKey)
                 ?.takeIf { !it.isFinished }?.positionMillis ?: 0L
-            if (!player.vlcVout.areViewsAttached()) {
-                player.attachViews(surface, null, true, false)
-            }
+            if (player.vlcVout.areViewsAttached()) player.detachViews()
+            player.attachViews(surface, null, true, false)
+            attachedLayout = surface
             initialized = true
             errorText = null
             var resumeApplied = false
@@ -187,7 +203,7 @@ fun VlcVodFallback(
                             playing = false
                             buffering = false
                             finished = true
-                            val length = player.length.coerceAtLeast(0L)
+                            val length = maxOf(player.length, durationMs).coerceAtLeast(0L)
                             if (length > 0L) {
                                 graph.playbackPositions.upsert(PlaybackPosition(
                                     profileId, mediaKey, length, length, System.currentTimeMillis(),
@@ -250,6 +266,7 @@ fun VlcVodFallback(
             }
             runCatching { player.stop() }
             runCatching { player.detachViews() }
+            attachedLayout = null
             runCatching { player.release() }
             runCatching { libVlc.release() }
         }
