@@ -49,6 +49,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -105,10 +106,15 @@ fun VlcVodFallback(
     var initialized by remember(mediaKey, streamUrl) { mutableStateOf(false) }
     var finished by remember(mediaKey) { mutableStateOf(false) }
     var nextRequested by remember(mediaKey) { mutableStateOf(false) }
+    // The native listener is installed once; track latest settings and episode discovery
+    // instead of capturing the initial null next episode or initial autoplay setting.
+    val newestNext by rememberUpdatedState(nextEpisode)
+    val newestAutoplay by rememberUpdatedState(autoplayNext)
+    val newestNextAction by rememberUpdatedState(onNextEpisode)
     fun goNextOnce() {
-        if (nextEpisode != null && !nextRequested) {
+        if (newestNext != null && !nextRequested) {
             nextRequested = true
-            onNextEpisode()
+            newestNextAction()
         }
     }
 
@@ -187,7 +193,7 @@ fun VlcVodFallback(
                                     profileId, mediaKey, length, length, System.currentTimeMillis(),
                                 ))
                             }
-                            if (autoplayNext && nextEpisode != null) goNextOnce()
+                            if (newestAutoplay && newestNext != null) goNextOnce()
                         }
                     }
                 }
