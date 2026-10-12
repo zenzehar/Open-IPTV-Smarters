@@ -89,6 +89,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.C
+import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
@@ -131,7 +132,8 @@ fun VodPlayerScreen(
     val settings = remember { graph.settings }
     val autoplayNext by settings.autoplayNextEpisode.collectAsState()
     var nextEpisode by remember(mediaKey) { mutableStateOf<Episode?>(null) }
-    var everPlayed by remember(mediaKey) { mutableStateOf(false) }
+    var media3Ended by remember(mediaKey) { mutableStateOf(false) }
+    var completionHandled by remember(mediaKey) { mutableStateOf(false) }
     var advanced by remember(mediaKey) { mutableStateOf(false) }
     LaunchedEffect(mediaKey) {
         val id = mediaKey.takeIf { it.startsWith("ep:") }?.substringAfter("ep:")?.toLongOrNull()
@@ -186,12 +188,16 @@ fun VodPlayerScreen(
         }
     }
     val tracks by controller.tracks.collectAsState()
-    LaunchedEffect(state, autoplayNext, nextEpisode, useVlc) {
-        if (useVlc) return@LaunchedEffect
-        if (state is PlayerController.State.Playing) everPlayed = true
-        if (everPlayed && state is PlayerController.State.Idle && autoplayNext && nextEpisode != null) {
-            advance()
+    // Only Media3 STATE_ENDED means an episode completed. Idle can also occur after stop,
+    // decoder errors and lifecycle changes; never autoplay on those transitions.
+    DisposableEffect(controller, mediaKey) {
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_ENDED) media3Ended = true
+            }
         }
+        controller.player.addListener(listener)
+        onDispose { controller.player.removeListener(listener) }
     }
 
     var paused by remember { mutableStateOf(false) }
@@ -202,6 +208,37 @@ fun VodPlayerScreen(
     var scrubbing by remember { mutableStateOf(false) }
     var scrubValue by remember { mutableFloatStateOf(0f) }
 
+    LaunchedEffect(media3Ended, useVlc) {
+        if (!media3Ended || useVlc) return@LaunchedEffect
+        val profileId = settings.activeProfileId.value
+        val previous = graph.playbackPositions.get(profileId, mediaKey)
+        val duration = maxOf(
+            controller.player.duration,
+            durationMs,
+            previous?.durationMillis ?: 0L,
+        )
+        if (duration > 0L) {
+            graph.playbackPositions.upsert(
+                app.opentv.data.model.PlaybackPosition(
+                    profileId = profileId,
+                    mediaKey = mediaKey,
+                    positionMillis = duration,
+                    durationMillis = duration,
+                    updatedAtMillis = System.currentTimeMillis(),
+                ),
+            )
+        }
+        // Persist the watched state before navigating to the next episode.
+        completionHandled = true
+    }
+    LaunchedEffect(media3Ended, completionHandled, autoplayNext, nextEpisode, useVlc) {
+        if (!useVlc && canAutoplayAfterCompletion(
+                media3Ended, completionHandled, autoplayNext, nextEpisode,
+            )) {
+            advance()
+        }
+    }
+
     var controlsVisible by remember { mutableStateOf(true) }
     var interaction by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     val barFocus = remember { FocusRequester() }
@@ -210,6 +247,7 @@ fun VodPlayerScreen(
     fun reveal() { controlsVisible = true; interaction++ }
 
     suspend fun savePosition() {
+        if (media3Ended) return
         val player = controller.player
         val pos = player.currentPosition
         val dur = player.duration.takeIf { it > 0 } ?: return
@@ -228,6 +266,7 @@ fun VodPlayerScreen(
 
     // Keep an updated snapshot so disposal does not overwrite a newer VLC resume position.
     val latestVlc = rememberUpdatedState(useVlc)
+    val latestEnded = rememberUpdatedState(media3Ended)
 
     // Keep the screen awake during playback — see the note in PlayerScreen; a film is exactly when
     // the screensaver must not fire. Window flag is the reliable path; keepScreenOn is a backstop.
@@ -242,7 +281,7 @@ fun VodPlayerScreen(
             // so the final position survives navigation away from the video.
             val pos = controller.player.currentPosition
             val duration = controller.player.duration
-            if (!latestVlc.value && pos > 5_000L && duration > 0L) {
+            if (!latestVlc.value && !latestEnded.value && pos > 5_000L && duration > 0L) {
                 val snapshot = app.opentv.data.model.PlaybackPosition(
                     profileId = settings.activeProfileId.value,
                     mediaKey = mediaKey,
