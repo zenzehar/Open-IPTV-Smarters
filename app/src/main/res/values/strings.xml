@@ -9,7 +9,7 @@
     <string name="history_reset_series_body">Clear all saved playback positions for this show in the active profile? Your login and favourites stay untouched.</string>
     <string name="history_reset_confirm">Reset progress</string>
     <string name="history_reset_complete">Reset %1$d episode positions</string>
-    <string name="app_name">OpenTV</string>
+    <string name="app_name">MyIPTV</string>
 
     <!-- ============================ Common / reused ============================ -->
     <string name="common_done">Done</string>
@@ -22,7 +22,7 @@
     <string name="common_stop">Stop</string>
     <string name="common_delete">Delete</string>
     <string name="common_selected">Selected</string>
-    <string name="exit_title">Leave OpenTV?</string>
+    <string name="exit_title">Leave MyIPTV?</string>
     <string name="exit_body">You\'ll go back to your TV\'s home screen.</string>
     <string name="exit_confirm">Leave</string>
     <string name="exit_cancel">Stay</string>

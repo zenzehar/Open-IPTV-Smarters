@@ -2,47 +2,46 @@
  * This file is part of OpenTV.
  * Copyright (C) 2026 The OpenTV Contributors
  * Licensed under the GNU General Public License v3.0 or later.
+ *
+ * Independent Smarters-inspired, responsive TV and mobile navigation.
  */
 package app.opentv.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.core.animateDpAsState
-import app.opentv.R
-import app.opentv.core.findActivity
-import app.opentv.core.StatusBus
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.FiberManualRecord
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tv
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -51,40 +50,44 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
-import app.opentv.core.AppSettings
-import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import app.opentv.R
+import app.opentv.core.AppSettings
+import app.opentv.core.StatusBus
+import app.opentv.core.findActivity
 import app.opentv.data.model.Channel
 import app.opentv.data.model.Movie
 import app.opentv.data.model.Recording
 import app.opentv.data.model.Series
 import app.opentv.ui.channels.HomeScreen
+import app.opentv.ui.channels.MobileLiveScreen
 import app.opentv.ui.recordings.RecordingsScreen
 import app.opentv.ui.vod.MoviesScreen
 import app.opentv.ui.vod.SeriesScreen
 
 /**
- * The shell: a slim navigation rail down the left over a content area. The rail sits collapsed as
- * an icon strip and expands to show labels the moment focus lands in it — the TiviMate-style side
- * menu people asked for, instead of a top bar that ate a row of the guide. It overlays the content
- * rather than pushing it, so expanding the menu never reflows the guide underneath.
+ * TV: a full dashboard with large, remote-friendly feature tiles.
+ * Phone: stacked dashboard and a fixed, touch-friendly bottom navigation.
+ *
+ * Never reuse TV rail widths on phones. The window can be resized without forcing
+ * the entire screen to lay out at a desktop width.
  */
-enum class Tab(val labelRes: Int, val icon: ImageVector) {
-    LIVE(R.string.nav_live_tv, Icons.Filled.LiveTv),
-    MOVIES(R.string.nav_movies, Icons.Filled.Movie),
-    SHOWS(R.string.nav_shows, Icons.Filled.Tv),
-    RECORDINGS(R.string.nav_recordings, Icons.Filled.FiberManualRecord),
+private enum class DashboardTab(val text: String, val icon: ImageVector) {
+    HOME("Home", Icons.Filled.Home),
+    LIVE("Live TV", Icons.Filled.LiveTv),
+    MOVIES("Movies", Icons.Filled.Movie),
+    SERIES("Series", Icons.Filled.Tv),
+    RECORDINGS("Recordings", Icons.Filled.FiberManualRecord),
 }
-
-private val RAIL_COLLAPSED = 76.dp
-private val RAIL_EXPANDED = 236.dp
 
 @Composable
 fun MainScreen(
@@ -104,42 +107,26 @@ fun MainScreen(
     onPlayCatchup: (mediaKey: String, url: String, title: String, ua: String) -> Unit,
     activeProfileName: String,
 ) {
-    // Content-type toggles: a switched-off type has its tab hidden here (and its sync skipped in
-    // CatalogRepository). Recordings is never a content type, so it always stays — which also means
-    // there is always at least one tab and never a blank shell, even with all three types off.
     val context = LocalContext.current
     val settings = remember { AppSettings.get(context) }
     val liveEnabled by settings.liveEnabled.collectAsState()
     val moviesEnabled by settings.moviesEnabled.collectAsState()
     val seriesEnabled by settings.seriesEnabled.collectAsState()
-    val visibleTabs = remember(liveEnabled, moviesEnabled, seriesEnabled) {
+    val choices = remember(liveEnabled, moviesEnabled, seriesEnabled) {
         buildList {
-            if (liveEnabled) add(Tab.LIVE)
-            if (moviesEnabled) add(Tab.MOVIES)
-            if (seriesEnabled) add(Tab.SHOWS)
-            add(Tab.RECORDINGS)
+            add(DashboardTab.HOME)
+            if (liveEnabled) add(DashboardTab.LIVE)
+            if (moviesEnabled) add(DashboardTab.MOVIES)
+            if (seriesEnabled) add(DashboardTab.SERIES)
+            add(DashboardTab.RECORDINGS)
         }
     }
-    // The default/home tab is the first visible one — Live TV normally, otherwise the first type
-    // still switched on (or Recordings if none are).
-    val homeTab = visibleTabs.first()
-
-    var tab by remember { mutableStateOf(homeTab) }
-
-    // If the selected tab gets hidden (its type toggled off while it's open), drop back to the
-    // home tab so the content area never tries to show a tab that's no longer there.
-    LaunchedEffect(visibleTabs) {
-        if (tab !in visibleTabs) tab = homeTab
-    }
-
-    // Back from a non-home tab returns to the home tab rather than dropping out of the app.
-    BackHandler(enabled = tab != homeTab) { tab = homeTab }
-
-    // On the home tab, Back would otherwise drop straight out to the TV launcher — one stray press
-    // and you've closed the app. Ask first. (A dialog or panel open in a child screen swallows Back
-    // before this, so this only fires at the true root.)
+    var tab by remember { mutableStateOf(DashboardTab.HOME) }
+    if (tab !in choices) tab = DashboardTab.HOME
     var showExit by remember { mutableStateOf(false) }
-    BackHandler(enabled = tab == homeTab) { showExit = true }
+
+    BackHandler(enabled = tab != DashboardTab.HOME) { tab = DashboardTab.HOME }
+    BackHandler(enabled = tab == DashboardTab.HOME) { showExit = true }
     if (showExit) {
         AlertDialog(
             onDismissRequest = { showExit = false },
@@ -151,214 +138,407 @@ fun MainScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showExit = false }) { Text(stringResource(R.string.exit_cancel)) }
+                TextButton(onClick = { showExit = false }) {
+                    Text(stringResource(R.string.exit_cancel))
+                }
             },
         )
     }
 
-    // The rail sits beside the content and pushes it, rather than floating over it. The Live TV
-    // screen has its own category rail down its left edge, and an overlaying menu would land on top
-    // of it and leave a sliver poking out — so they live side by side and never collide.
-    Column(Modifier.fillMaxSize()) {
-      Row(Modifier.weight(1f).fillMaxWidth()) {
-        NavRail(
-            tabs = visibleTabs,
-            current = tab,
-            onSelect = { tab = it },
-            onOpenSearch = onOpenSearch,
-            onOpenSettings = onOpenSettings,
-            onOpenProfiles = onOpenProfiles,
-            activeProfileName = activeProfileName,
-        )
-
-        Box(Modifier.weight(1f).fillMaxHeight()) {
-            when (tab) {
-                Tab.LIVE -> HomeScreen(
-                    isTelevision = isTelevision,
-                    hasSources = hasSources,
-                    isSyncing = isSyncing,
-                    onPlayChannel = onPlayChannel,
-                    onAddSource = onAddSource,
-                    onRefresh = onRefresh,
-                    onPlayCatchup = onPlayCatchup,
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val compact = !isTelevision || maxWidth < 700.dp
+        Column(Modifier.fillMaxSize()) {
+            DashboardHeader(
+                title = if (tab == DashboardTab.HOME) "MyIPTV" else tab.text,
+                isHome = tab == DashboardTab.HOME,
+                onHome = { tab = DashboardTab.HOME },
+                onSearch = onOpenSearch,
+                onSettings = onOpenSettings,
+                onProfiles = onOpenProfiles,
+                profile = activeProfileName,
+                compact = compact,
+            )
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                when (tab) {
+                    DashboardTab.HOME -> DashboardHome(
+                        compact = compact,
+                        liveEnabled = liveEnabled,
+                        moviesEnabled = moviesEnabled,
+                        seriesEnabled = seriesEnabled,
+                        profile = activeProfileName,
+                        onLive = { tab = DashboardTab.LIVE },
+                        onMovies = { tab = DashboardTab.MOVIES },
+                        onSeries = { tab = DashboardTab.SERIES },
+                        onGuide = { tab = DashboardTab.LIVE },
+                        onRecordings = { tab = DashboardTab.RECORDINGS },
+                        onSearch = onOpenSearch,
+                        onSettings = onOpenSettings,
+                        onAddSource = onAddSource,
+                    )
+                    DashboardTab.LIVE -> {
+                        if (compact) MobileLiveScreen(
+                            hasSources = hasSources,
+                            isSyncing = isSyncing,
+                            onPlayChannel = onPlayChannel,
+                            onAddSource = onAddSource,
+                            onRefresh = onRefresh,
+                        ) else HomeScreen(
+                            isTelevision = true,
+                            hasSources = hasSources,
+                            isSyncing = isSyncing,
+                            onPlayChannel = onPlayChannel,
+                            onAddSource = onAddSource,
+                            onRefresh = onRefresh,
+                            onPlayCatchup = onPlayCatchup,
+                        )
+                    }
+                    DashboardTab.MOVIES -> MoviesScreen(
+                        isTelevision = !compact,
+                        onOpenMovie = onOpenMovie,
+                        onResume = onResume,
+                        onOpenSearch = onOpenSearch,
+                        hasSources = hasSources,
+                        isSyncing = isSyncing,
+                    )
+                    DashboardTab.SERIES -> SeriesScreen(
+                        isTelevision = !compact,
+                        onOpenSeries = onOpenSeries,
+                        onResume = onResume,
+                        onOpenSearch = onOpenSearch,
+                        hasSources = hasSources,
+                        isSyncing = isSyncing,
+                    )
+                    DashboardTab.RECORDINGS -> RecordingsScreen(onPlay = onPlayRecording)
+                }
+            }
+            StatusBar()
+            if (compact) {
+                MobileBottomNav(
+                    tabs = choices.filter { it != DashboardTab.RECORDINGS },
+                    selected = tab,
+                    onSelect = { tab = it },
+                    onSettings = onOpenSettings,
                 )
-                Tab.MOVIES -> MoviesScreen(
-                    onOpenMovie = onOpenMovie,
-                    onResume = onResume,
-                    onOpenSearch = onOpenSearch,
-                    hasSources = hasSources,
-                    isSyncing = isSyncing,
+            } else if (tab != DashboardTab.HOME) {
+                TvNavigation(
+                    tabs = choices,
+                    selected = tab,
+                    onSelect = { tab = it },
                 )
-                Tab.SHOWS -> SeriesScreen(
-                    onOpenSeries = onOpenSeries,
-                    onResume = onResume,
-                    onOpenSearch = onOpenSearch,
-                    hasSources = hasSources,
-                    isSyncing = isSyncing,
-                )
-                Tab.RECORDINGS -> RecordingsScreen(onPlay = onPlayRecording)
             }
         }
-      }
-      StatusBar()
     }
 }
 
-/**
- * A slim line along the bottom that says what the app is doing in the background — loading
- * channels, building the guide, loading movies — so a slow moment on a big provider reads as work
- * in progress, not a frozen screen. Invisible when there's nothing to report.
- */
+@Composable
+private fun DashboardHeader(
+    title: String,
+    isHome: Boolean,
+    onHome: () -> Unit,
+    onSearch: () -> Unit,
+    onSettings: () -> Unit,
+    onProfiles: () -> Unit,
+    profile: String,
+    compact: Boolean,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF0B1022))
+            .padding(horizontal = if (compact) 12.dp else 28.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 10.dp),
+    ) {
+        if (!isHome) {
+            HeaderAction(Icons.Filled.ArrowBack, "Dashboard", onHome)
+        } else {
+            Icon(Icons.Filled.Tv, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(27.dp))
+        }
+        Text(
+            title,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        if (!compact) {
+            Text(profile, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+        }
+        HeaderAction(Icons.Filled.Search, "Search", onSearch)
+        HeaderAction(Icons.Filled.Person, "Profiles", onProfiles)
+        HeaderAction(Icons.Filled.Settings, "Settings", onSettings)
+    }
+}
+
+@Composable
+private fun HeaderAction(icon: ImageVector, label: String, onClick: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (focused) MaterialTheme.colorScheme.primary else Color(0xFF172242))
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = label,
+            tint = if (focused) MaterialTheme.colorScheme.onPrimary else Color.White)
+    }
+}
+
+@Composable
+private fun DashboardHome(
+    compact: Boolean,
+    liveEnabled: Boolean,
+    moviesEnabled: Boolean,
+    seriesEnabled: Boolean,
+    profile: String,
+    onLive: () -> Unit,
+    onMovies: () -> Unit,
+    onSeries: () -> Unit,
+    onGuide: () -> Unit,
+    onRecordings: () -> Unit,
+    onSearch: () -> Unit,
+    onSettings: () -> Unit,
+    onAddSource: () -> Unit,
+) {
+    val pad = if (compact) 16.dp else 36.dp
+    LazyColumn(
+        Modifier.fillMaxSize().background(Color(0xFF0A1023)),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            horizontal = pad, vertical = if (compact) 18.dp else 32.dp
+        ),
+        verticalArrangement = Arrangement.spacedBy(if (compact) 16.dp else 26.dp),
+    ) {
+        item(key = "welcome") {
+            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(
+                    if (compact) "Welcome back" else "Your entertainment, your way",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    if (compact) profile else "Watch live TV, explore movies and catch up on your series.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color(0xFF9FAFCC),
+                )
+            }
+        }
+        if (compact) {
+            if (liveEnabled) item(key = "live") {
+                DashboardTile("LIVE TV", "Browse channels and guide", Icons.Filled.LiveTv,
+                    listOf(Color(0xFF126EB7), Color(0xFF4935BC)), 148.dp, Modifier.fillMaxWidth(), onLive)
+            }
+            if (moviesEnabled || seriesEnabled) item(key = "vod") {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                    if (moviesEnabled) DashboardTile("MOVIES", "On demand", Icons.Filled.Movie,
+                        listOf(Color(0xFFF65457), Color(0xFFFF9729)), 155.dp, Modifier.weight(1f), onMovies)
+                    if (seriesEnabled) DashboardTile("SERIES", "Seasons & episodes", Icons.Filled.Tv,
+                        listOf(Color(0xFF9631B8), Color(0xFF168DD8)), 155.dp, Modifier.weight(1f), onSeries)
+                }
+            }
+            item(key = "quick-title") {
+                Text("Quick access", style = MaterialTheme.typography.titleLarge, color = Color.White)
+            }
+            item(key = "quick") {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        if (liveEnabled) ShortcutTile("TV GUIDE", Icons.Filled.LiveTv, Modifier.weight(1f), onGuide)
+                        ShortcutTile("RECORDINGS", Icons.Filled.FiberManualRecord, Modifier.weight(1f), onRecordings)
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        ShortcutTile("SEARCH", Icons.Filled.Search, Modifier.weight(1f), onSearch)
+                        ShortcutTile("SETTINGS", Icons.Filled.Settings, Modifier.weight(1f), onSettings)
+                    }
+                }
+            }
+        } else {
+            item(key = "tv-tiles") {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(18.dp),
+                ) {
+                    if (liveEnabled) DashboardTile("LIVE TV", "Live channels & EPG", Icons.Filled.LiveTv,
+                        listOf(Color(0xFF0879C7), Color(0xFF553AC4)), 220.dp, Modifier.weight(1f), onLive)
+                    if (moviesEnabled) DashboardTile("MOVIES", "Films on demand", Icons.Filled.Movie,
+                        listOf(Color(0xFFEA355E), Color(0xFFFC8C2B)), 220.dp, Modifier.weight(1f), onMovies)
+                    if (seriesEnabled) DashboardTile("SERIES", "Watch every episode", Icons.Filled.Tv,
+                        listOf(Color(0xFF9A2FAE), Color(0xFF149ED6)), 220.dp, Modifier.weight(1f), onSeries)
+                }
+            }
+            item(key = "tv-quick") {
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    if (liveEnabled) ShortcutTile("LIVE WITH EPG", Icons.Filled.LiveTv, Modifier.weight(1f), onGuide)
+                    ShortcutTile("RECORDINGS", Icons.Filled.FiberManualRecord, Modifier.weight(1f), onRecordings)
+                    ShortcutTile("SEARCH", Icons.Filled.Search, Modifier.weight(1f), onSearch)
+                    ShortcutTile("SETTINGS", Icons.Filled.Settings, Modifier.weight(1f), onSettings)
+                }
+            }
+        }
+        item(key = "manage") {
+            Text(
+                "Manage playlists",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color(0xFF93A6CA),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(onClick = onAddSource)
+                    .padding(vertical = 10.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun DashboardTile(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    gradient: List<Color>,
+    height: Dp,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    var focused by remember { mutableStateOf(false) }
+    Column(
+        modifier
+            .height(height)
+            .clip(RoundedCornerShape(17.dp))
+            .background(Brush.linearGradient(gradient))
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(onClick = onClick)
+            .padding(18.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(if (height > 200.dp) 65.dp else 43.dp))
+        Spacer(Modifier.height(12.dp))
+        Text(title, color = Color.White, fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.titleLarge, maxLines = 1)
+        Text(subtitle, color = Color.White.copy(alpha = 0.85f),
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 2, overflow = TextOverflow.Ellipsis)
+        if (focused) {
+            Spacer(Modifier.height(8.dp))
+            Text("SELECT", color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+        }
+    }
+}
+
+@Composable
+private fun ShortcutTile(title: String, icon: ImageVector, modifier: Modifier, onClick: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    Row(
+        modifier
+            .height(66.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (focused) Color(0xFF2CBB9A) else Color(0xFF238F89))
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(title, style = MaterialTheme.typography.labelLarge,
+            color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 2,
+            overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun MobileBottomNav(
+    tabs: List<DashboardTab>,
+    selected: DashboardTab,
+    onSelect: (DashboardTab) -> Unit,
+    onSettings: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().background(Color(0xFF101A31)).padding(vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceEvenly,
+    ) {
+        tabs.forEach { tab ->
+            BottomNavItem(tab.text, tab.icon, selected == tab, Modifier.weight(1f)) { onSelect(tab) }
+        }
+        BottomNavItem("Settings", Icons.Filled.Settings, false, Modifier.weight(1f), onSettings)
+    }
+}
+
+@Composable
+private fun BottomNavItem(
+    title: String, icon: ImageVector, selected: Boolean, modifier: Modifier, onClick: () -> Unit,
+) {
+    Column(
+        modifier.height(58.dp).clickable(onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(icon, contentDescription = title,
+            tint = if (selected) Color(0xFF64C7FF) else Color(0xFFA1AAC2),
+            modifier = Modifier.size(23.dp))
+        Spacer(Modifier.height(3.dp))
+        Text(title, style = MaterialTheme.typography.labelSmall,
+            maxLines = 1, overflow = TextOverflow.Ellipsis,
+            color = if (selected) Color.White else Color(0xFFA1AAC2))
+    }
+}
+
+@Composable
+private fun TvNavigation(
+    tabs: List<DashboardTab>, selected: DashboardTab, onSelect: (DashboardTab) -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().background(Color(0xFF10182E)).padding(horizontal = 22.dp, vertical = 7.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        tabs.forEach { t ->
+            var focused by remember { mutableStateOf(false) }
+            Row(
+                Modifier
+                    .clip(RoundedCornerShape(9.dp))
+                    .background(if (focused) MaterialTheme.colorScheme.primary else if (selected == t)
+                        Color(0xFF25436B) else Color.Transparent)
+                    .onFocusChanged { focused = it.isFocused }
+                    .clickable { onSelect(t) }
+                    .padding(horizontal = 15.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(t.icon, null, modifier = Modifier.size(18.dp),
+                    tint = if (focused) MaterialTheme.colorScheme.onPrimary else Color.White)
+                Spacer(Modifier.width(7.dp))
+                Text(t.text, color = if (focused) MaterialTheme.colorScheme.onPrimary else Color.White)
+            }
+        }
+    }
+}
+
 @Composable
 private fun StatusBar() {
     val message by StatusBus.message.collectAsState()
     val progress by StatusBus.progress.collectAsState()
-    val text = message ?: return
-    val p = progress
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(horizontal = 16.dp, vertical = 6.dp),
-    ) {
+    val status = message ?: return
+    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant)
+        .padding(horizontal = 12.dp, vertical = 4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            if (p == null) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(14.dp),
-                    strokeWidth = 2.dp,
-                    color = MaterialTheme.colorScheme.primary,
-                )
+            if (progress == null) {
+                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
             } else {
-                Text(
-                    "${(p * 100).toInt()}%",
-                    style = MaterialTheme.typography.labelLarge,
+                Text("${(progress!! * 100).toInt()}%",
                     color = MaterialTheme.colorScheme.primary,
-                )
+                    style = MaterialTheme.typography.labelSmall)
             }
-            Spacer(Modifier.width(12.dp))
-            Text(
-                text,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Spacer(Modifier.width(8.dp))
+            Text(status, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodySmall)
         }
-        if (p != null) {
-            Spacer(Modifier.height(4.dp))
-            LinearProgressIndicator(
-                progress = { p },
-                modifier = Modifier.fillMaxWidth().height(3.dp),
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
-    }
-}
-
-@Composable
-private fun NavRail(
-    tabs: List<Tab>,
-    current: Tab,
-    onSelect: (Tab) -> Unit,
-    onOpenSearch: () -> Unit,
-    onOpenSettings: () -> Unit,
-    onOpenProfiles: () -> Unit,
-    activeProfileName: String,
-    modifier: Modifier = Modifier,
-) {
-    // Expand whenever focus is anywhere inside the rail; collapse back to icons when it leaves.
-    var expanded by remember { mutableStateOf(false) }
-    val width by animateDpAsState(
-        targetValue = if (expanded) RAIL_EXPANDED else RAIL_COLLAPSED,
-        label = "railWidth",
-    )
-
-    Column(
-        modifier
-            .width(width)
-            .fillMaxHeight()
-            .background(MaterialTheme.colorScheme.surface)
-            .focusGroup()
-            .onFocusChanged { expanded = it.hasFocus }
-            .padding(vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        // Brand: the logo mark alone when collapsed, the mark + "OpenTV" wordmark when open. The
-        // name stays on purpose — it's what people search for.
-        Row(
-            Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Image(
-                painter = painterResource(R.drawable.ic_opentv_logo),
-                contentDescription = "OpenTV",
-                modifier = Modifier.size(34.dp),
-            )
-            if (expanded) {
-                Spacer(Modifier.width(12.dp))
-                Text(
-                    "OpenTV",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-
-        tabs.forEach { t ->
-            RailItem(t.icon, stringResource(t.labelRes), expanded, current == t) { onSelect(t) }
-        }
-
-        Spacer(Modifier.height(1.dp).fillMaxWidth())
-        Spacer(Modifier.weight(1f))
-
-        RailItem(Icons.Filled.Search, stringResource(R.string.nav_search), expanded, false, onOpenSearch)
-        RailItem(Icons.Filled.Person, activeProfileName, expanded, false, onOpenProfiles)
-        RailItem(Icons.Filled.Settings, stringResource(R.string.nav_settings), expanded, false, onOpenSettings)
-    }
-}
-
-@Composable
-private fun RailItem(
-    icon: ImageVector,
-    label: String,
-    expanded: Boolean,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    var focused by remember { mutableStateOf(false) }
-    val bg = when {
-        focused -> MaterialTheme.colorScheme.primary
-        selected -> MaterialTheme.colorScheme.surfaceVariant
-        else -> MaterialTheme.colorScheme.surface
-    }
-    val tint = if (focused) MaterialTheme.colorScheme.onPrimary
-    else if (selected) MaterialTheme.colorScheme.onSurface
-    else MaterialTheme.colorScheme.onSurfaceVariant
-
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(bg)
-            .onFocusChanged { focused = it.isFocused }
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, contentDescription = label, tint = tint)
-        if (expanded) {
-            Spacer(Modifier.width(14.dp))
-            Text(
-                label,
-                style = MaterialTheme.typography.titleMedium,
-                color = tint,
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+        if (progress != null) {
+            LinearProgressIndicator(progress = { progress!! },
+                modifier = Modifier.fillMaxWidth().height(2.dp))
         }
     }
 }
