@@ -27,12 +27,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarOutline
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -52,11 +55,13 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.opentv.R
+import android.widget.Toast
 import app.opentv.data.model.Episode
 import app.opentv.data.model.Movie
 import app.opentv.data.model.Series
@@ -266,6 +271,9 @@ fun SeriesDetailScreen(
 ) {
     var series by remember(seriesId) { mutableStateOf<Series?>(null) }
     var moreLike by remember(seriesId) { mutableStateOf<List<Series>>(emptyList()) }
+    var showResetConfirmation by remember(seriesId) { mutableStateOf(false) }
+    val resetScope = rememberCoroutineScope()
+    val context = LocalContext.current
     val favFocus = remember { FocusRequester() }
 
     LaunchedEffect(seriesId) {
@@ -308,6 +316,10 @@ fun SeriesDetailScreen(
                     viewModel.toggleSeriesFavourite(s)
                     series = s.copy(favourite = !s.favourite)
                 }
+                DetailButton(
+                    icon = Icons.Filled.Refresh,
+                    label = stringResource(R.string.history_reset_series_button),
+                ) { showResetConfirmation = true }
             }
         }
         item(key = "info") {
@@ -346,6 +358,32 @@ fun SeriesDetailScreen(
                 SeriesPosterRow(stringResource(R.string.vod_more_like_this), moreLike, onOpenSeries)
             }
         }
+    }
+
+    if (showResetConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showResetConfirmation = false },
+            title = { Text(stringResource(R.string.history_reset_series_title)) },
+            text = { Text(stringResource(R.string.history_reset_series_body)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showResetConfirmation = false
+                    resetScope.launch {
+                        val count = viewModel.resetSeriesProgress(s)
+                        Toast.makeText(
+                            context,
+                            context.getString(R.string.history_reset_complete, count),
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                }) { Text(stringResource(R.string.history_reset_confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetConfirmation = false }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+        )
     }
 }
 
