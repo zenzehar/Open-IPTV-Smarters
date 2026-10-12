@@ -1058,6 +1058,7 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
     /** The active profile's saved resume position for a movie/episode, or null — drives Resume vs Watch now. */
     suspend fun resumePosition(mediaKey: String): PlaybackPosition? =
         graph.playbackPositions.get(settings.activeProfileId.value, mediaKey)
+            ?.takeIf { it.positionMillis > 0 }
 
     /** Collapses quality variants of a movie list for a browse grid. See CatalogRepository.collapseVariants. */
     fun collapseVariants(movies: List<Movie>): List<MovieVariantGroup> =
