@@ -1,5 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Playback history resets do not remove IPTV accounts, favourites or profiles. -->
+    <string name="history_reset_all_button">Reset all episode progress (this profile)</string>
+    <string name="history_reset_all_title">Reset all episode progress?</string>
+    <string name="history_reset_all_body">All episodes for this profile will restart from the beginning. Movies, logins, favourites and other profiles are kept.</string>
+    <string name="history_reset_series_button">Reset show progress</string>
+    <string name="history_reset_series_title">Reset this show?</string>
+    <string name="history_reset_series_body">Clear all saved playback positions for this show in the active profile? Your login and favourites stay untouched.</string>
+    <string name="history_reset_confirm">Reset progress</string>
+    <string name="history_reset_complete">Reset %1$d episode positions</string>
     <string name="app_name">OpenTV</string>
 
     <!-- ============================ Common / reused ============================ -->
