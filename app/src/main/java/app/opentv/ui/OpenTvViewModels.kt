@@ -722,6 +722,15 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
             .mapLatest { positions -> positions.filter { it.positionMillis > 0 && !it.isFinished }.mapNotNull { resolveResume(it) } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** Independent history shelves; a movie must never appear under Series, or vice versa. */
+    val continueWatchingMovies: StateFlow<List<ResumeItem>> =
+        continueWatching.map { items -> items.filter { it.mediaKey.startsWith("movie:") } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val continueWatchingSeries: StateFlow<List<ResumeItem>> =
+        continueWatching.map { items -> items.filter { it.mediaKey.startsWith("ep:") } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     private suspend fun resolveResume(pos: PlaybackPosition): ResumeItem? {
         val parts = pos.mediaKey.split(":", limit = 2)
         if (parts.size != 2) return null

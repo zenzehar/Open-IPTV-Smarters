@@ -13,6 +13,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
@@ -147,6 +149,18 @@ fun VodPlayerScreen(
         p.seekTo((p.currentPosition + deltaMs).coerceIn(0L, ceiling))
     }
     val state by controller.state.collectAsState()
+    var useVlc by remember(mediaKey) { mutableStateOf(false) }
+    LaunchedEffect(state) {
+        val error = state as? PlayerController.State.Error ?: return@LaunchedEffect
+        if (error.message.contains("PARSING_CONTAINER_UNSUPPORTED", ignoreCase = true) ||
+            error.message.contains("DECODING_FAILED", ignoreCase = true) ||
+            error.message.contains("container", ignoreCase = true) && error.message.contains("unsupported", ignoreCase = true)
+        ) {
+            // Do not retry forever with the same demuxer that has rejected the container.
+            controller.player.stop()
+            useVlc = true
+        }
+    }
     val tracks by controller.tracks.collectAsState()
 
     var paused by remember { mutableStateOf(false) }
@@ -260,7 +274,7 @@ fun VodPlayerScreen(
         }
     }
 
-    BackHandler {
+    BackHandler(enabled = !useVlc) {
         val activelyPlaying = state is PlayerController.State.Playing ||
             (growingRec && state is PlayerController.State.Buffering)
         when {
@@ -288,6 +302,15 @@ fun VodPlayerScreen(
                 detectTapGestures { if (controlsVisible) controlsVisible = false else reveal() }
             },
     ) {
+        if (useVlc) {
+            VlcVodFallback(
+                mediaKey = mediaKey,
+                streamUrl = streamUrl,
+                title = title,
+                userAgent = userAgent,
+                onBack = onBack,
+            )
+        } else {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
@@ -328,6 +351,10 @@ fun VodPlayerScreen(
                         Text(current.message, color = Color.White.copy(alpha = 0.85f), textAlign = TextAlign.Center)
                         Spacer(Modifier.height(24.dp))
                         Button(onClick = { controller.retry() }) { Text(stringResource(R.string.common_try_again)) }
+                        Spacer(Modifier.height(12.dp))
+                        Button(onClick = { controller.player.stop(); useVlc = true }) {
+                            Text("Try VLC decoder")
+                        }
                     }
                 }
 
@@ -405,7 +432,10 @@ fun VodPlayerScreen(
 
                 Spacer(Modifier.height(10.dp))
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     VodChip(Icons.Filled.FastRewind, stringResource(R.string.player_rewind)) {
                         if (growingRec) seekRelative(-15_000) else controller.seekBackward(); interaction++
                     }
@@ -435,6 +465,7 @@ fun VodPlayerScreen(
                     }
                 }
             }
+        }
         }
     }
 }
