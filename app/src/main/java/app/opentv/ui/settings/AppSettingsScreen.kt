@@ -21,6 +21,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -30,8 +31,10 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,8 +49,10 @@ import android.widget.Toast
 import app.opentv.R
 import app.opentv.core.AppSettings
 import app.opentv.core.SleepTimer
+import app.opentv.core.ServiceLocator
 import app.opentv.core.findActivity
 import app.opentv.data.work.SyncWorker
+import kotlinx.coroutines.launch
 
 /**
  * Display & playback preferences: the app-behaviour settings, kept apart from the guide/data
@@ -58,6 +63,9 @@ import app.opentv.data.work.SyncWorker
 fun AppSettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val settings = remember { AppSettings.get(context) }
+    val graph = remember { ServiceLocator.get(context) }
+    val resetScope = rememberCoroutineScope()
+    var confirmEpisodeReset by remember { mutableStateOf(false) }
     val themeMode by settings.themeMode.collectAsState()
     val channelLayout by settings.channelLayout.collectAsState()
     val previewVideo by settings.guidePreviewVideo.collectAsState()
@@ -205,6 +213,10 @@ fun AppSettingsScreen(onBack: () -> Unit) {
                 checked = resumeLast,
                 onToggle = settings::setResumeLastChannel,
             )
+            Spacer(Modifier.height(12.dp))
+            OutlinedButton(onClick = { confirmEpisodeReset = true }) {
+                Text(stringResource(R.string.history_reset_all_button))
+            }
         }
 
         Spacer(Modifier.height(16.dp))
@@ -214,6 +226,35 @@ fun AppSettingsScreen(onBack: () -> Unit) {
         Spacer(Modifier.height(16.dp))
 
         SleepTimerSection()
+    }
+
+    if (confirmEpisodeReset) {
+        AlertDialog(
+            onDismissRequest = { confirmEpisodeReset = false },
+            title = { Text(stringResource(R.string.history_reset_all_title)) },
+            text = { Text(stringResource(R.string.history_reset_all_body)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmEpisodeReset = false
+                    resetScope.launch {
+                        val count = graph.playbackPositions.resetAllEpisodes(
+                            settings.activeProfileId.value,
+                            System.currentTimeMillis(),
+                        )
+                        Toast.makeText(
+                            context,
+                            context.getString(R.string.history_reset_complete, count),
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                }) { Text(stringResource(R.string.history_reset_confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmEpisodeReset = false }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+        )
     }
 }
 
