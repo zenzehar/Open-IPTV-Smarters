@@ -7,6 +7,7 @@ package app.opentv
 
 import app.opentv.data.model.Episode
 import app.opentv.ui.vod.findNextEpisode
+import app.opentv.ui.vod.canAutoplayAfterCompletion
 import com.google.common.truth.Truth.assertThat
 import org.junit.Test
 
@@ -36,4 +37,20 @@ class EpisodeQueueTest {
     @Test fun missingCurrentEpisodeDoesNotJumpToStart() {
         assertThat(findNextEpisode(listOf(episode(10, 1, 1)), 99L)).isNull()
     }
+    @Test fun stoppedOrFailedPlaybackNeverAutoplays() {
+        val next = episode(20, 1, 2)
+        assertThat(canAutoplayAfterCompletion(false, true, true, next)).isFalse()
+        assertThat(canAutoplayAfterCompletion(false, false, true, next)).isFalse()
+    }
+
+    @Test fun episodeProgressMustBeHandledBeforeAutoplay() {
+        assertThat(canAutoplayAfterCompletion(true, false, true, episode(20, 1, 2))).isFalse()
+        assertThat(canAutoplayAfterCompletion(true, true, true, episode(20, 1, 2))).isTrue()
+    }
+
+    @Test fun disablingAutoplayOrEndingSeriesBlocksAutomaticNext() {
+        assertThat(canAutoplayAfterCompletion(true, true, false, episode(20, 1, 2))).isFalse()
+        assertThat(canAutoplayAfterCompletion(true, true, true, null)).isFalse()
+    }
+
 }
