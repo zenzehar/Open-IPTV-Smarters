@@ -32,12 +32,14 @@ import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -58,6 +60,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import app.opentv.core.ServiceLocator
 import app.opentv.data.model.PlaybackPosition
+import app.opentv.data.model.Episode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -81,6 +84,10 @@ fun VlcVodFallback(
     title: String,
     userAgent: String,
     onBack: () -> Unit,
+    nextEpisode: Episode? = null,
+    autoplayNext: Boolean = false,
+    onAutoplayChange: (Boolean) -> Unit = {},
+    onNextEpisode: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val graph = remember { ServiceLocator.get(context) }
@@ -95,6 +102,15 @@ fun VlcVodFallback(
     var controlsVisible by remember { mutableStateOf(true) }
     var movingSlider by remember { mutableStateOf(false) }
     var sliderValue by remember { mutableStateOf(0f) }
+    var initialized by remember(mediaKey, streamUrl) { mutableStateOf(false) }
+    var finished by remember(mediaKey) { mutableStateOf(false) }
+    var nextRequested by remember(mediaKey) { mutableStateOf(false) }
+    fun goNextOnce() {
+        if (nextEpisode != null && !nextRequested) {
+            nextRequested = true
+            onNextEpisode()
+        }
+    }
 
     val libVlc = remember { LibVLC(context.applicationContext, arrayListOf("--network-caching=1500", "--http-reconnect")) }
     val player = remember { MediaPlayer(libVlc) }
@@ -129,10 +145,18 @@ fun VlcVodFallback(
 
     LaunchedEffect(layout, streamUrl) {
         val surface = layout ?: return@LaunchedEffect
+        // AndroidView can recreate its surface while the player is already attached.
+        // Do not attach the same VLC MediaPlayer again: it produces the exact warning
+        // "Can't set view when already attached" despite playback working underneath.
+        if (initialized) return@LaunchedEffect
         try {
             val resumeFrom = graph.playbackPositions.get(profileId, mediaKey)
                 ?.takeIf { !it.isFinished }?.positionMillis ?: 0L
-            player.attachViews(surface, null, true, false)
+            if (!player.vlcVout.areViewsAttached()) {
+                player.attachViews(surface, null, true, false)
+            }
+            initialized = true
+            errorText = null
             var resumeApplied = false
             player.setEventListener { event ->
                 scope.launch {
@@ -140,6 +164,7 @@ fun VlcVodFallback(
                         MediaPlayer.Event.Playing -> {
                             buffering = false
                             playing = true
+                            errorText = null
                             if (resumeFrom > 0L && !resumeApplied) {
                                 // A pause/resume must not jump back to the original timestamp.
                                 resumeApplied = true
@@ -155,6 +180,14 @@ fun VlcVodFallback(
                         MediaPlayer.Event.EndReached -> {
                             playing = false
                             buffering = false
+                            finished = true
+                            val length = player.length.coerceAtLeast(0L)
+                            if (length > 0L) {
+                                graph.playbackPositions.upsert(PlaybackPosition(
+                                    profileId, mediaKey, length, length, System.currentTimeMillis(),
+                                ))
+                            }
+                            if (autoplayNext && nextEpisode != null) goNextOnce()
                         }
                     }
                 }
@@ -167,8 +200,17 @@ fun VlcVodFallback(
             media.release()
             player.play()
         } catch (e: Exception) {
-            errorText = "VLC could not open this stream: ${e.localizedMessage ?: "unknown error"}"
-            buffering = false
+            // A valid stream can already be playing when a stale surface tries reattachment.
+            // Don't cover the video with a false error in that case.
+            if (player.vlcVout.areViewsAttached() && player.isPlaying) {
+                initialized = true
+                errorText = null
+                buffering = false
+            } else {
+                initialized = false
+                errorText = "Unable to start VLC video: ${e.localizedMessage ?: "unknown error"}"
+                buffering = false
+            }
         }
     }
 
@@ -193,7 +235,7 @@ fun VlcVodFallback(
             // Use a separate IO scope: composition scope is cancelled on navigation.
             val p = runCatching { player.time }.getOrDefault(0L)
             val d = runCatching { player.length }.getOrDefault(0L)
-            if (p > 5_000L && d > 0L) {
+            if (!finished && p > 5_000L && d > 0L) {
                 CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
                     graph.playbackPositions.upsert(PlaybackPosition(
                         profileId, mediaKey, p, d, System.currentTimeMillis(),
@@ -216,14 +258,21 @@ fun VlcVodFallback(
             Text("Opening in VLC player…", color = Color.White,
                 modifier = Modifier.align(Alignment.Center).padding(16.dp))
         }
-        if (errorText != null) {
+        if (errorText != null && !playing) {
             Column(
-                Modifier.align(Alignment.Center).padding(16.dp),
+                Modifier.align(Alignment.Center)
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .background(Color.Black.copy(alpha = 0.87f), RoundedCornerShape(12.dp))
+                    .padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(errorText.orEmpty(), color = Color.White)
-                Button(onClick = ::openExternal) { Text("Open in another player") }
+                Text("Playback problem", color = Color.White,
+                    style = MaterialTheme.typography.titleMedium)
+                Text(errorText.orEmpty().take(250), color = Color.White.copy(alpha = 0.85f),
+                    style = MaterialTheme.typography.bodySmall, maxLines = 5)
+                Button(onClick = ::openExternal) { Text("Open in another player", maxLines = 1) }
             }
         }
         if (controlsVisible) {
@@ -277,8 +326,24 @@ fun VlcVodFallback(
                     }) {
                         Icon(Icons.Filled.FastForward, contentDescription = "Forward 15 seconds", tint = Color.White)
                     }
+                    if (nextEpisode != null) {
+                        IconButton(onClick = { goNextOnce() }) {
+                            Icon(Icons.Filled.SkipNext, contentDescription = "Next episode", tint = Color.White)
+                        }
+                    }
                     IconButton(onClick = ::openExternal) {
                         Icon(Icons.Filled.OpenInNew, contentDescription = "External player", tint = Color.White)
+                    }
+                }
+                if (nextEpisode != null) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(top = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("Auto-play next episode", color = Color.White,
+                            style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f),
+                            maxLines = 2)
+                        Switch(checked = autoplayNext, onCheckedChange = onAutoplayChange)
                     }
                 }
             }
