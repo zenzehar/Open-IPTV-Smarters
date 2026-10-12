@@ -63,6 +63,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -195,6 +196,9 @@ fun VodPlayerScreen(
         }
     }
 
+    // Keep an updated snapshot so disposal does not overwrite a newer VLC resume position.
+    val latestVlc = rememberUpdatedState(useVlc)
+
     // Keep the screen awake during playback — see the note in PlayerScreen; a film is exactly when
     // the screensaver must not fire. Window flag is the reliable path; keepScreenOn is a backstop.
     DisposableEffect(Unit) {
@@ -204,7 +208,22 @@ fun VodPlayerScreen(
         onDispose {
             window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             view.keepScreenOn = false
-            scope.launch { savePosition() }
+            // The controller's coroutine scope is cancelled here. Persist independently
+            // so the final position survives navigation away from the video.
+            val pos = controller.player.currentPosition
+            val duration = controller.player.duration
+            if (!latestVlc.value && pos > 5_000L && duration > 0L) {
+                val snapshot = app.opentv.data.model.PlaybackPosition(
+                    profileId = settings.activeProfileId.value,
+                    mediaKey = mediaKey,
+                    positionMillis = pos,
+                    durationMillis = duration,
+                    updatedAtMillis = System.currentTimeMillis(),
+                )
+                CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+                    graph.playbackPositions.upsert(snapshot)
+                }
+            }
             controller.release()
             scope.cancel()
         }
