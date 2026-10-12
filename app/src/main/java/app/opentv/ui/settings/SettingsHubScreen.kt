@@ -10,6 +10,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,6 +22,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dns
@@ -46,6 +50,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -99,11 +104,23 @@ fun SettingsHubScreen(
 
         Spacer(Modifier.height(20.dp))
 
-        LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.widthIn(max = 760.dp),
-        ) {
-            items(entries) { entry -> HubRow(entry) }
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+            if (maxWidth >= 650.dp) {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 174.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    gridItems(entries) { entry -> HubTile(entry) }
+                }
+            } else {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    items(entries) { entry -> HubRow(entry) }
+                }
+            }
         }
     }
 }
@@ -175,4 +192,29 @@ internal fun HubTextButton(label: String, onClick: () -> Unit) {
             .clickable(onClick = onClick)
             .padding(horizontal = 18.dp, vertical = 8.dp),
     )
+}
+
+/** Remote-friendly tiles for the television Settings screen. */
+@Composable
+private fun HubTile(entry: HubEntry) {
+    var focused by remember { mutableStateOf(false) }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .height(150.dp)
+            .clip(RoundedCornerShape(11.dp))
+            .background(if (focused) Color(0xFF5835BA) else Color(0xFF1A2449))
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(onClick = entry.onClick)
+            .padding(12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(entry.icon, contentDescription = null,
+            tint = if (focused) Color.White else Color(0xFF64A7FF),
+            modifier = Modifier.size(33.dp))
+        Spacer(Modifier.height(12.dp))
+        Text(entry.title, color = Color.White, fontWeight = FontWeight.SemiBold,
+            style = MaterialTheme.typography.titleMedium, maxLines = 2)
+    }
 }
