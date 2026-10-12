@@ -244,7 +244,6 @@ fun SeriesScreen(
 }
 
 /** TV-style category column inspired by established IPTV browse patterns. */
-@Composable
 private const val CONTINUE_WATCHING_CATEGORY = "__myiptv_continue_watching__"
 
 @Composable
