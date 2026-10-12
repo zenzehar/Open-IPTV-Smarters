@@ -48,11 +48,13 @@ import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -92,6 +94,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import app.opentv.R
 import app.opentv.core.ServiceLocator
+import app.opentv.data.model.Episode
 import app.opentv.core.SleepTimer
 import app.opentv.core.findActivity
 import app.opentv.player.PlayerController
@@ -101,6 +104,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
@@ -119,11 +123,33 @@ fun VodPlayerScreen(
     title: String,
     userAgent: String,
     onBack: () -> Unit,
+    onNextEpisode: (Episode) -> Unit = {},
 ) {
     val context = LocalContext.current
     val view = LocalView.current
     val graph = remember { ServiceLocator.get(context) }
     val settings = remember { graph.settings }
+    val autoplayNext by settings.autoplayNextEpisode.collectAsState()
+    var nextEpisode by remember(mediaKey) { mutableStateOf<Episode?>(null) }
+    var everPlayed by remember(mediaKey) { mutableStateOf(false) }
+    var advanced by remember(mediaKey) { mutableStateOf(false) }
+    LaunchedEffect(mediaKey) {
+        val id = mediaKey.takeIf { it.startsWith("ep:") }?.substringAfter("ep:")?.toLongOrNull()
+            ?: return@LaunchedEffect
+        val episode = graph.catalogRepository.episode(id) ?: return@LaunchedEffect
+        val ordered = graph.catalogRepository.observeEpisodes(episode.sourceId, episode.seriesId)
+            .first()
+            .sortedWith(compareBy<Episode> { it.season }.thenBy { it.episodeNumber }.thenBy { it.id })
+        nextEpisode = ordered.getOrNull(ordered.indexOfFirst { it.id == id } + 1)
+            ?.takeIf { it.id != id && ordered.any { row -> row.id == id } }
+    }
+    fun advance() {
+        val candidate = nextEpisode ?: return
+        if (!advanced) {
+            advanced = true
+            onNextEpisode(candidate)
+        }
+    }
     val scope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate) }
     // A recording that's still being written plays through the tail-following source. It behaves a
     // little differently in the transport: the "length" is how much has been recorded so far, which
@@ -163,6 +189,13 @@ fun VodPlayerScreen(
         }
     }
     val tracks by controller.tracks.collectAsState()
+    LaunchedEffect(state, autoplayNext, nextEpisode, useVlc) {
+        if (useVlc) return@LaunchedEffect
+        if (state is PlayerController.State.Playing) everPlayed = true
+        if (everPlayed && state is PlayerController.State.Idle && autoplayNext && nextEpisode != null) {
+            advance()
+        }
+    }
 
     var paused by remember { mutableStateOf(false) }
     var vodPanel by remember { mutableStateOf(VodPanel.NONE) }
@@ -328,6 +361,10 @@ fun VodPlayerScreen(
                 title = title,
                 userAgent = userAgent,
                 onBack = onBack,
+                nextEpisode = nextEpisode,
+                autoplayNext = autoplayNext,
+                onAutoplayChange = settings::setAutoplayNextEpisode,
+                onNextEpisode = { advance() },
             )
         } else {
         AndroidView(
@@ -481,6 +518,13 @@ fun VodPlayerScreen(
                     VodChip(Icons.Filled.Audiotrack, stringResource(R.string.player_audio)) {
                         vodPanel = if (vodPanel == VodPanel.AUDIO) VodPanel.NONE else VodPanel.AUDIO
                         interaction++
+                    }
+                    if (nextEpisode != null) {
+                        Spacer(Modifier.width(12.dp))
+                        VodChip(Icons.Filled.SkipNext, "Next episode") { advance() }
+                        Spacer(Modifier.width(12.dp))
+                        Text("Autoplay", color = Color.White)
+                        Switch(checked = autoplayNext, onCheckedChange = settings::setAutoplayNextEpisode)
                     }
                 }
             }
