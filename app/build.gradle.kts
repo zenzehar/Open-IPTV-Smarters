@@ -129,7 +129,7 @@ dependencies {
     implementation(libs.media3.datasource.okhttp)
 
     // Broader container/codec support for IPTV VOD files Media3 cannot parse (LGPL LibVLC).
-    implementation("org.videolan.android:libvlc-all:3.7.7")
+    implementation("org.videolan.android:libvlc-all:3.6.1")
 
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
