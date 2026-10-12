@@ -6,10 +6,13 @@
 package app.opentv.ui.vod
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -409,7 +412,7 @@ private fun DetailBackdrop(
     meta: String,
     actions: @Composable RowScope.() -> Unit,
 ) {
-    Box(
+    BoxWithConstraints(
         Modifier
             .fillMaxWidth()
             .height(360.dp)
@@ -440,33 +443,55 @@ private fun DetailBackdrop(
                 ),
             ),
         )
-        Row(
-            Modifier
-                .align(Alignment.BottomStart)
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 20.dp),
-            horizontalArrangement = Arrangement.spacedBy(20.dp),
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            HeroPosterCard(posterUrl = posterUrl, title = title)
-            Column(Modifier.weight(1f)) {
-                Text(
-                    title,
-                    style = MaterialTheme.typography.headlineLarge,
-                    color = Color.White,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+        if (maxWidth < 560.dp) {
+            // Portrait phones: title and buttons get the full width. Never squeeze them beside
+            // a fixed 128dp poster, which causes clipping on narrower devices.
+            Column(
+                Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 20.dp),
+            ) {
+                Text(title, style = MaterialTheme.typography.headlineMedium,
+                    color = Color.White, maxLines = 3, overflow = TextOverflow.Ellipsis)
                 if (meta.isNotBlank()) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(meta, style = MaterialTheme.typography.titleMedium, color = Color.White.copy(alpha = 0.85f))
+                    Spacer(Modifier.height(7.dp))
+                    Text(meta, style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White.copy(alpha = 0.85f), maxLines = 2)
                 }
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(14.dp))
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     content = actions,
                 )
+            }
+        } else {
+            Row(
+                Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 20.dp),
+                horizontalArrangement = Arrangement.spacedBy(20.dp),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                HeroPosterCard(posterUrl = posterUrl, title = title)
+                Column(Modifier.weight(1f)) {
+                    Text(title, style = MaterialTheme.typography.headlineLarge,
+                        color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    if (meta.isNotBlank()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(meta, style = MaterialTheme.typography.titleMedium,
+                            color = Color.White.copy(alpha = 0.85f))
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        content = actions,
+                    )
+                }
             }
         }
     }
