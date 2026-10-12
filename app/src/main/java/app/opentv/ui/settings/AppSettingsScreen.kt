@@ -72,6 +72,7 @@ fun AppSettingsScreen(onBack: () -> Unit) {
     val previewSound by settings.guidePreviewSound.collectAsState()
     val captions by settings.subtitlesEnabled.collectAsState()
     val resumeLast by settings.resumeLastChannel.collectAsState()
+    val autoplayNext by settings.autoplayNextEpisode.collectAsState()
     val language by settings.languageTag.collectAsState()
     val liveEnabled by settings.liveEnabled.collectAsState()
     val moviesEnabled by settings.moviesEnabled.collectAsState()
@@ -206,6 +207,12 @@ fun AppSettingsScreen(onBack: () -> Unit) {
                 subtitle = stringResource(R.string.settings_subtitles_subtitle),
                 checked = captions,
                 onToggle = settings::setSubtitlesEnabled,
+            )
+            ToggleRow(
+                title = "Automatically play next series episode",
+                subtitle = "When an episode finishes, start the next one. Off by default.",
+                checked = autoplayNext,
+                onToggle = settings::setAutoplayNextEpisode,
             )
             ToggleRow(
                 title = stringResource(R.string.settings_resume_title),

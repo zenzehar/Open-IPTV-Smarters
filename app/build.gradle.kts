@@ -64,6 +64,11 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             isMinifyEnabled = false
+            // Optional fixed signing identity; loaded through GitHub Actions secrets.
+            // Without a stable signing secret Android will reject cross-run upgrades.
+            if (providers.environmentVariable("KEYSTORE_PATH").orNull != null) {
+                signingConfig = signingConfigs.getByName("upload")
+            }
         }
     }
 
