@@ -1,55 +1,64 @@
-# Releasing
+# Building and releasing MyIPTV
 
-Releases are cut by pushing a tag. GitHub Actions does the rest.
+The Android application IDs are `app.opentv.debug` for internal/debug builds and
+`app.opentv` for release builds. They are different Android apps and do not
+upgrade over one another. To update an installed app while retaining its data,
+the application ID **and** signer certificate must both match, and versionCode
+must not decrease.
 
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
+## Required signing setup
 
-`.github/workflows/release.yml` runs the tests, assembles the release APK and attaches it to a
-GitHub release.
+The build and release workflows both use these four **GitHub Actions repository secrets**:
 
-## Signing
+- `MYIPTV_KEYSTORE_BASE64`: Base64 encoding of the project's saved JKS file.
+- `MYIPTV_KEYSTORE_PASSWORD`: password to open the JKS.
+- `MYIPTV_KEY_ALIAS`: the key alias.
+- `MYIPTV_KEY_PASSWORD`: password for the signing key.
 
-**Right now, release builds are signed with the Android debug key.** This is deliberate, and
-it is temporary.
+Configure at Repository → Settings → Secrets and variables → Actions →
+New repository secret. Never place keys, passwords or Base64 keystore bytes in
+source control, tickets or build logs. Preserve a separately secured backup
+of the keystore and credentials. Losing the key prevents in-place upgrades.
 
-An *unsigned* APK cannot be installed on Android at all — the installer rejects it before the
-user sees anything, with an error that explains nothing. That would mean no one can test the
-app until signing infrastructure exists. So `app/build.gradle.kts` falls back to the debug key
-when no keystore is configured, and the result installs fine.
+Until all four secrets are set:
+- `.github/workflows/build.yml` still compiles and tests a **temporary debug
+  APK** for development, but warns that its signer is ephemeral. Do not
+  present it as an update-safe build.
+- `.github/workflows/release.yml` **fails before packaging** rather than
+  publishing a release signed with a random runner key.
+- Running `assembleRelease` locally without a signing configuration can
+  produce an unsigned APK; it must not be distributed.
 
-The cost, stated plainly: **when the project moves to a real keystore, Android will refuse to
-upgrade over a debug-signed install.** Everyone testing today will have to uninstall and
-reinstall, losing their settings. That is fine for a handful of early testers and completely
-unacceptable once there are hundreds. **Set up real signing before announcing the project
-publicly.**
+When secrets are configured, the debug workflow signs `app.opentv.debug`
+with the permanent certificate, and the tagged release workflow signs
+`app.opentv` with that same project key. Both build types have distinct
+package names and therefore cannot upgrade each other.
 
-### Setting up real signing
+The build workflow logs the APK's public SHA-256 signer fingerprint and
+attaches `signing-fingerprint.txt` alongside the APK. Compare that digest
+across consecutive runs, rather than inferring identity from successful builds.
 
-1. Generate a keystore:
+## Updating an existing installation
 
-   ```bash
-   keytool -genkeypair -v -keystore upload.jks -keyalg RSA -keysize 4096 \
-     -validity 10000 -alias opentv
-   ```
+1. Confirm the installed package name and its certificate fingerprint.
+2. Compare both with the next APK and confirm its versionCode is higher.
+3. If package and certificate match, install the new APK as an update and
+   retain the existing app data.
+4. If the old temporary debug private key is unavailable, in-place upgrading
+   from that old certificate is impossible. Export any supported provider
+   setup/data first. A one-time uninstall/reinstall may be necessary, and
+   uninstalling can erase app-local data.
 
-2. Add these repository secrets under **Settings → Secrets and variables → Actions**:
-   `KEYSTORE_BASE64` (the output of `base64 -i upload.jks`), `KEYSTORE_PASSWORD`, `KEY_ALIAS`,
-   `KEY_PASSWORD`.
+## Versioning
 
-3. That is all — `release.yml` and `build.gradle.kts` already pick them up. The release notes
-   will report `signed: yes` instead of `debug-key`.
+Bump both `versionCode` (monotonically increasing integer) and
+`versionName` in `app/build.gradle.kts`. The initial stability patch is
+`0.11.9` / `21`. Android compares `versionCode` to enforce upgrades,
+not `versionName`.
 
-**The keystore must belong to the project, not to one person.** A single maintainer holding
-the only copy is the same single point of failure this project exists to avoid — if they go
-quiet, nobody can ship an upgrade, and every user is stranded on whatever version they have.
-Share it among at least two maintainers, and back it up somewhere that is not one laptop.
+## Publishing
 
-Losing the keystore is unrecoverable. There is no reset.
-
-## Version numbers
-
-Bump `versionCode` and `versionName` in `app/build.gradle.kts`. `versionCode` must increase on
-every release; Android uses it, not `versionName`, to decide what counts as an upgrade.
+Run the unit tests, build and inspect GitHub Actions logs, and verify the
+signer before cutting a `v*` tag. A successful automated workflow is not
+proof of real-device playback or UI correctness; validate those separately
+with licensed/authorised IPTV sources before distributing.
