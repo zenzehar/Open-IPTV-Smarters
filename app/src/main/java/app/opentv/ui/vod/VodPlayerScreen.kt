@@ -137,11 +137,8 @@ fun VodPlayerScreen(
         val id = mediaKey.takeIf { it.startsWith("ep:") }?.substringAfter("ep:")?.toLongOrNull()
             ?: return@LaunchedEffect
         val episode = graph.catalogRepository.episode(id) ?: return@LaunchedEffect
-        val ordered = graph.catalogRepository.observeEpisodes(episode.sourceId, episode.seriesId)
-            .first()
-            .sortedWith(compareBy<Episode> { it.season }.thenBy { it.episodeNumber }.thenBy { it.id })
-        nextEpisode = ordered.getOrNull(ordered.indexOfFirst { it.id == id } + 1)
-            ?.takeIf { it.id != id && ordered.any { row -> row.id == id } }
+        val episodes = graph.catalogRepository.observeEpisodes(episode.sourceId, episode.seriesId).first()
+        nextEpisode = findNextEpisode(episodes, id)
     }
     fun advance() {
         val candidate = nextEpisode ?: return
