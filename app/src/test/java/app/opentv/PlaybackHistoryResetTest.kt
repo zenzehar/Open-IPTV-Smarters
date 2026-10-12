@@ -4,6 +4,7 @@
  */
 package app.opentv
 
+import android.app.Application
 import androidx.room.Room
 import app.opentv.data.db.OpenTvDatabase
 import app.opentv.data.model.Episode
@@ -22,7 +23,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34], application = Application::class, manifest = Config.NONE)
 class PlaybackHistoryResetTest {
     private lateinit var db: OpenTvDatabase
 
