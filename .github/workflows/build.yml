@@ -30,6 +30,26 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Configure permanent APK signing
+        if: github.event_name != 'pull_request'
+        env:
+          MYIPTV_KEYSTORE_BASE64: ${{ secrets.MYIPTV_KEYSTORE_BASE64 }}
+          MYIPTV_KEYSTORE_PASSWORD: ${{ secrets.MYIPTV_KEYSTORE_PASSWORD }}
+          MYIPTV_KEY_ALIAS: ${{ secrets.MYIPTV_KEY_ALIAS }}
+          MYIPTV_KEY_PASSWORD: ${{ secrets.MYIPTV_KEY_PASSWORD }}
+        run: |
+          if [ -n "$MYIPTV_KEYSTORE_BASE64" ] && [ -n "$MYIPTV_KEYSTORE_PASSWORD" ] && [ -n "$MYIPTV_KEY_ALIAS" ] && [ -n "$MYIPTV_KEY_PASSWORD" ]; then
+            printf '%s' "$MYIPTV_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/myiptv.jks"
+            chmod 600 "$RUNNER_TEMP/myiptv.jks"
+            echo "KEYSTORE_PATH=$RUNNER_TEMP/myiptv.jks" >> "$GITHUB_ENV"
+            echo "KEYSTORE_PASSWORD=$MYIPTV_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "KEY_ALIAS=$MYIPTV_KEY_ALIAS" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=$MYIPTV_KEY_PASSWORD" >> "$GITHUB_ENV"
+            echo "Using persistent MyIPTV signing certificate"
+          else
+            echo "::warning::Signing secrets not configured: debug APK will have a temporary certificate and cannot reliably upgrade an older APK."
+          fi
+
       - name: Unit tests
         run: ./gradlew test --stacktrace
 
