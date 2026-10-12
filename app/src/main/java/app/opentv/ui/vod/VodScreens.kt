@@ -115,16 +115,12 @@ fun MoviesScreen(
             onSelectAll = { browseCategory = null; viewModel.selectVodSource(null) },
             onSelectSource = { id -> browseCategory = null; viewModel.selectVodSource(id) },
         )
-        if (!isTelevision) CategoryChips(
-            entries = listOf(CONTINUE_WATCHING_CATEGORY to stringResource(R.string.vod_continue_watching)) + categories.map { it.id to it.name },
-            selected = browseCategory,
-            onSelectHome = onAll,
-            onSelectCategory = onCategory,
-        )
         Row(Modifier.weight(1f).fillMaxWidth()) {
-            if (isTelevision) VodCategorySidebar(
+            // Collapsible sidebar on both Android phones and TV; no squeezed TV-only layout.
+            VodCategorySidebar(
                 entries = listOf(CONTINUE_WATCHING_CATEGORY to stringResource(R.string.vod_continue_watching)) + categories.map { it.id to it.name },
                 selected = browseCategory,
+                initiallyExpanded = isTelevision,
                 onSelectHome = onAll,
                 onSelectCategory = onCategory,
             )
@@ -202,16 +198,12 @@ fun SeriesScreen(
             onSelectAll = { browseCategory = null; viewModel.selectVodSource(null) },
             onSelectSource = { id -> browseCategory = null; viewModel.selectVodSource(id) },
         )
-        if (!isTelevision) CategoryChips(
-            entries = listOf(CONTINUE_WATCHING_CATEGORY to stringResource(R.string.vod_continue_watching)) + categories.map { it.id to it.name },
-            selected = browseCategory,
-            onSelectHome = onAll,
-            onSelectCategory = onCategory,
-        )
         Row(Modifier.weight(1f).fillMaxWidth()) {
-            if (isTelevision) VodCategorySidebar(
+            // Collapsible sidebar on both Android phones and TV; no squeezed TV-only layout.
+            VodCategorySidebar(
                 entries = listOf(CONTINUE_WATCHING_CATEGORY to stringResource(R.string.vod_continue_watching)) + categories.map { it.id to it.name },
                 selected = browseCategory,
+                initiallyExpanded = isTelevision,
                 onSelectHome = onAll,
                 onSelectCategory = onCategory,
             )
@@ -273,10 +265,19 @@ private fun ContinueWatchingGrid(
 private fun VodCategorySidebar(
     entries: List<Pair<String, String>>,
     selected: String?,
+    initiallyExpanded: Boolean,
     onSelectHome: () -> Unit,
     onSelectCategory: (String) -> Unit,
 ) {
-    var expanded by remember { mutableStateOf(true) }
+    var expanded by remember(initiallyExpanded) { mutableStateOf(initiallyExpanded) }
+    val chooseHome: () -> Unit = {
+        onSelectHome()
+        if (!initiallyExpanded) expanded = false
+    }
+    val chooseCategory: (String) -> Unit = { id ->
+        onSelectCategory(id)
+        if (!initiallyExpanded) expanded = false
+    }
     Column(
         modifier = Modifier
             .width(if (expanded) 216.dp else 62.dp)
@@ -304,10 +305,10 @@ private fun VodCategorySidebar(
             verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
             item(key = "all") {
-                VodCategoryRow(stringResource(R.string.vod_all), selected == null, expanded, onSelectHome)
+                VodCategoryRow(stringResource(R.string.vod_all), selected == null, expanded, chooseHome)
             }
             items(entries, key = { it.first }) { (id, label) ->
-                VodCategoryRow(label, selected == id, expanded) { onSelectCategory(id) }
+                VodCategoryRow(label, selected == id, expanded) { chooseCategory(id) }
             }
         }
     }
