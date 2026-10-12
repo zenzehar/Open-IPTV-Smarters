@@ -139,6 +139,15 @@ class AppSettings private constructor(context: Context) {
         _guidePreviewSound.value = enabled
     }
 
+    /** Autoplay the next available episode when a series episode reaches its end. */
+    private val _autoplayNextEpisode = MutableStateFlow(prefs.getBoolean(KEY_AUTOPLAY_NEXT_EPISODE, false))
+    val autoplayNextEpisode: StateFlow<Boolean> = _autoplayNextEpisode.asStateFlow()
+
+    fun setAutoplayNextEpisode(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_AUTOPLAY_NEXT_EPISODE, enabled).apply()
+        _autoplayNextEpisode.value = enabled
+    }
+
     /** Whether launching the app jumps straight back to the last channel you watched. */
     private val _resumeLastChannel = MutableStateFlow(prefs.getBoolean(KEY_RESUME_LAST, false))
     val resumeLastChannel: StateFlow<Boolean> = _resumeLastChannel.asStateFlow()
@@ -430,6 +439,7 @@ class AppSettings private constructor(context: Context) {
         private const val KEY_HIDDEN_CATS = "hidden_categories"
         private const val KEY_ACTIVE_PROFILE = "active_profile_id"
         private const val KEY_RESUME_LAST = "resume_last_channel"
+        private const val KEY_AUTOPLAY_NEXT_EPISODE = "autoplay_next_episode"
         private const val KEY_CONTENT_LIVE = "content_live"
         private const val KEY_CONTENT_MOVIES = "content_movies"
         private const val KEY_CONTENT_SERIES = "content_series"
