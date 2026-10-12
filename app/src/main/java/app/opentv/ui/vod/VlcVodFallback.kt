@@ -133,14 +133,16 @@ fun VlcVodFallback(
             val resumeFrom = graph.playbackPositions.get(profileId, mediaKey)
                 ?.takeIf { !it.isFinished }?.positionMillis ?: 0L
             player.attachViews(surface, null, true, false)
+            var resumeApplied = false
             player.setEventListener { event ->
                 scope.launch {
                     when (event.type) {
                         MediaPlayer.Event.Playing -> {
                             buffering = false
                             playing = true
-                            if (resumeFrom > 0L) {
-                                // Only apply a saved position when the stream becomes seekable.
+                            if (resumeFrom > 0L && !resumeApplied) {
+                                // A pause/resume must not jump back to the original timestamp.
+                                resumeApplied = true
                                 runCatching { player.setTime(resumeFrom) }
                             }
                         }
