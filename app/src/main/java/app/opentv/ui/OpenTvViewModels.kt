@@ -719,7 +719,7 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
     val continueWatching: StateFlow<List<ResumeItem>> =
         settings.activeProfileId
             .flatMapLatest { pid -> graph.playbackPositions.observeRecent(pid) }
-            .mapLatest { positions -> positions.filter { !it.isFinished }.mapNotNull { resolveResume(it) } }
+            .mapLatest { positions -> positions.filter { it.positionMillis > 0 && !it.isFinished }.mapNotNull { resolveResume(it) } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private suspend fun resolveResume(pos: PlaybackPosition): ResumeItem? {
@@ -1013,6 +1013,15 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
 
     fun episodes(series: Series) =
         graph.catalogRepository.observeEpisodes(series.sourceId, series.seriesId)
+
+    /** Reset saved positions in this series for the active profile only. */
+    suspend fun resetSeriesProgress(series: Series): Int =
+        graph.playbackPositions.resetSeriesEpisodes(
+            settings.activeProfileId.value,
+            series.sourceId,
+            series.seriesId,
+            System.currentTimeMillis(),
+        )
 
     /** For the series detail screen: look the series up by row id. */
     fun seriesById(id: Long): kotlinx.coroutines.flow.Flow<Series?> =
