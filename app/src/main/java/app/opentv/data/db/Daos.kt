@@ -612,7 +612,7 @@ interface PlaybackPositionDao {
     suspend fun get(profileId: Long, key: String): PlaybackPosition?
 
     @Query(
-        "SELECT * FROM playback_positions WHERE profileId = :profileId " +
+        "SELECT * FROM playback_positions WHERE profileId = :profileId AND positionMillis > 0 " +
             "ORDER BY updatedAtMillis DESC LIMIT :limit",
     )
     fun observeRecent(profileId: Long, limit: Int = 30): Flow<List<PlaybackPosition>>
@@ -629,6 +629,31 @@ interface PlaybackPositionDao {
 
     @Query("DELETE FROM playback_positions WHERE profileId = :profileId AND mediaKey = :key")
     suspend fun delete(profileId: Long, key: String)
+
+    /**
+     * Set all episodes in a profile back to the start, preserving their rows as sync tombstones.
+     * Movies, other profiles, IPTV provider credentials and favourites are untouched.
+     */
+    @Query(
+        "UPDATE playback_positions SET positionMillis = 0, durationMillis = 0, " +
+            "updatedAtMillis = MAX(updatedAtMillis + 1, :resetAtMillis) " +
+            "WHERE profileId = :profileId AND mediaKey LIKE 'ep:%'"
+    )
+    suspend fun resetAllEpisodes(profileId: Long, resetAtMillis: Long): Int
+
+    /** Reset only the episodes indexed to one show for the active viewing profile. */
+    @Query(
+        "UPDATE playback_positions SET positionMillis = 0, durationMillis = 0, " +
+            "updatedAtMillis = MAX(updatedAtMillis + 1, :resetAtMillis) " +
+            "WHERE profileId = :profileId AND mediaKey IN (" +
+            "SELECT 'ep:' || id FROM episodes WHERE sourceId = :sourceId AND seriesId = :seriesId)"
+    )
+    suspend fun resetSeriesEpisodes(
+        profileId: Long,
+        sourceId: Long,
+        seriesId: String,
+        resetAtMillis: Long,
+    ): Int
 }
 
 @Dao
