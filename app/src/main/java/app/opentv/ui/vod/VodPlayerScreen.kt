@@ -559,7 +559,7 @@ private fun VodChip(
     ) {
         Icon(icon, contentDescription = label, tint = content)
         Spacer(Modifier.width(6.dp))
-        Text(label, style = MaterialTheme.typography.labelLarge, color = content)
+        Text(label, style = MaterialTheme.typography.labelLarge, color = content, maxLines = 1, softWrap = false)
     }
 }
 
