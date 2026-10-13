@@ -32,6 +32,38 @@ class AppSettings private constructor(context: Context) {
     enum class ThemeMode { SYSTEM, DARK, LIGHT }
 
     enum class DeviceMode { AUTO, TV, MOBILE }
+
+    /** Phones use the IPTV dashboard in landscape, but other screens can rotate normally. */
+    private val _landscapeHome = MutableStateFlow(prefs.getBoolean("landscape_home", true))
+    val landscapeHome: StateFlow<Boolean> = _landscapeHome.asStateFlow()
+    fun setLandscapeHome(enabled: Boolean) {
+        prefs.edit().putBoolean("landscape_home", enabled).apply()
+        _landscapeHome.value = enabled
+    }
+
+    private fun timestampFlow(key: String) = MutableStateFlow(prefs.getLong(key, 0L))
+    private val _liveUpdated = timestampFlow("live_catalogue_updated")
+    val liveUpdated: StateFlow<Long> = _liveUpdated.asStateFlow()
+    private val _moviesUpdated = timestampFlow("movies_catalogue_updated")
+    val moviesUpdated: StateFlow<Long> = _moviesUpdated.asStateFlow()
+    private val _seriesUpdated = timestampFlow("series_catalogue_updated")
+    val seriesUpdated: StateFlow<Long> = _seriesUpdated.asStateFlow()
+
+    fun recordCatalogueUpdated(stage: String, timestamp: Long = System.currentTimeMillis()) {
+        val target = when (stage) {
+            "live" -> _liveUpdated
+            "movies" -> _moviesUpdated
+            "series" -> _seriesUpdated
+            else -> return
+        }
+        val key = when (stage) {
+            "live" -> "live_catalogue_updated"
+            "movies" -> "movies_catalogue_updated"
+            else -> "series_catalogue_updated"
+        }
+        prefs.edit().putLong(key, timestamp).apply()
+        target.value = timestamp
+    }
     private val _deviceMode = MutableStateFlow(
         runCatching { DeviceMode.valueOf(prefs.getString("device_mode", "AUTO") ?: "AUTO") }
             .getOrDefault(DeviceMode.AUTO),
