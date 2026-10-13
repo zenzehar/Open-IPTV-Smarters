@@ -101,10 +101,10 @@ class EpisodeQueueTest {
     }
 
     @Test fun pastedMultilineCredentialsNeverBecomeOneInput() {
-        assertThat(oneLine("username\\npassword")).isEqualTo("username")
-        assertThat(oneLine("url\\r\\nextra")).isEqualTo("url")
+        assertThat(oneLine("username\npassword")).isEqualTo("username")
+        assertThat(oneLine("url\r\nextra")).isEqualTo("url")
         assertThat(oneLine("playlist name")).isEqualTo("playlist name")
-        assertThat(oneLine("abc\\u2028def")).isEqualTo("abc")
+        assertThat(oneLine("abc\u2028def")).isEqualTo("abc")
     }
 
 }
