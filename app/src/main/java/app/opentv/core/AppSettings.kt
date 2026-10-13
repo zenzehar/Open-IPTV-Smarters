@@ -23,8 +23,9 @@ import kotlinx.serialization.json.Json
  */
 class AppSettings private constructor(context: Context) {
 
+    private val appContext = context.applicationContext
     private val prefs =
-        context.applicationContext.getSharedPreferences("opentv_settings", Context.MODE_PRIVATE)
+        appContext.getSharedPreferences("opentv_settings", Context.MODE_PRIVATE)
 
     private val addonJson = Json { ignoreUnknownKeys = true }
 
@@ -475,7 +476,7 @@ class AppSettings private constructor(context: Context) {
         _nasAutoSync.value = enabled
         // This is distinct from the LAN "Share/Receive" and manually triggered NAS sync.
         // WorkManager persists scheduled peer-file exchanges across process death and reboots.
-        app.opentv.data.work.NasAutoSyncWorker.schedule(context, enabled)
+        app.opentv.data.work.NasAutoSyncWorker.schedule(appContext, enabled)
     }
 
     // ---- Catalogue freshness & TMDB ----------------------------------------------------------
