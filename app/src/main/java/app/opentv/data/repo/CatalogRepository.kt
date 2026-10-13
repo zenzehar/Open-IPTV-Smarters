@@ -135,8 +135,9 @@ class CatalogRepository(
 
     /** TMDB back-fill for VOD detail pages, gated on a user-supplied key. See [TmdbClient]. */
     private val tmdb = TmdbClient(http, settings)
-    // One IPTV panel should not receive concurrent large VOD downloads from separate ViewModels.
-    private val vodRequestLock = Mutex()
+    // One provider at a time across Live, Movies, Series and the periodic worker.
+    // Some panels reject overlapping requests, especially large VOD catalogue downloads.
+    private val providerRequestLock = Mutex()
 
     sealed interface SyncResult {
         data class Success(
@@ -628,14 +629,15 @@ class CatalogRepository(
             if (settings.liveEnabled.value) syncLive(source, nowUtcMillis)
             else SyncResult.Success(0, 0, 0)
         if (live is SyncResult.Success && source.kind == SourceKind.XTREAM) {
-            runCatching { syncXtreamVod(source, nowUtcMillis) }
+            runCatching { syncVod(source, nowUtcMillis) }
                 .onFailure { Log.w(TAG, "VOD sync failed for source ${source.id}", it) }
         }
         live
     }
 
     /** Live channels only — the fast path so the guide can show before VOD and the guide load. */
-    suspend fun syncLive(source: Source, nowUtcMillis: Long): SyncResult = withContext(Dispatchers.IO) {
+    suspend fun syncLive(source: Source, nowUtcMillis: Long): SyncResult = providerRequestLock.withLock {
+        withContext(Dispatchers.IO) {
         try {
             when (source.kind) {
                 SourceKind.XTREAM -> syncXtreamLive(source, nowUtcMillis)
@@ -647,6 +649,7 @@ class CatalogRepository(
         } catch (e: Exception) {
             Log.w(TAG, "Catalogue sync failed for source ${source.id}", e)
             SyncResult.Failed(e.message ?: "The catalogue could not be downloaded.", e)
+        }
         }
     }
 
@@ -665,7 +668,7 @@ class CatalogRepository(
         includeMovies: Boolean = true,
         includeSeries: Boolean = true,
     ): VodSyncResult =
-        vodRequestLock.withLock {
+        providerRequestLock.withLock {
             withContext(Dispatchers.IO) {
                 if (source.kind != SourceKind.XTREAM) return@withContext VodSyncResult()
                 try {
