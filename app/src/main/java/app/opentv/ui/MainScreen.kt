@@ -51,6 +51,8 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
@@ -456,7 +458,7 @@ private fun DashboardHeader(
         }
         HeaderAction(Icons.Filled.Search, "Search",
             if (categoryTitleFilter != null) {
-                { runCatching { headerSearchFocus.requestFocus() } }
+                { runCatching { headerSearchFocus.requestFocus() }; Unit }
             } else onSearch)
         HeaderAction(Icons.Filled.Person, "Profiles", onProfiles)
         HeaderAction(Icons.Filled.Settings, "Settings", onSettings)
