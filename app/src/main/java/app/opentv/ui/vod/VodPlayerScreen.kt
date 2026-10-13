@@ -178,9 +178,9 @@ fun VodPlayerScreen(
     var useVlc by remember(mediaKey) { mutableStateOf(false) }
     LaunchedEffect(state) {
         val error = state as? PlayerController.State.Error ?: return@LaunchedEffect
-        if (error.message.contains("PARSING_CONTAINER_UNSUPPORTED", ignoreCase = true) ||
-            error.message.contains("DECODING_FAILED", ignoreCase = true) ||
-            error.message.contains("container", ignoreCase = true) && error.message.contains("unsupported", ignoreCase = true)
+        if (error.errorCode?.let(app.opentv.player.PlaybackErrors::requiresAlternativeDecoder) == true ||
+            error.message.contains("PARSING_CONTAINER_UNSUPPORTED", ignoreCase = true) ||
+            error.message.contains("DECODING_FAILED", ignoreCase = true)
         ) {
             // Do not retry forever with the same demuxer that has rejected the container.
             controller.player.stop()
