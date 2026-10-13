@@ -55,6 +55,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import app.opentv.ui.explicitImeActivation
+import androidx.compose.runtime.produceState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
@@ -94,6 +98,8 @@ fun MoviesScreen(
     isSyncing: Boolean,
     isTelevision: Boolean = false,
     categoryJumpFocus: FocusRequester? = null,
+    titleFilter: String = "",
+    onTitleFilterChange: (String) -> Unit = {},
     viewModel: VodViewModel = viewModel(),
 ) {
     val categories by viewModel.movieCategories.collectAsState()
@@ -112,16 +118,15 @@ fun MoviesScreen(
         viewModel.loadHomeFeeds()
     }
     var browseCategory by remember { mutableStateOf<String?>(RECENTLY_ADDED_CATEGORY) }
-    var titleFilter by remember { mutableStateOf("") }
     val hasContent = resume.isNotEmpty() || recommended.isNotEmpty() ||
         recentlyAdded.isNotEmpty() || genreRows.isNotEmpty()
     val onCategory: (String) -> Unit = { id ->
-        titleFilter = ""
+        onTitleFilterChange("")
         browseCategory = id
         viewModel.selectMovieCategory(if (isSpecialVodCategory(id)) null else id)
     }
     val onAll: () -> Unit = {
-        titleFilter = ""
+        onTitleFilterChange("")
         browseCategory = null
         viewModel.selectMovieCategory(null)
     }
@@ -144,8 +149,8 @@ fun MoviesScreen(
         if (sources.size > 1) ProviderChips(
             sources = sources,
             selected = selectedSource,
-            onSelectAll = { browseCategory = RECENTLY_ADDED_CATEGORY; titleFilter = ""; viewModel.selectVodSource(null) },
-            onSelectSource = { id -> browseCategory = RECENTLY_ADDED_CATEGORY; titleFilter = ""; viewModel.selectVodSource(id) },
+            onSelectAll = { browseCategory = RECENTLY_ADDED_CATEGORY; onTitleFilterChange(""); viewModel.selectVodSource(null) },
+            onSelectSource = { id -> browseCategory = RECENTLY_ADDED_CATEGORY; onTitleFilterChange(""); viewModel.selectVodSource(id) },
         )
         Box(Modifier.weight(1f).fillMaxWidth()) {
             VodBrowserFrame(
@@ -157,7 +162,7 @@ fun MoviesScreen(
                 onSelectCategory = onCategory,
                 categoryJumpFocus = categoryJumpFocus,
             ) {
-                FilteredCategorySurface(titleFilter, { titleFilter = it }, isTelevision) {
+                Box(Modifier.fillMaxSize()) {
                 when {
                     (loadState.phase == VodLoadPhase.PENDING || loadState.phase == VodLoadPhase.LOADING) &&
                         allMovies.isEmpty() ->
@@ -218,6 +223,8 @@ fun SeriesScreen(
     isSyncing: Boolean,
     isTelevision: Boolean = false,
     categoryJumpFocus: FocusRequester? = null,
+    titleFilter: String = "",
+    onTitleFilterChange: (String) -> Unit = {},
     viewModel: VodViewModel = viewModel(),
 ) {
     val categories by viewModel.seriesCategories.collectAsState()
@@ -235,15 +242,14 @@ fun SeriesScreen(
         viewModel.loadHomeFeeds()
     }
     var browseCategory by remember { mutableStateOf<String?>(RECENTLY_ADDED_CATEGORY) }
-    var titleFilter by remember { mutableStateOf("") }
     val hasContent = resume.isNotEmpty() || recentlyAdded.isNotEmpty() || genreRows.isNotEmpty()
     val onCategory: (String) -> Unit = { id ->
-        titleFilter = ""
+        onTitleFilterChange("")
         browseCategory = id
         viewModel.selectSeriesCategory(if (isSpecialVodCategory(id)) null else id)
     }
     val onAll: () -> Unit = {
-        titleFilter = ""
+        onTitleFilterChange("")
         browseCategory = null
         viewModel.selectSeriesCategory(null)
     }
@@ -266,8 +272,8 @@ fun SeriesScreen(
         if (sources.size > 1) ProviderChips(
             sources = sources,
             selected = selectedSource,
-            onSelectAll = { browseCategory = RECENTLY_ADDED_CATEGORY; titleFilter = ""; viewModel.selectVodSource(null) },
-            onSelectSource = { id -> browseCategory = RECENTLY_ADDED_CATEGORY; titleFilter = ""; viewModel.selectVodSource(id) },
+            onSelectAll = { browseCategory = RECENTLY_ADDED_CATEGORY; onTitleFilterChange(""); viewModel.selectVodSource(null) },
+            onSelectSource = { id -> browseCategory = RECENTLY_ADDED_CATEGORY; onTitleFilterChange(""); viewModel.selectVodSource(id) },
         )
         Box(Modifier.weight(1f).fillMaxWidth()) {
             VodBrowserFrame(
@@ -279,7 +285,7 @@ fun SeriesScreen(
                 onSelectCategory = onCategory,
                 categoryJumpFocus = categoryJumpFocus,
             ) {
-                FilteredCategorySurface(titleFilter, { titleFilter = it }, isTelevision) {
+                Box(Modifier.fillMaxSize()) {
                 when {
                     (loadState.phase == VodLoadPhase.PENDING || loadState.phase == VodLoadPhase.LOADING) &&
                         allSeries.isEmpty() ->
@@ -323,29 +329,6 @@ fun SeriesScreen(
                 }
             }
         }
-    }
-}
-
-/** Local title search preserves the active category and never starts a provider/API query. */
-@Composable
-private fun FilteredCategorySurface(
-    filter: String,
-    onChange: (String) -> Unit,
-    isTelevision: Boolean,
-    content: @Composable () -> Unit,
-) {
-    Column(Modifier.fillMaxSize()) {
-        OutlinedTextField(
-            value = filter,
-            onValueChange = onChange,
-            label = { Text("Filter titles in this category") },
-            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
-                .padding(start = if (isTelevision) 12.dp else 54.dp,
-                    end = 12.dp, top = 4.dp, bottom = 4.dp),
-        )
-        Box(Modifier.weight(1f).fillMaxWidth()) { content() }
     }
 }
 
@@ -533,8 +516,9 @@ private fun VodCategorySidebar(
                 singleLine = true,
                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                 placeholder = { Text("Search categories", maxLines = 1) },
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search, showKeyboardOnFocus = false),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp)
+                    .explicitImeActivation(),
             )
         }
         LazyColumn(
@@ -611,7 +595,15 @@ private fun MovieCategoryGrid(movies: List<Movie>, viewModel: VodViewModel, onOp
         return
     }
     val posterSize by AppSettings.get(LocalContext.current).posterSize.collectAsState()
-    val groups = remember(movies) { viewModel.collapseVariants(movies) }
+    // Provider categorisation/quality grouping may scan tens of thousands of titles.
+    // Run it off the Compose/UI thread so category changes cannot freeze remote input.
+    val groups by produceState(
+        initialValue = emptyList<app.opentv.data.repo.MovieVariantGroup>(),
+        key1 = movies,
+    ) {
+        value = emptyList()
+        value = withContext(Dispatchers.Default) { viewModel.collapseVariants(movies) }
+    }
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = posterSize.gridMinDp.dp),
         contentPadding = PaddingValues(16.dp),
