@@ -53,6 +53,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
@@ -91,6 +93,7 @@ fun MoviesScreen(
     hasSources: Boolean,
     isSyncing: Boolean,
     isTelevision: Boolean = false,
+    categoryJumpFocus: FocusRequester? = null,
     viewModel: VodViewModel = viewModel(),
 ) {
     val categories by viewModel.movieCategories.collectAsState()
@@ -152,6 +155,7 @@ fun MoviesScreen(
                 isTelevision = isTelevision,
                 onSelectHome = onAll,
                 onSelectCategory = onCategory,
+                categoryJumpFocus = categoryJumpFocus,
             ) {
                 FilteredCategorySurface(titleFilter, { titleFilter = it }, isTelevision) {
                 when {
@@ -213,6 +217,7 @@ fun SeriesScreen(
     hasSources: Boolean,
     isSyncing: Boolean,
     isTelevision: Boolean = false,
+    categoryJumpFocus: FocusRequester? = null,
     viewModel: VodViewModel = viewModel(),
 ) {
     val categories by viewModel.seriesCategories.collectAsState()
@@ -272,6 +277,7 @@ fun SeriesScreen(
                 isTelevision = isTelevision,
                 onSelectHome = onAll,
                 onSelectCategory = onCategory,
+                categoryJumpFocus = categoryJumpFocus,
             ) {
                 FilteredCategorySurface(titleFilter, { titleFilter = it }, isTelevision) {
                 when {
@@ -429,6 +435,7 @@ private fun VodBrowserFrame(
     isTelevision: Boolean,
     onSelectHome: () -> Unit,
     onSelectCategory: (String) -> Unit,
+    categoryJumpFocus: FocusRequester?,
     content: @Composable () -> Unit,
 ) {
     val page = @Composable {
@@ -438,7 +445,8 @@ private fun VodBrowserFrame(
     }
     if (isTelevision) {
         Row(Modifier.fillMaxSize()) {
-            VodCategorySidebar(entries, counts, selected, true, onSelectHome, onSelectCategory)
+            VodCategorySidebar(entries, counts, selected, true, onSelectHome, onSelectCategory,
+                focusJump = categoryJumpFocus)
             Box(Modifier.weight(1f).fillMaxHeight()) { page() }
         }
     } else {
@@ -482,6 +490,7 @@ private fun VodCategorySidebar(
     onSelectCategory: (String) -> Unit,
     modifier: Modifier = Modifier,
     onDismiss: (() -> Unit)? = null,
+    focusJump: FocusRequester? = null,
 ) {
     var expanded by remember(isTelevision) { mutableStateOf(isTelevision) }
     var categorySearch by remember { mutableStateOf("") }
@@ -535,11 +544,14 @@ private fun VodCategorySidebar(
         ) {
             if (categorySearch.isBlank() || "all".contains(categorySearch.trim(), true)) {
                 item(key = "all") {
-                    VodCategoryRow("ALL", selected == null, expanded, counts[ALL_CATEGORY], chooseHome)
+                    VodCategoryRow("ALL", selected == null, expanded, counts[ALL_CATEGORY], chooseHome,
+                        if (selected == null) focusJump else null)
                 }
             }
             items(matching, key = { it.first }) { (id, label) ->
-                VodCategoryRow(label, selected == id, expanded, counts[id]) { chooseCategory(id) }
+                VodCategoryRow(label, selected == id, expanded, counts[id],
+                    onClick = { chooseCategory(id) },
+                    focusJump = if (selected == id) focusJump else null)
             }
         }
     }
@@ -552,10 +564,12 @@ private fun VodCategoryRow(
     expanded: Boolean,
     count: Int?,
     onClick: () -> Unit,
+    focusJump: FocusRequester? = null,
 ) {
     var focused by remember { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth()
+            .then(if (focusJump != null) Modifier.focusRequester(focusJump) else Modifier)
             .onFocusChanged { focused = it.isFocused }
             .clip(RoundedCornerShape(4.dp))
             .background(when {

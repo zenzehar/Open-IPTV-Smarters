@@ -8,6 +8,11 @@
 package app.opentv.ui
 
 import androidx.activity.compose.BackHandler
+import android.os.SystemClock
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.ui.draw.alpha
@@ -186,6 +191,10 @@ fun MainScreen(
     var tab by rememberSaveable { mutableStateOf(DashboardTab.HOME) }
     if (tab !in choices) tab = DashboardTab.HOME
     var showExit by remember { mutableStateOf(false) }
+    val bottomJumpFocus = remember { FocusRequester() }
+    val categoryJumpFocus = remember { FocusRequester() }
+    var lastDownAt by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    var lastUpAt by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
 
     BackHandler(enabled = tab != DashboardTab.HOME) { tab = DashboardTab.HOME }
     BackHandler(enabled = tab == DashboardTab.HOME) { showExit = true }
@@ -207,7 +216,38 @@ fun MainScreen(
         )
     }
 
-    BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFF080D1C))) {
+    BoxWithConstraints(
+        Modifier.fillMaxSize()
+            .background(Color(0xFF080D1C))
+            .onPreviewKeyEvent { event ->
+                if (!isTelevision || tab == DashboardTab.HOME || event.type != KeyEventType.KeyDown) {
+                    false
+                } else {
+                    val now = SystemClock.uptimeMillis()
+                    when (event.key) {
+                        Key.DirectionDown -> {
+                            val doublePress = now - lastDownAt in 80L..650L
+                            lastDownAt = now
+                            lastUpAt = 0L
+                            if (doublePress) {
+                                lastDownAt = 0L
+                                runCatching { bottomJumpFocus.requestFocus() }.getOrDefault(false)
+                            } else false
+                        }
+                        Key.DirectionUp -> {
+                            val doublePress = now - lastUpAt in 80L..650L
+                            lastUpAt = now
+                            lastDownAt = 0L
+                            if (doublePress && (tab == DashboardTab.MOVIES || tab == DashboardTab.SERIES)) {
+                                lastUpAt = 0L
+                                runCatching { categoryJumpFocus.requestFocus() }.getOrDefault(false)
+                            } else false
+                        }
+                        else -> { lastDownAt = 0L; lastUpAt = 0L; false }
+                    }
+                }
+            },
+    ) {
         // Home respects system orientation; the same dashboard adapts to both window shapes.
         val compact = if (tab == DashboardTab.HOME) maxWidth < maxHeight * 1.35f
             else !isTelevision || maxWidth < 700.dp
@@ -278,6 +318,7 @@ fun MainScreen(
                         onOpenMovie = onOpenMovie,
                         onResume = onResume,
                         onOpenSearch = onOpenSearch,
+                        categoryJumpFocus = if (isTelevision) categoryJumpFocus else null,
                         hasSources = hasSources,
                         isSyncing = isSyncing,
                     )
@@ -287,6 +328,7 @@ fun MainScreen(
                         onOpenSeries = onOpenSeries,
                         onResume = onResume,
                         onOpenSearch = onOpenSearch,
+                        categoryJumpFocus = if (isTelevision) categoryJumpFocus else null,
                         hasSources = hasSources,
                         isSyncing = isSyncing,
                     )
@@ -307,6 +349,7 @@ fun MainScreen(
                 TvNavigation(
                     tabs = choices,
                     selected = tab,
+                    jumpFocus = bottomJumpFocus,
                     onSelect = { chosen ->
                         tab = chosen
                     },
@@ -805,12 +848,8 @@ private fun BottomNavItem(
 @Composable
 private fun TvNavigation(
     tabs: List<DashboardTab>, selected: DashboardTab, onSelect: (DashboardTab) -> Unit,
+    jumpFocus: FocusRequester,
 ) {
-    val selectedFocus = remember { FocusRequester() }
-    LaunchedEffect(selected) {
-        kotlinx.coroutines.delay(65)
-        runCatching { selectedFocus.requestFocus() }
-    }
     Row(
         Modifier.fillMaxWidth().background(Color(0xFF10182E)).padding(horizontal = 22.dp, vertical = 7.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -822,7 +861,7 @@ private fun TvNavigation(
                     .clip(RoundedCornerShape(9.dp))
                     .background(if (focused) MaterialTheme.colorScheme.primary else if (selected == t)
                         Color(0xFF25436B) else Color.Transparent)
-                    .then(if (selected == t) Modifier.focusRequester(selectedFocus) else Modifier)
+                    .then(if (selected == t) Modifier.focusRequester(jumpFocus) else Modifier)
                     .onFocusChanged { focused = it.isFocused }
                     .border(if (focused) 2.dp else 0.dp, Color.White, RoundedCornerShape(9.dp))
                     .clickable { onSelect(t) }
