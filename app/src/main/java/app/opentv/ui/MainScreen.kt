@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.AlertDialog
@@ -210,6 +211,7 @@ fun MainScreen(
                         onSearch = onOpenSearch,
                         onSettings = onOpenSettings,
                         onAddSource = onAddSource,
+                        onRefresh = onRefresh,
                     )
                     DashboardTab.LIVE -> {
                         if (compact) MobileLiveScreen(
@@ -283,7 +285,7 @@ fun MainScreen(
         if (blockNavigation) {
             Box(
                 Modifier.fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.78f))
+                    .background(Color.Black.copy(alpha = 0.62f))
                     .clickable { },
                 contentAlignment = Alignment.Center,
             ) {
@@ -403,6 +405,7 @@ private fun DashboardHome(
     onSearch: () -> Unit,
     onSettings: () -> Unit,
     onAddSource: () -> Unit,
+    onRefresh: () -> Unit,
 ) {
     val pad = if (compact) 16.dp else 36.dp
     LazyColumn(
@@ -453,6 +456,7 @@ private fun DashboardHome(
                         ShortcutTile("SEARCH", Icons.Filled.Search, Modifier.weight(1f), onSearch)
                         ShortcutTile("SETTINGS", Icons.Filled.Settings, Modifier.weight(1f), onSettings)
                     }
+                    ShortcutTile("UPDATE ALL CONTENT", Icons.Filled.Refresh, Modifier.fillMaxWidth(), onRefresh)
                 }
             }
         } else {
@@ -500,8 +504,8 @@ private fun DashboardHome(
                                 Modifier.weight(1f), onRecordings,
                             )
                             ShortcutTile(
-                                "SEARCH", Icons.Filled.Search,
-                                Modifier.weight(1f), onSearch,
+                                "UPDATE", Icons.Filled.Refresh,
+                                Modifier.weight(1f), onRefresh,
                             )
                         }
                     }
