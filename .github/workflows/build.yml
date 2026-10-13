@@ -90,15 +90,15 @@ jobs:
           test -s "$DEBUG_APK"
           test -s "$QA_APK"
           AAPT=$(find "$ANDROID_HOME/build-tools" -name aapt -type f | sort -V | tail -1)
-          "$AAPT" dump badging "$DEBUG_APK" | grep -q "package: name='app.opentv.debug' versionCode='31'"
-          "$AAPT" dump badging "$QA_APK" | grep -q "package: name='app.opentv.qa' versionCode='31'"
+          "$AAPT" dump badging "$DEBUG_APK" | grep -q "package: name='app.opentv.debug' versionCode='32'"
+          "$AAPT" dump badging "$QA_APK" | grep -q "package: name='app.opentv.qa' versionCode='32'"
           mkdir -p direct-apks
-          cp "$DEBUG_APK" direct-apks/MyIPTV-v0.12.9-debug.apk
-          cp "$QA_APK" direct-apks/MyIPTV-v0.12.9-QA.apk
+          cp "$DEBUG_APK" direct-apks/MyIPTV-v0.12.10-debug.apk
+          cp "$QA_APK" direct-apks/MyIPTV-v0.12.10-QA.apk
           git tag --list
-          TAG="qa-v0.12.9-${HEAD_SHA:0:8}"
+          TAG="qa-v0.12.10-${HEAD_SHA:0:8}"
           gh release create "$TAG" direct-apks/*.apk --prerelease --target "$HEAD_SHA" \
-            --title "MyIPTV v0.12.9 (PR #6, unmerged QA)" \
+            --title "MyIPTV v0.12.10 (PR #6, unmerged QA)" \
             --notes "UNMERGED QA BUILD. For real-device testing only. Debug certificates are temporary and not upgrade compatible across runs. The separate MyIPTV QA package does not overwrite the original MyIPTV installation. Keep saved data and keys backed up. See PR #6."
           echo "Direct APKs published at release tag: $TAG"
 

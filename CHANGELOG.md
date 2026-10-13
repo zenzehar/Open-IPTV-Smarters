@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.12.10 — TV keyboard, Movies responsiveness, catalogue progress and screen density
+
+- Android TV keyboard: moving focus over login fields, category search or global search no longer opens the software keyboard. Explicit OK/Enter or pointer selection opens the current Android keyboard. Login submission still dismisses it.
+- Movie-quality variant grouping runs on Dispatchers.Default rather than the Compose main/UI thread; a loading spinner replaces a frozen browsing grid during computation.
+- Require deliberate Down/Up TV remote shortcut presses separated by at least 2 seconds (and no more than 7). Rapid presses now simply navigate; two deliberate Down jumps to the bottom navigation and Up to the selected Movies/Series category.
+- Catalogue progress is emitted from actual milestones (authentication, category retrieval, stream retrieval, database writes) rather than only completed-provider counts. Home tiles animate and brighten as checkpoint progress advances. Network transfer without measurable bytes is still shown as indeterminate buffering, not a fictitious exact percentage.
+- Live TV uses an explicit loading stage during initial provider onboarding, and cached Live is shown as available rather than Waiting while other catalogues update.
+- Choose automatic channel, Movies, Series and EPG refresh frequency: Off, every 1, 3, 6, 12, or 24 hours. WorkManager updates/cancels its recurring task immediately; manual Update remains available. Existing installs default to 6 hours.
+- Move Movies/Series title filter into the shared top header; remove redundant browse-area search controls to leave more room for posters.
+- Shrink poster presets by one tier: Small 92dp, Medium 108dp (old Small), Large 124dp (old Medium); default Medium.
+- Unified Live, VOD (Media3) and embedded VLC auto-hide control timeout: Never, 2, 3, 5, 8, 10 or 15 seconds. New default 3 seconds; pause/picker interactions suspend auto-hide.
+- No Room migration, credential deletion, or playback-history reset. Verify keyboard focus, massive provider-category performance, D-pad timing and update cadence on physical devices before merging.
+
+
 ## 0.12.9 — TV login, player resilience, VOD navigation and visual polish
 
 - TV provider fields use a cyan focused outline against muted idle borders. Submitting a login or Test Connection clears text focus and dismisses the Android keyboard.
