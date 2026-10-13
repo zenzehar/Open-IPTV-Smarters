@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -106,6 +107,7 @@ fun MainScreen(
     refreshStage: String?,
     refreshedStages: Set<String>,
     failedRefreshStages: Set<String>,
+    failedRefreshMessages: Map<String, String>,
     refreshMessage: String?,
     liveCatalogueTimestamp: Long,
     onPlayChannel: (Channel) -> Unit,
@@ -225,6 +227,9 @@ fun MainScreen(
                         compact = compact,
                         isTelevision = isTelevision,
                         liveState = tileState("live"),
+                        liveFailure = failedRefreshMessages["live"],
+                        movieFailure = failedRefreshMessages["movies"] ?: movieLoad.message.takeIf { movieLoad.phase == VodLoadPhase.FAILED },
+                        seriesFailure = failedRefreshMessages["series"] ?: seriesLoad.message.takeIf { seriesLoad.phase == VodLoadPhase.FAILED },
                         liveLastUpdated = liveUpdated.takeIf { it > 0L } ?: liveCatalogueTimestamp,
                         moviesLastUpdated = moviesUpdated.takeIf { it > 0L } ?: settings.vodSyncedAtMillis,
                         seriesLastUpdated = seriesUpdated.takeIf { it > 0L } ?: settings.vodSyncedAtMillis,
@@ -382,7 +387,9 @@ private fun DashboardHeader(
             modifier = Modifier.weight(1f),
         )
         if (!compact) {
-            Text(profile, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+            Text(profile, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium, maxLines = 1,
+                overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 108.dp))
         }
         HeaderAction(Icons.Filled.Search, "Search", onSearch)
         HeaderAction(Icons.Filled.Person, "Profiles", onProfiles)
@@ -412,6 +419,9 @@ private fun DashboardHome(
     compact: Boolean,
     isTelevision: Boolean,
     liveState: String,
+    liveFailure: String?,
+    movieFailure: String?,
+    seriesFailure: String?,
     liveLastUpdated: Long,
     moviesLastUpdated: Long,
     seriesLastUpdated: Long,
@@ -462,16 +472,16 @@ private fun DashboardHome(
             if (liveEnabled) item(key = "live") {
                 DashboardTile("LIVE TV", "Browse channels and guide", Icons.Filled.LiveTv,
                     listOf(Color(0xFF126EB7), Color(0xFF4935BC)), 148.dp, Modifier.fillMaxWidth(), onLive, liveState,
-                    liveLastUpdated, { onRefreshStage("live") })
+                    liveLastUpdated, { onRefreshStage("live") }, liveFailure)
             }
             if (moviesEnabled || seriesEnabled) item(key = "vod") {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                     if (moviesEnabled) DashboardTile("MOVIES", "On demand", Icons.Filled.Movie,
                         listOf(Color(0xFFF65457), Color(0xFFFF9729)), 155.dp, Modifier.weight(1f), onMovies, movieState,
-                        moviesLastUpdated, { onRefreshStage("movies") })
+                        moviesLastUpdated, { onRefreshStage("movies") }, movieFailure)
                     if (seriesEnabled) DashboardTile("SERIES", "Seasons & episodes", Icons.Filled.Tv,
                         listOf(Color(0xFF9631B8), Color(0xFF168DD8)), 155.dp, Modifier.weight(1f), onSeries, seriesState,
-                        seriesLastUpdated, { onRefreshStage("series") })
+                        seriesLastUpdated, { onRefreshStage("series") }, seriesFailure)
                 }
             }
             item(key = "quick-title") {
@@ -502,7 +512,7 @@ private fun DashboardHome(
                         "LIVE TV", "Live channels & guide", Icons.Filled.LiveTv,
                         listOf(Color(0xFF29CAA0), Color(0xFF355CDE)),
                         liveHeight, Modifier.weight(1.05f), onLive, liveState,
-                        liveLastUpdated, { onRefreshStage("live") },
+                        liveLastUpdated, { onRefreshStage("live") }, liveFailure,
                     )
                     Column(
                         modifier = Modifier.weight(1.95f),
@@ -516,13 +526,13 @@ private fun DashboardHome(
                                 "MOVIES", "Films on demand", Icons.Filled.Movie,
                                 listOf(Color(0xFFEA365A), Color(0xFFF89A38)),
                                 vodHeight, Modifier.weight(1f), onMovies, movieState,
-                                moviesLastUpdated, { onRefreshStage("movies") },
+                                moviesLastUpdated, { onRefreshStage("movies") }, movieFailure,
                             )
                             if (seriesEnabled) DashboardTile(
                                 "SERIES", "Seasons & episodes", Icons.Filled.Tv,
                                 listOf(Color(0xFF963AAE), Color(0xFF3995DB)),
                                 vodHeight, Modifier.weight(1f), onSeries, seriesState,
-                                seriesLastUpdated, { onRefreshStage("series") },
+                                seriesLastUpdated, { onRefreshStage("series") }, seriesFailure,
                             )
                         }
                         Row(
@@ -577,8 +587,25 @@ private fun DashboardTile(
     status: String = "",
     lastUpdated: Long = 0L,
     onRefresh: () -> Unit = {},
+    failureReason: String? = null,
 ) {
     var focused by remember { mutableStateOf(false) }
+    var showFailureDetails by remember { mutableStateOf(false) }
+    if (showFailureDetails) {
+        AlertDialog(
+            onDismissRequest = { showFailureDetails = false },
+            title = { Text("$title update failed") },
+            text = { Text(failureReason ?: "Could not reach the provider. Please retry.") },
+            confirmButton = {
+                TextButton(onClick = { showFailureDetails = false; onRefresh() }) {
+                    Text("Retry")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showFailureDetails = false }) { Text("Close") }
+            },
+        )
+    }
     val compactTile = height < 185.dp
     val footerHeight = if (compactTile) 43.dp else 48.dp
     Column(
@@ -634,7 +661,7 @@ private fun DashboardTile(
             val stamp = when (status) {
                 "UPDATING" -> "Updating…"
                 "WAITING" -> "Waiting…"
-                "FAILED" -> "Failed · retry"
+                "FAILED" -> "Failed · details"
                 else -> if (lastUpdated > 0L) {
                     val ago = android.text.format.DateUtils.getRelativeTimeSpanString(
                         lastUpdated, System.currentTimeMillis(),
@@ -646,7 +673,9 @@ private fun DashboardTile(
             Text(stamp, color = Color.White,
                 style = if (compactTile) MaterialTheme.typography.labelSmall
                 else MaterialTheme.typography.bodySmall,
-                modifier = Modifier.weight(1f), maxLines = 1,
+                modifier = Modifier.weight(1f).clickable(enabled = status == "FAILED") {
+                    showFailureDetails = true
+                }, maxLines = 1,
                 softWrap = false, overflow = TextOverflow.Ellipsis)
             IconButton(
                 onClick = onRefresh,
