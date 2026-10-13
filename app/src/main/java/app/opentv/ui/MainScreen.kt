@@ -9,6 +9,7 @@ package app.opentv.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -98,6 +99,10 @@ fun MainScreen(
     isTelevision: Boolean,
     hasSources: Boolean,
     isSyncing: Boolean,
+    refreshStage: String?,
+    refreshedStages: Set<String>,
+    failedRefreshStages: Set<String>,
+    refreshMessage: String?,
     onPlayChannel: (Channel) -> Unit,
     onOpenMovie: (Movie) -> Unit,
     onOpenSeries: (Series) -> Unit,
@@ -127,6 +132,19 @@ fun MainScreen(
         (seriesEnabled && seriesLoad.phase in listOf(VodLoadPhase.PENDING, VodLoadPhase.LOADING))
     )
     val blockNavigation = catalogueLoading || isSyncing
+    fun tileState(key: String): String = when {
+        key in failedRefreshStages -> "FAILED"
+        isSyncing && refreshStage == key -> "UPDATING"
+        isSyncing && key in refreshedStages -> "UPDATED"
+        isSyncing -> "WAITING"
+        key == "movies" && movieLoad.phase == VodLoadPhase.LOADING -> "UPDATING"
+        key == "movies" && movieLoad.phase == VodLoadPhase.PENDING -> "WAITING"
+        key == "movies" && movieLoad.phase == VodLoadPhase.FAILED -> "FAILED"
+        key == "series" && seriesLoad.phase == VodLoadPhase.LOADING -> "UPDATING"
+        key == "series" && seriesLoad.phase == VodLoadPhase.PENDING -> "WAITING"
+        key == "series" && seriesLoad.phase == VodLoadPhase.FAILED -> "FAILED"
+        else -> ""
+    }
     val choices = remember(liveEnabled, moviesEnabled, seriesEnabled) {
         buildList {
             add(DashboardTab.HOME)
@@ -177,6 +195,9 @@ fun MainScreen(
                 when (tab) {
                     DashboardTab.HOME -> DashboardHome(
                         compact = compact,
+                        liveState = tileState("live"),
+                        movieState = tileState("movies"),
+                        seriesState = tileState("series"),
                         liveEnabled = liveEnabled,
                         moviesEnabled = moviesEnabled,
                         seriesEnabled = seriesEnabled,
@@ -270,8 +291,14 @@ fun MainScreen(
                     verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     CircularProgressIndicator(color = Color.White)
                     Text(
-                        if (isSyncing) "Updating live channels…" else "Loading movies & series…",
+                        if (isSyncing) (refreshStage?.let {
+                            "Updating ${it.replaceFirstChar { c -> c.uppercase() }}…"
+                        } ?: "Refreshing catalogues…") else "Loading movies & series…",
                         color = Color.White, style = MaterialTheme.typography.titleLarge,
+                    )
+                    if (isSyncing && refreshMessage != null) Text(
+                        refreshMessage, color = Color(0xFFD0D8E7),
+                        style = MaterialTheme.typography.bodyMedium,
                     )
                     if (!isSyncing) Text(
                         listOfNotNull(
@@ -361,6 +388,9 @@ private fun HeaderAction(icon: ImageVector, label: String, onClick: () -> Unit) 
 @Composable
 private fun DashboardHome(
     compact: Boolean,
+    liveState: String,
+    movieState: String,
+    seriesState: String,
     liveEnabled: Boolean,
     moviesEnabled: Boolean,
     seriesEnabled: Boolean,
@@ -400,14 +430,14 @@ private fun DashboardHome(
         if (compact) {
             if (liveEnabled) item(key = "live") {
                 DashboardTile("LIVE TV", "Browse channels and guide", Icons.Filled.LiveTv,
-                    listOf(Color(0xFF126EB7), Color(0xFF4935BC)), 148.dp, Modifier.fillMaxWidth(), onLive)
+                    listOf(Color(0xFF126EB7), Color(0xFF4935BC)), 148.dp, Modifier.fillMaxWidth(), onLive, liveState)
             }
             if (moviesEnabled || seriesEnabled) item(key = "vod") {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                     if (moviesEnabled) DashboardTile("MOVIES", "On demand", Icons.Filled.Movie,
-                        listOf(Color(0xFFF65457), Color(0xFFFF9729)), 155.dp, Modifier.weight(1f), onMovies)
+                        listOf(Color(0xFFF65457), Color(0xFFFF9729)), 155.dp, Modifier.weight(1f), onMovies, movieState)
                     if (seriesEnabled) DashboardTile("SERIES", "Seasons & episodes", Icons.Filled.Tv,
-                        listOf(Color(0xFF9631B8), Color(0xFF168DD8)), 155.dp, Modifier.weight(1f), onSeries)
+                        listOf(Color(0xFF9631B8), Color(0xFF168DD8)), 155.dp, Modifier.weight(1f), onSeries, seriesState)
                 }
             }
             item(key = "quick-title") {
@@ -436,7 +466,7 @@ private fun DashboardHome(
                     if (liveEnabled) DashboardTile(
                         "LIVE TV", "Live channels & guide", Icons.Filled.LiveTv,
                         listOf(Color(0xFF135F67), Color(0xFF29378C)),
-                        310.dp, Modifier.weight(1.05f), onLive,
+                        310.dp, Modifier.weight(1.05f), onLive, liveState,
                     )
                     Column(
                         modifier = Modifier.weight(1.95f),
@@ -449,12 +479,12 @@ private fun DashboardHome(
                             if (moviesEnabled) DashboardTile(
                                 "MOVIES", "Films on demand", Icons.Filled.Movie,
                                 listOf(Color(0xFF67252D), Color(0xFFAC682A)),
-                                210.dp, Modifier.weight(1f), onMovies,
+                                210.dp, Modifier.weight(1f), onMovies, movieState,
                             )
                             if (seriesEnabled) DashboardTile(
                                 "SERIES", "Seasons & episodes", Icons.Filled.Tv,
                                 listOf(Color(0xFF572E73), Color(0xFF124F68)),
-                                210.dp, Modifier.weight(1f), onSeries,
+                                210.dp, Modifier.weight(1f), onSeries, seriesState,
                             )
                         }
                         Row(
@@ -501,11 +531,13 @@ private fun DashboardTile(
     height: Dp,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
+    status: String = "",
 ) {
     var focused by remember { mutableStateOf(false) }
     Column(
         modifier
             .height(height)
+            .alpha(if (status == "WAITING") 0.42f else if (status == "UPDATED") 0.78f else 1f)
             .clip(RoundedCornerShape(17.dp))
             .background(Brush.linearGradient(gradient))
             .onFocusChanged { focused = it.isFocused }
@@ -518,9 +550,19 @@ private fun DashboardTile(
         Spacer(Modifier.height(12.dp))
         Text(title, color = Color.White, fontWeight = FontWeight.Bold,
             style = MaterialTheme.typography.titleLarge, maxLines = 1)
-        Text(subtitle, color = Color.White.copy(alpha = 0.85f),
-            style = MaterialTheme.typography.bodyMedium,
-            maxLines = 2, overflow = TextOverflow.Ellipsis)
+        if (status == "UPDATING") {
+            Spacer(Modifier.height(8.dp))
+            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(25.dp), strokeWidth = 3.dp)
+            Text("UPDATING…", color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1)
+        } else if (status == "FAILED") {
+            Text("FAILED · Retry from dashboard", color = Color.White,
+                fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        } else {
+            Text(if (status == "UPDATED") "Updated" else subtitle,
+                color = Color.White.copy(alpha = 0.85f),
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
         if (focused) {
             Spacer(Modifier.height(8.dp))
             Text("SELECT", color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
