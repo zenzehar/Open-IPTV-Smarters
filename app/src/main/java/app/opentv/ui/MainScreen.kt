@@ -206,7 +206,9 @@ fun MainScreen(
     BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFF080D1C))) {
         // Home deliberately uses the widescreen Smarters-style dashboard on phones.
         // Other sections remain mobile-optimised even when the Home was landscape.
-        val compact = if (tab == DashboardTab.HOME) maxWidth < 700.dp
+        // A rotated phone can be under 700dp wide in logical density-independent pixels.
+        // Select the two-column Home by aspect ratio, not an arbitrary tablet breakpoint.
+        val compact = if (tab == DashboardTab.HOME) maxWidth < maxHeight * 1.35f
             else !isTelevision || maxWidth < 700.dp
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             DashboardHeader(
