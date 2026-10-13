@@ -151,7 +151,9 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
                     onDone(false)
                     return@launch
                 }
-                _ui.value = _ui.value.copy(syncMessage = "Connected. Saving provider…")
+                _ui.value = _ui.value.copy(syncMessage = "Connected. Checking Live TV catalogue…")
+                // Keep the previous configuration until the new one fully works.
+                val previous = draft.id.takeIf { it != 0L }?.let { graph.sourceRepository.byId(it) }
                 val id = graph.sourceRepository.save(draft)
                 val saved = graph.sourceRepository.byId(id)
                 if (saved == null) {
@@ -165,12 +167,17 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
                 val now = System.currentTimeMillis()
                 when (val result = graph.catalogRepository.syncLive(saved, now)) {
                     is CatalogRepository.SyncResult.Failed -> {
-                        // Connection was verified. Keep the account for retries, but do not
-                        // claim sign-in is complete or automatically navigate to Home.
+                        // An unsuccessful import must not create a phantom login or
+                        // replace a previously working provider configuration.
+                        // Only discard the newly created source; never delete an old source.
+                        runCatching {
+                            if (previous != null) graph.sourceRepository.save(previous)
+                            else graph.catalogRepository.deleteSource(id)
+                        }.onFailure { Log.w("OpenTV", "Failed to restore provider after rejected import") }
                         _ui.value = _ui.value.copy(syncing = false, syncMessage = null,
-                            syncError = "Account verified and saved, but Live TV could not load. " +
+                            syncError = "Login was verified, but Live TV could not load. " +
                                 safeRefreshFailure(result.reason) +
-                                " Retry after checking the server.")
+                                " Previous provider settings were retained where applicable.")
                         onDone(false)
                         return@launch
                     }
