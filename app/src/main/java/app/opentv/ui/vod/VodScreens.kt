@@ -704,30 +704,27 @@ internal fun ContinueWatchingRow(
     }
 }
 
-/** A landscape resume thumbnail with a progress fill — a movie or an episode part-way through. */
+/** Portrait series/movie art, with a clear episode identifier and persisted progress. */
 @Composable
 private fun ResumeCard(item: VodViewModel.ResumeItem, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (focused) 1.06f else 1f, label = "resumeScale")
+    val scale by animateFloatAsState(if (focused) 1.04f else 1f, label = "resumeScale")
     Column(
         Modifier
-            .width(190.dp)
+            .width(154.dp)
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .onFocusChanged { focused = it.isFocused }
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(7.dp))
             .clickable(onClick = onClick)
-            .padding(4.dp),
+            .padding(3.dp),
     ) {
         Box(
             Modifier
                 .fillMaxWidth()
-                .height(107.dp)
+                .aspectRatio(0.67f)
                 .clip(RoundedCornerShape(6.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-                .then(
-                    if (focused) Modifier.border(3.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
-                    else Modifier,
-                ),
+                .background(Color(0xFF1C2A3E))
+                .then(if (focused) Modifier.border(3.dp, Color(0xFF15B9D0), RoundedCornerShape(6.dp)) else Modifier),
         ) {
             AsyncImage(
                 model = item.posterUrl,
@@ -735,19 +732,33 @@ private fun ResumeCard(item: VodViewModel.ResumeItem, onClick: () -> Unit) {
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
+            if (item.episodeLabel != null) {
+                Text(
+                    item.episodeLabel,
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.align(Alignment.TopStart)
+                        .background(Color.Black.copy(alpha = 0.63f))
+                        .padding(horizontal = 7.dp, vertical = 5.dp),
+                )
+            }
+            Box(
+                Modifier.align(Alignment.Center)
+                    .clip(RoundedCornerShape(99.dp))
+                    .background(Color.Black.copy(alpha = 0.58f))
+                    .padding(12.dp),
+            ) {
+                Icon(Icons.Filled.PlayArrow, contentDescription = "Resume playback",
+                    tint = Color.White)
+            }
             LinearProgressIndicator(
                 progress = { item.progress },
                 modifier = Modifier.fillMaxWidth().height(4.dp).align(Alignment.BottomStart),
             )
         }
-        Spacer(Modifier.height(6.dp))
-        Text(
-            item.title,
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Spacer(Modifier.height(5.dp))
+        Text(item.title, color = Color.White, style = MaterialTheme.typography.bodySmall,
+            maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }
 
