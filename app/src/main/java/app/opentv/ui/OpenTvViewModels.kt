@@ -8,6 +8,7 @@ package app.opentv.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import app.opentv.ui.vod.mostRecentPerTitle
 import app.opentv.core.ServiceLocator
 import app.opentv.data.model.Category
 import app.opentv.data.model.Channel
@@ -732,7 +733,7 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
     /** Independent history shelves; a movie must never appear under Series, or vice versa. */
     val continueWatchingMovies: StateFlow<List<ResumeItem>> =
         continueWatching.map { items ->
-            app.opentv.ui.vod.mostRecentPerTitle(
+            mostRecentPerTitle(
                 items.filter { it.mediaKey.startsWith("movie:") },
                 { it.updatedAtMillis },
                 { it.historyGroupKey },
@@ -742,7 +743,7 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
 
     val continueWatchingSeries: StateFlow<List<ResumeItem>> =
         continueWatching.map { items ->
-            app.opentv.ui.vod.mostRecentPerTitle(
+            mostRecentPerTitle(
                 items.filter { it.mediaKey.startsWith("ep:") },
                 { it.updatedAtMillis },
                 { it.historyGroupKey },
