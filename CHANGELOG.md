@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.12.5 — login and TLS diagnostics
+
+- Detect likely HTTPS/TLS-on-HTTP-port mismatch and explain what to check without showing passwords or private URLs.
+- Offer explicit, consent-gated HTTP correction for Xtream HTTPS on port 80 only; never downgrade a connection automatically.
+- Test provider authentication before saving or editing logins. A failed authentication stays on the login screen, with existing saved accounts unaffected.
+- Test Connection now contacts M3U playlist servers instead of incorrectly returning an unconditional success.
+- Failed TV phone-pairing setup returns to an editable, pre-filled login form and shows an actionable error.
+- Clear outdated connection errors when any login field changes; ensure credential fields never join pasted lines.
+- Side-by-side MyIPTV QA package remains available for non-destructive device testing. Real provider success must still be confirmed by the user.
+
+
 ## 0.12.4 — catalogue failure diagnostics
 
 - Home refresh now reports safe per-category failure reasons. Tap the Failed footer for details and Retry; no IPTV account credentials are shown.
