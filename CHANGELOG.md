@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.12.14 — Continue Watching, season focus, accelerated seek, refreshed icon and automatic NAS sync
+
+- First Back while VOD player controls are showing hides the controls and keeps playback running; the next Back returns to the detail screen. An open Media3 track chooser still dismisses before hiding playback controls.
+- Long-hold Left or Right on Android TV accelerates Media3/VLC seek from normal 5/10-second steps to 20/30-second and then 60-second steps using Android key-repeat events; regular short taps remain precise.
+- Long-press a movie or series entry in Continue Watching to open its full detail screen, retaining ordinary short-click to resume. Cards show watched minutes, total minutes and completion percentage.
+- After launching an episode from a series detail screen, going Back restores that show's selected season, scrolls to the just-watched episode row, and requests TV focus on that episode.
+- Movies and Series local search now runs a parameterised Room query against the entire *cached* provider category, with bounded 160-item pages and Load More rather than searching only the recent/curated shelves. Full catalogue search continues to depend on titles actually cached by provider sync.
+- Redesigned Koky TV adaptive launcher icon: original cyan/violet TV and white play emblem, reproduced in the Home header. Existing package names unchanged.
+- Opt-in automatic background sync using the user's existing configured SMB/NAS relay runs periodically at approximately 15-minute intervals through WorkManager, independent of the app staying open. Each device writes a durable JSON snapshot to the shared NAS and merges the other devices' last saved snapshots on its next online window. Both Android devices need not run concurrently, but the shared NAS/server must remain available. Background execution may be deferred by Android. Existing LAN/manual sync remains unchanged.
+- No destructive migrations. QA still required for actual TV key repeats, long-press on remote controls, restoring episode selection, large-category database search and remote SMB reachability.
+
+
 ## 0.12.13 — category-local search and focusable remote seeking
 
 - Search in Live TV, Movies and Series is now bound to the visible screen's actual state. The Live header and both Live guide layouts explicitly share one ChannelsViewModel; the selected Live category and provider continue to constrain search results.
