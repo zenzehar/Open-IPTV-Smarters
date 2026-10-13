@@ -716,6 +716,7 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
         val historyGroupKey: String = mediaKey,
         val episodeLabel: String? = null,
         val updatedAtMillis: Long = 0,
+        val isFinished: Boolean = false,
     )
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -723,7 +724,7 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
         settings.activeProfileId
             .flatMapLatest { pid -> graph.playbackPositions.observeRecent(pid, limit = 150) }
             .mapLatest { positions ->
-                positions.filter { it.positionMillis > 0 && !it.isFinished }
+                positions.filter { it.positionMillis > 0 }
                     .mapNotNull { resolveResume(it) }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -735,7 +736,7 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
                 items.filter { it.mediaKey.startsWith("movie:") },
                 { it.updatedAtMillis },
                 { it.historyGroupKey },
-            )
+            ).filterNot { it.isFinished }
         }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -745,7 +746,7 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
                 items.filter { it.mediaKey.startsWith("ep:") },
                 { it.updatedAtMillis },
                 { it.historyGroupKey },
-            )
+            ).filterNot { it.isFinished }
         }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -765,6 +766,7 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
                     progress = progress,
                     historyGroupKey = "movie:${it.displayTitle.trim().lowercase(java.util.Locale.ROOT)}:${it.year ?: ""}",
                     updatedAtMillis = pos.updatedAtMillis,
+                    isFinished = pos.isFinished,
                 )
             }
             "ep" -> graph.catalogRepository.episode(id)?.let { episode ->
@@ -778,6 +780,7 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
                     historyGroupKey = "series:${episode.sourceId}:${episode.seriesId}",
                     episodeLabel = "S${episode.season}:E${episode.episodeNumber}",
                     updatedAtMillis = pos.updatedAtMillis,
+                    isFinished = pos.isFinished,
                 )
             }
             else -> null
