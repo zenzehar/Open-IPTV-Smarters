@@ -32,6 +32,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -210,6 +211,8 @@ fun ChannelManagerScreen(
                 if (searchMode) {
                     SearchPane(
                         query = query,
+                        compact = compact,
+                        onQueryChange = { query = it.take(60) },
                         results = searchResults,
                         onKey = { if (query.length < 40) query += it },
                         onSpace = { if (query.length < 40) query += " " },
@@ -238,6 +241,8 @@ fun ChannelManagerScreen(
 private fun SearchPane(
     query: String,
     results: List<ChannelsViewModel.Row>,
+    compact: Boolean = false,
+    onQueryChange: (String) -> Unit = {},
     onKey: (String) -> Unit,
     onSpace: () -> Unit,
     onBackspace: () -> Unit,
@@ -245,10 +250,31 @@ private fun SearchPane(
     onToggleHidden: (ChannelsViewModel.Row, Boolean) -> Unit,
     onToggleFavourite: (ChannelsViewModel.Row) -> Unit,
 ) {
-    Row(Modifier.fillMaxSize()) {
+    if (compact) {
+        Column(Modifier.fillMaxSize()) {
+            OutlinedTextField(value = query, onValueChange = onQueryChange,
+                modifier = Modifier.fillMaxWidth(), singleLine = true,
+                label = { Text("Search channels") })
+            Spacer(Modifier.width(8.dp))
+            ChannelSearchResults(query, results, onToggleHidden, onToggleFavourite)
+        }
+    } else Row(Modifier.fillMaxSize()) {
         OnScreenKeyboard(onKey = onKey, onSpace = onSpace, onBackspace = onBackspace, onClear = onClear)
         Spacer(Modifier.width(24.dp))
         Column(Modifier.weight(1f).fillMaxSize()) {
+            ChannelSearchResults(query, results, onToggleHidden, onToggleFavourite)
+        }
+    }
+}
+
+@Composable
+private fun ChannelSearchResults(
+    query: String,
+    results: List<ChannelsViewModel.Row>,
+    onToggleHidden: (ChannelsViewModel.Row, Boolean) -> Unit,
+    onToggleFavourite: (ChannelsViewModel.Row) -> Unit,
+) {
+        Column(Modifier.fillMaxSize()) {
             when {
                 query.isBlank() -> Hint(stringResource(R.string.channels_manager_search_hint))
                 query.trim().length < 2 -> Hint(stringResource(R.string.common_keep_typing))
