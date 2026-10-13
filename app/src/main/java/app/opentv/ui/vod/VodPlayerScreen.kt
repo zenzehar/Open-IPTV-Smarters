@@ -425,8 +425,10 @@ fun VodPlayerScreen(
         }
     }
 
-    BackHandler(enabled = !useVlc && !leavingPlayer) {
+    BackHandler {
         when {
+            leavingPlayer -> Unit // Repeated Back must not escape during route disposal.
+            useVlc -> Unit // Nested VLC handler takes precedence while displayed.
             vodPanel != VodPanel.NONE -> vodPanel = VodPanel.NONE
             controlsVisible -> {
                 controlsVisible = false

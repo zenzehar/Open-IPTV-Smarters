@@ -38,6 +38,10 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -185,7 +189,7 @@ fun MoviesScreen(
                     loadState.phase == VodLoadPhase.READY && allMovies.isEmpty() && browseCategory == null ->
                         LoadingVod("Preparing movie catalogue…")
                     browseCategory == CONTINUE_WATCHING_CATEGORY -> ContinueWatchingGrid(resume.filter {
-                        it.title.contains(titleFilter.trim(), ignoreCase = true) }, onResume, onOpenResumeDetails, isTelevision)
+                        it.title.contains(titleFilter.trim(), ignoreCase = true) }, onResume, onOpenResumeDetails, isTelevision, viewModel)
                     browseCategory == FAVOURITES_CATEGORY -> MovieCategoryGrid(scopedMovies.filter {
                         it.favourite && it.displayTitle.contains(titleFilter.trim(), ignoreCase = true) },
                         viewModel, onOpenMovie)
@@ -221,7 +225,7 @@ fun MoviesScreen(
                         modifier = Modifier.fillMaxSize(),
                     ) {
                         if (filteredResume.isNotEmpty()) item(key = "cw") {
-                            ContinueWatchingRow(filteredResume, onResume, onOpenResumeDetails)
+                            ContinueWatchingRow(filteredResume, onResume, onOpenResumeDetails, viewModel)
                         }
                         if (filteredRecommended.isNotEmpty()) item(key = "rec") {
                             MoviePosterRow(stringResource(R.string.vod_recommended), filteredRecommended, onOpenMovie)
@@ -331,7 +335,7 @@ fun SeriesScreen(
                     loadState.phase == VodLoadPhase.READY && allSeries.isEmpty() && browseCategory == null ->
                         LoadingVod("Preparing series catalogue…")
                     browseCategory == CONTINUE_WATCHING_CATEGORY -> ContinueWatchingGrid(resume.filter {
-                        it.title.contains(titleFilter.trim(), ignoreCase = true) }, onResume, onOpenResumeDetails, isTelevision)
+                        it.title.contains(titleFilter.trim(), ignoreCase = true) }, onResume, onOpenResumeDetails, isTelevision, viewModel)
                     browseCategory == FAVOURITES_CATEGORY -> SeriesCategoryGrid(scopedSeries.filter {
                         it.favourite && it.displayTitle.contains(titleFilter.trim(), ignoreCase = true) }, onOpenSeries)
                     titleFilter.isNotBlank() && browseCategory == RECENTLY_ADDED_CATEGORY ->
@@ -360,7 +364,7 @@ fun SeriesScreen(
                         modifier = Modifier.fillMaxSize(),
                     ) {
                         if (filteredResume.isNotEmpty()) item(key = "cw") {
-                            ContinueWatchingRow(filteredResume, onResume, onOpenResumeDetails)
+                            ContinueWatchingRow(filteredResume, onResume, onOpenResumeDetails, viewModel)
                         }
                         if (filteredRecent.isNotEmpty()) item(key = "recent") {
                             SeriesPosterRow(stringResource(R.string.vod_recently_added), filteredRecent, onOpenSeries)
@@ -397,7 +401,9 @@ private fun ContinueWatchingGrid(
     onResume: (mediaKey: String, url: String, title: String) -> Unit,
     onOpenResumeDetails: (VodViewModel.ResumeItem) -> Unit,
     isTelevision: Boolean,
+    viewModel: VodViewModel,
 ) {
+    val scope = rememberCoroutineScope()
     if (items.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("Nothing in Continue Watching yet", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -423,7 +429,8 @@ private fun ContinueWatchingGrid(
                 gridItems(items, key = { it.historyGroupKey }) { item ->
                     ResumeCard(item, onClick = {
                         onResume(item.mediaKey, item.streamUrl, item.title)
-                    }, onLongClick = { onOpenResumeDetails(item) },
+                    }, onOpenDetails = { onOpenResumeDetails(item) },
+                        onResetProgress = { scope.launch { viewModel.resetContinueWatching(item) } },
                         onFocus = { focusedResume = item.mediaKey })
                 }
             }
@@ -1002,7 +1009,9 @@ internal fun ContinueWatchingRow(
     items: List<VodViewModel.ResumeItem>,
     onResume: (mediaKey: String, url: String, title: String) -> Unit,
     onOpenResumeDetails: (VodViewModel.ResumeItem) -> Unit,
+    viewModel: VodViewModel,
 ) {
+    val scope = rememberCoroutineScope()
     Column(Modifier.fillMaxWidth()) {
         SectionHeader(stringResource(R.string.vod_continue_watching))
         LazyRow(
@@ -1011,7 +1020,8 @@ internal fun ContinueWatchingRow(
         ) {
             items(items, key = { it.mediaKey }) { item ->
                 ResumeCard(item,
-                    onLongClick = { onOpenResumeDetails(item) },
+                    onOpenDetails = { onOpenResumeDetails(item) },
+                    onResetProgress = { scope.launch { viewModel.resetContinueWatching(item) } },
                     onClick = { onResume(item.mediaKey, item.streamUrl, item.title) })
             }
         }
@@ -1024,9 +1034,53 @@ internal fun ContinueWatchingRow(
 private fun ResumeCard(
     item: VodViewModel.ResumeItem,
     onFocus: () -> Unit = {},
-    onLongClick: () -> Unit,
+    onOpenDetails: () -> Unit,
+    onResetProgress: () -> Unit,
     onClick: () -> Unit,
 ) {
+    var menuOpen by remember { mutableStateOf(false) }
+    var confirmReset by remember { mutableStateOf(false) }
+    if (menuOpen) {
+        AlertDialog(
+            onDismissRequest = { menuOpen = false },
+            title = { Text(item.title) },
+            text = { Text("Continue Watching options") },
+            confirmButton = {
+                Column {
+                    TextButton(
+                        enabled = item.movieDetailId != null || item.seriesDetailId != null,
+                        onClick = { menuOpen = false; onOpenDetails() },
+                    ) { Text("Open title page") }
+                    TextButton(onClick = {
+                        menuOpen = false
+                        confirmReset = true
+                    }) { Text("Remove and reset progress") }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { menuOpen = false }) { Text("Cancel") }
+            },
+        )
+    }
+    if (confirmReset) {
+        AlertDialog(
+            onDismissRequest = { confirmReset = false },
+            title = { Text("Reset watching progress?") },
+            text = {
+                Text(if (item.mediaKey.startsWith("ep:"))
+                    "Remove the series from Continue Watching and reset all its episodes for this profile?"
+                    else "Remove this movie from Continue Watching and reset its progress for this profile?")
+            },
+            confirmButton = {
+                TextButton(onClick = { confirmReset = false; onResetProgress() }) {
+                    Text("Reset progress")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmReset = false }) { Text("Cancel") }
+            },
+        )
+    }
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (focused) 1.04f else 1f, label = "resumeScale")
     Column(
@@ -1040,8 +1094,8 @@ private fun ResumeCard(
             .clip(RoundedCornerShape(7.dp))
             .combinedClickable(
                 onClick = onClick,
-                onLongClick = onLongClick,
-                onLongClickLabel = "Open title details",
+                onLongClick = { menuOpen = true },
+                onLongClickLabel = "Continue Watching options",
             )
             .padding(3.dp),
     ) {

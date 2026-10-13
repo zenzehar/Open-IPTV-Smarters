@@ -682,6 +682,12 @@ interface PlaybackPositionDao {
     @Query("DELETE FROM playback_positions WHERE profileId = :profileId AND mediaKey = :key")
     suspend fun delete(profileId: Long, key: String)
 
+    /** A zero-position tombstone, so NAS sync cannot resurrect cleared progress. */
+    @Query("UPDATE playback_positions SET positionMillis = 0, durationMillis = 0, " +
+           "updatedAtMillis = MAX(updatedAtMillis + 1, :resetAtMillis) " +
+           "WHERE profileId = :profileId AND mediaKey = :key")
+    suspend fun resetPosition(profileId: Long, key: String, resetAtMillis: Long): Int
+
     /**
      * Set all episodes in a profile back to the start, preserving their rows as sync tombstones.
      * Movies, other profiles, IPTV provider credentials and favourites are untouched.

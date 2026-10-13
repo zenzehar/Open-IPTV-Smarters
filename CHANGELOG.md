@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.12.16 — Live category search, launch refresh, Continue Watching reset and safer navigation
+
+- Search live category names within the TV sidebar or phone category bar, independent of the existing channel-title search.
+- Remove the redundant dashboard initial Live refresh; configured automatic update frequency now controls launch and scheduled syncs through serialized workers.
+- Long-press Continue Watching opens a choice between title details and a confirmed reset of the selected film or entire series' progress for the active profile.
+- Keep VOD Back intercepted during deferred video exit; guard repeated Live navigation; restore Home when a player lacks a usable back destination.
+- Brand the startup loading screen with the Koky TV emblem and name rather than just a turquoise spinner.
+- No destructive migrations, package-ID changes or automatic deletion of provider data. Physical-device QA remains outstanding.
+
+
 ## 0.12.15 — Large-catalogue paging beyond 2,000 titles
 
 - Movie and Series category searches and browse grids now use incremental 160-row SQLite LIMIT/OFFSET slices instead of an expanding 2,001-row limit, removing the prior ceiling and the no-op Load More button.

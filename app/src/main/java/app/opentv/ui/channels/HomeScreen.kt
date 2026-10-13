@@ -37,6 +37,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import app.opentv.ui.explicitImeActivation
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -124,6 +127,10 @@ fun HomeScreen(
     val channelLayout by settings.channelLayout.collectAsState()
 
     val categories by viewModel.visibleCategoryGroups.collectAsState()
+    var categoryFilter by remember { mutableStateOf("") }
+    val matchingCategories = remember(categories, categoryFilter) {
+        categories.filter { it.label.contains(categoryFilter.trim(), ignoreCase = true) }
+    }
     val rows by viewModel.rows.collectAsState()
     val selectedCategory by viewModel.selectedCategory.collectAsState()
     val favouritesOnly by viewModel.favouritesOnly.collectAsState()
@@ -310,7 +317,16 @@ fun HomeScreen(
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
             Spacer(Modifier.height(12.dp))
-            // The top "Search channels" bar was removed — Search now lives in the global nav rail.
+            // Search category names without interfering with channel-name search in the header.
+            OutlinedTextField(
+                value = categoryFilter,
+                onValueChange = { categoryFilter = it },
+                placeholder = { Text("Search categories") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp).explicitImeActivation(),
+            )
+            Spacer(Modifier.height(8.dp))
 
             LazyColumn(
                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
@@ -362,7 +378,7 @@ fun HomeScreen(
                         modifier = if (allSelected) Modifier.focusRequester(railFocusRequester) else Modifier,
                     )
                 }
-                items(categories, key = { it.key }) { group ->
+                items(matchingCategories, key = { it.key }) { group ->
                     val groupSelected = !favouritesOnly && selectedCategory == group.key
                     RailEntry(
                         label = group.label,

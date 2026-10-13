@@ -155,17 +155,6 @@ fun MainScreen(
     val liveUpdated by settings.liveUpdated.collectAsState()
     val moviesUpdated by settings.moviesUpdated.collectAsState()
     val seriesUpdated by settings.seriesUpdated.collectAsState()
-    // Start the Live catalogue only when no saved Live rows have ever been fetched.
-    // The flag prevents retries from looping after a failed first connection.
-    var initialLiveRequested by remember { mutableStateOf(false) }
-    LaunchedEffect(hasSources, liveEnabled, liveUpdated, liveCatalogueTimestamp, isSyncing) {
-        if (!initialLiveRequested && hasSources && liveEnabled && !isSyncing &&
-            liveUpdated <= 0L && liveCatalogueTimestamp <= 0L
-        ) {
-            initialLiveRequested = true
-            onRefreshStage("live")
-        }
-    }
     val movieLoad by vodViewModel.movieStatus.collectAsState()
     val seriesLoad by vodViewModel.seriesStatus.collectAsState()
     // Do not launch simultaneous VOD downloads while manual refresh is running.

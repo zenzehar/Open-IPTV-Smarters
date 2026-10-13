@@ -10,6 +10,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.opentv.ui.vod.mostRecentPerTitle
 import app.opentv.core.ServiceLocator
+import app.opentv.data.work.CatalogueRefreshPolicy
 import app.opentv.data.model.Category
 import app.opentv.data.model.Channel
 import app.opentv.data.model.EpgFeed
@@ -206,6 +207,7 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
                     }
                     is CatalogRepository.SyncResult.Success -> {
                         settings.recordProviderExpiry(id, verification.getOrNull()?.expiryMillis)
+                        settings.recordCatalogueUpdated("live", System.currentTimeMillis())
                         _ui.value = _ui.value.copy(syncing = false, syncError = null,
                             refreshStage = null, completedStages = setOf("live"), stageProgress = 1f,
                             syncMessage = "Loaded ${result.channelCount} channels. " +
@@ -269,6 +271,7 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
             completedStages = emptySet(), failedStages = emptySet(),
             failureMessages = emptyMap())
         viewModelScope.launch {
+            graph.catalogueRefreshMutex.withLock {
             val failed = mutableSetOf<String>()
             val errors = mutableMapOf<String, String>()
             val completed = mutableSetOf<String>()
@@ -370,6 +373,7 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
                     syncMessage = if (failed.isEmpty()) "Update completed"
                         else "Update failed for: ${failed.joinToString()}. Tap the retry icon.",
                 )
+            }
             }
         }
     }
@@ -978,6 +982,25 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Reset this profile's progress only; series resets all its cached episode rows.
+     * Retaining zero-position timestamps lets cross-device merges propagate removal.
+     */
+    suspend fun resetContinueWatching(item: ResumeItem) {
+        val profileId = settings.activeProfileId.value
+        val now = System.currentTimeMillis()
+        when {
+            item.mediaKey.startsWith("movie:") ->
+                graph.playbackPositions.resetPosition(profileId, item.mediaKey, now)
+            item.mediaKey.startsWith("ep:") -> {
+                val id = item.mediaKey.substringAfter(':').toLongOrNull() ?: return
+                val episode = graph.catalogRepository.episode(id) ?: return
+                graph.playbackPositions.resetSeriesEpisodes(
+                    profileId, episode.sourceId, episode.seriesId, now,
+                )
+            }
+        }
+    }
+
     private val movieCategory = MutableStateFlow<String?>(null)
     private val seriesCategory = MutableStateFlow<String?>(null)
 
@@ -1169,7 +1192,6 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
     val vodLoading: StateFlow<Boolean> = _vodLoading.asStateFlow()
     @Volatile private var vodRequested = false
     private val vodSyncMutex = Mutex()
-    private val VOD_TTL_MILLIS = 12L * 60 * 60 * 1000
 
     fun ensureVodLoaded() {
         if (vodRequested) return
@@ -1220,15 +1242,21 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private suspend fun syncVodIfStale(force: Boolean) = vodSyncMutex.withLock {
+    private suspend fun syncVodIfStale(force: Boolean) = graph.catalogueRefreshMutex.withLock {
+        vodSyncMutex.withLock {
         try {
             val now = System.currentTimeMillis()
             val initialMovies = graph.catalogRepository.movieCount()
             val initialSeries = graph.catalogRepository.seriesCount()
-            val fresh = settings.vodSyncedAtMillis.let { it > 0 && now - it < VOD_TTL_MILLIS }
+            val hours = settings.catalogueUpdateHours.value
+            val fresh = settings.vodSyncedAtMillis.let {
+                it > 0 && (hours == 0 || !CatalogueRefreshPolicy.isDue(it, hours, now))
+            }
             // Warm-cache path must be immediate; never re-download a large library
             // when persisted rows are still fresh.
-            if (!force && fresh &&
+            // The due-only worker owns configured refreshes; opening the browse tab must
+            // not download the same large provider catalogue a second time.
+            if (!force && (fresh || hours > 0) &&
                 (!settings.moviesEnabled.value || initialMovies > 0) &&
                 (!settings.seriesEnabled.value || initialSeries > 0)
             ) {
@@ -1299,6 +1327,7 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
             _seriesStatus.value = completedStatus(cachedSeries, true)
         } finally {
             _vodLoading.value = false
+        }
         }
     }
 

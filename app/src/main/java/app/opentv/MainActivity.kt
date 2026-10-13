@@ -23,6 +23,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -246,8 +253,19 @@ private fun OpenTvApp(isTelevision: Boolean) {
     // asks for their provider again. NavHost locks in its start destination on first
     // composition, so wait for that first load before building it.
     if (!sourcesUi.loaded) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
+        Column(
+            Modifier.fillMaxSize().background(Color(0xFF080D1C)),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Image(
+                painter = painterResource(R.drawable.ic_launcher_foreground),
+                contentDescription = "Koky TV",
+                modifier = Modifier.size(178.dp),
+            )
+            Text("Koky TV", color = Color.White, style = MaterialTheme.typography.headlineMedium)
+            Spacer(Modifier.height(18.dp))
+            CircularProgressIndicator(color = Color(0xFF00CFE9), modifier = Modifier.size(28.dp))
         }
         return
     }
@@ -513,9 +531,17 @@ private fun OpenTvApp(isTelevision: Boolean) {
 
             composable(Routes.PLAYER) { entry ->
                 val channelId = entry.arguments?.getString("channelId")?.toLongOrNull()
+                var exiting by remember(entry) { mutableStateOf(false) }
                 PlayerScreen(
                     channelId = channelId,
-                    onBack = { navController.popBackStack() },
+                    onBack = {
+                        if (!exiting) {
+                            exiting = true
+                            if (!navController.popBackStack()) {
+                                navController.navigate(Routes.HOME) { launchSingleTop = true }
+                            }
+                        }
+                    },
                 )
             }
 
@@ -581,7 +607,11 @@ private fun OpenTvApp(isTelevision: Boolean) {
                     streamUrl = arg("url"),
                     title = arg("title"),
                     userAgent = arg("ua").ifEmpty { "OpenTV/0.1 (Android)" },
-                    onBack = { navController.popBackStack() },
+                    onBack = {
+                        if (!navController.popBackStack()) {
+                            navController.navigate(Routes.HOME) { launchSingleTop = true }
+                        }
+                    },
                     onNextEpisode = { episode ->
                         // Replace the active episode in navigation, don't grow the backstack
                         // every time autoplay moves through a season.
