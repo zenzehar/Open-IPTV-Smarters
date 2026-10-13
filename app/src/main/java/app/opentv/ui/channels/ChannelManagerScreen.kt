@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -255,7 +256,7 @@ private fun SearchPane(
             OutlinedTextField(value = query, onValueChange = onQueryChange,
                 modifier = Modifier.fillMaxWidth(), singleLine = true,
                 label = { Text("Search channels") })
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.height(8.dp))
             ChannelSearchResults(query, results, onToggleHidden, onToggleFavourite)
         }
     } else Row(Modifier.fillMaxSize()) {
@@ -292,7 +293,6 @@ private fun ChannelSearchResults(
                 }
             }
         }
-    }
 }
 
 /** The selected category's channels — hidden ones included, greyed, so they can be un-hidden. */
