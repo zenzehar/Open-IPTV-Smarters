@@ -32,6 +32,8 @@ import app.opentv.data.remote.XtreamApi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -133,6 +135,8 @@ class CatalogRepository(
 
     /** TMDB back-fill for VOD detail pages, gated on a user-supplied key. See [TmdbClient]. */
     private val tmdb = TmdbClient(http, settings)
+    // One IPTV panel should not receive concurrent large VOD downloads from separate ViewModels.
+    private val vodRequestLock = Mutex()
 
     sealed interface SyncResult {
         data class Success(
@@ -661,15 +665,21 @@ class CatalogRepository(
         includeMovies: Boolean = true,
         includeSeries: Boolean = true,
     ): VodSyncResult =
-        withContext(Dispatchers.IO) {
-            if (source.kind != SourceKind.XTREAM) return@withContext VodSyncResult()
-            try {
-                syncXtreamVod(source, nowUtcMillis, includeMovies, includeSeries)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.w(TAG, "VOD sync failed for source ${source.id}", e)
-                VodSyncResult(e.message ?: "Movie download failed", e.message ?: "Series download failed")
+        vodRequestLock.withLock {
+            withContext(Dispatchers.IO) {
+                if (source.kind != SourceKind.XTREAM) return@withContext VodSyncResult()
+                try {
+                    syncXtreamVod(source, nowUtcMillis, includeMovies, includeSeries)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "VOD sync failed for source ${source.id}", e)
+                    val detail = providerFailureDescription(e)
+                    VodSyncResult(
+                        movieError = detail.takeIf { includeMovies },
+                        seriesError = detail.takeIf { includeSeries },
+                    )
+                }
             }
         }
 
@@ -728,6 +738,20 @@ class CatalogRepository(
         return runCatching { stalkerApi.createLink(source, cmd) }.getOrNull() ?: channel.streamUrl
     }
 
+    private fun providerFailureDescription(error: Throwable): String {
+        val reason = error.message.orEmpty()
+        val code = Regex("""HTTP\\s+(\\d{3})""").find(reason)?.groupValues?.getOrNull(1)
+        return when {
+            code == "429" -> "Provider is rate limiting requests (HTTP 429). Wait and retry."
+            code == "401" || code == "403" -> "Provider denied access (HTTP $code). Verify subscription."
+            code != null -> "Provider returned HTTP $code while loading the catalogue."
+            error is java.net.SocketTimeoutException ||
+                reason.contains("timed out", ignoreCase = true) -> "Provider request timed out. Retry shortly."
+            error is java.io.IOException -> "Network request failed. Check the connection and retry."
+            else -> "Provider catalogue response could not be loaded. Retry shortly."
+        }
+    }
+
     private suspend fun syncXtreamVod(
         source: Source,
         nowUtcMillis: Long,
@@ -767,8 +791,10 @@ class CatalogRepository(
         if (downloadedSeries.isNotEmpty()) seriesDao.upsertAll(downloadedSeries)
 
         return VodSyncResult(
-            movieError = if (moviesOn) (movies.exceptionOrNull() ?: movieCategories.exceptionOrNull())?.message else null,
-            seriesError = if (seriesOn) (series.exceptionOrNull() ?: seriesCategories.exceptionOrNull())?.message else null,
+            movieError = if (moviesOn) (movies.exceptionOrNull() ?: movieCategories.exceptionOrNull())
+                ?.let(::providerFailureDescription) else null,
+            seriesError = if (seriesOn) (series.exceptionOrNull() ?: seriesCategories.exceptionOrNull())
+                ?.let(::providerFailureDescription) else null,
         )
     }
 
