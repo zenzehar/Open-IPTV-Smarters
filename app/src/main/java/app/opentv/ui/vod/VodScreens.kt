@@ -107,7 +107,7 @@ fun MoviesScreen(
     val recommended by viewModel.recommendedMovies.collectAsState()
     val recentlyAdded by viewModel.recentlyAddedMovies.collectAsState()
     val genreRows by viewModel.movieGenreRows.collectAsState()
-    val categoryMovies by viewModel.movies.collectAsState()
+    // Category grid uses a bounded Room page instead of subscribing to the full category.
     val allMovies by viewModel.allMovies.collectAsState()
     val loadState by viewModel.movieStatus.collectAsState()
     val sources by viewModel.sources.collectAsState()
