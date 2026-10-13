@@ -51,6 +51,10 @@ class AppSettings private constructor(context: Context) {
     fun expiryLastChecked(sourceId: Long): Long =
         prefs.getLong("expiry_checked_$sourceId", 0L)
 
+    fun recordExpiryCheckAttempt(sourceId: Long) {
+        prefs.edit().putLong("expiry_checked_$sourceId", System.currentTimeMillis()).apply()
+    }
+
     fun recordProviderExpiry(sourceId: Long, expiryMillis: Long?) {
         prefs.edit()
             .putLong("expiry_for_$sourceId", expiryMillis?.takeIf { it > 0L } ?: 0L)
