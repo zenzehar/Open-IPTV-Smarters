@@ -36,7 +36,8 @@ internal fun safeRefreshFailure(raw: String?): String {
         "username or password" in description || "account is" in description ||
             "not authorised" in description || "not authorized" in description ->
             "Provider rejected the account. Verify login and subscription."
-        "not valid server address" in description || "invalid url" in description ||
+        "not a valid server address" in description || "not valid server address" in description ||
+            "invalid url" in description ||
             "invalid server" in description ->
             "Invalid server URL. Check the provider address and port."
         "no channels" in description || "empty catalogue" in description ->
