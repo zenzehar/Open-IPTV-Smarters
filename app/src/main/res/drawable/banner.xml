@@ -1,30 +1,43 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-  Android TV home-screen banner. Must be 320x180; the launcher does not letterbox.
-  Replace with real artwork before a public release.
--->
+<!-- Koky TV Android TV launcher banner: 320x180, no typography for reliable scaling. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="320dp"
-    android:height="180dp"
-    android:viewportWidth="320"
-    android:viewportHeight="180">
-    <path
-        android:fillColor="#07080C"
-        android:pathData="M0,0h320v180h-320z" />
-    <path
-        android:strokeColor="#4B5DB8"
-        android:strokeWidth="5"
-        android:strokeLineCap="round"
-        android:pathData="M138,44 L152,58" />
-    <path
-        android:strokeColor="#4B5DB8"
-        android:strokeWidth="5"
-        android:strokeLineCap="round"
-        android:pathData="M166,44 L152,58" />
-    <path
-        android:fillColor="#7C93FF"
-        android:pathData="M112,58h80a10,10 0,0 1,10 10v44a10,10 0,0 1,-10 10h-80a10,10 0,0 1,-10 -10v-44a10,10 0,0 1,10 -10z" />
-    <path
-        android:fillColor="#07080C"
-        android:pathData="M142,74l26,16l-26,16z" />
+    android:width="320dp" android:height="180dp"
+    android:viewportWidth="320" android:viewportHeight="180">
+    <!-- Midnight-blue background and subtle luminous borders -->
+    <path android:fillColor="#061027" android:pathData="M0,0 H320 V180 H0 Z" />
+    <path android:fillColor="#0B2348" android:pathData="M0,0 H320 V23 H0 Z" />
+    <path android:fillColor="#0B2348" android:pathData="M0,157 H320 V180 H0 Z" />
+    <path android:fillColor="#00D7F0" android:pathData="M0,0 H130 V4 H0 Z" />
+    <path android:fillColor="#974DFA" android:pathData="M190,0 H320 V4 H190 Z" />
+    <path android:fillColor="#03C6EC" android:pathData="M0,176 H160 V180 H0 Z" />
+    <path android:fillColor="#984EFA" android:pathData="M160,176 H320 V180 H160 Z" />
+    <!-- Decorative flanking rails, framing the hero emblem -->
+    <path android:strokeColor="#18BDF4" android:strokeWidth="2"
+        android:strokeLineCap="round" android:pathData="M44,90 H103" />
+    <path android:strokeColor="#8856E5" android:strokeWidth="2"
+        android:strokeLineCap="round" android:pathData="M217,90 H276" />
+    <path android:strokeColor="#2389DD" android:strokeWidth="1"
+        android:pathData="M55,108 H94 M226,108 H265" />
+    <!-- TV antenna -->
+    <path android:strokeColor="#0DDAF1" android:strokeWidth="6"
+        android:strokeLineCap="round" android:pathData="M151,58 L137,38" />
+    <path android:strokeColor="#A35CFA" android:strokeWidth="6"
+        android:strokeLineCap="round" android:pathData="M169,58 L184,38" />
+    <path android:fillColor="#1CE8F4"
+        android:pathData="M137,32 a6,6 0,1 1,0 12 a6,6 0,1 1,0 -12" />
+    <path android:fillColor="#BB64FC"
+        android:pathData="M184,32 a6,6 0,1 1,0 12 a6,6 0,1 1,0 -12" />
+    <!-- Cyan + purple two-tone bezel -->
+    <path android:fillColor="#00CDE7"
+        android:pathData="M132,56 H160 V137 H132 A15,15 0,0 1,117 122 V71 A15,15 0,0 1,132 56 Z" />
+    <path android:fillColor="#A055F5"
+        android:pathData="M160,56 H187 A15,15 0,0 1,202 71 V122 A15,15 0,0 1,187 137 H160 Z" />
+    <path android:fillColor="#09142B"
+        android:pathData="M140,68 H179 A9,9 0,0 1,188 77 V116 A9,9 0,0 1,179 125 H140 A9,9 0,0 1,131 116 V77 A9,9 0,0 1,140 68 Z" />
+    <path android:strokeColor="#34577A" android:strokeWidth="2"
+        android:strokeLineCap="round" android:pathData="M143,72 H169" />
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M153,80 L153,113 L181,96 Z" />
+    <path android:fillColor="#93CFFF"
+        android:pathData="M150,135 H171 V138 H150 Z" />
 </vector>
