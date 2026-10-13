@@ -132,6 +132,7 @@ fun VodPlayerScreen(
     val graph = remember { ServiceLocator.get(context) }
     val settings = remember { graph.settings }
     val autoplayNext by settings.autoplayNextEpisode.collectAsState()
+    val controlsTimeoutSeconds by settings.controlsTimeoutSeconds.collectAsState()
     var nextEpisode by remember(mediaKey) { mutableStateOf<Episode?>(null) }
     var media3Ended by remember(mediaKey) { mutableStateOf(false) }
     var completionHandled by remember(mediaKey) { mutableStateOf(false) }
@@ -360,11 +361,12 @@ fun VodPlayerScreen(
     // Auto-hide when playing and not paused/scrubbing and no picker open. A growing recording dips in
     // and out of Buffering as it rides the write head, so for that case Buffering counts as "playing"
     // here — otherwise a single hiccup would pin the transport bar on screen for the rest of the watch.
-    LaunchedEffect(controlsVisible, interaction, state, paused, scrubbing, vodPanel) {
+    LaunchedEffect(controlsVisible, interaction, state, paused, scrubbing, vodPanel, controlsTimeoutSeconds) {
         val activelyPlaying = state is PlayerController.State.Playing ||
             (growingRec && state is PlayerController.State.Buffering)
-        if (controlsVisible && !paused && !scrubbing && vodPanel == VodPanel.NONE && activelyPlaying) {
-            delay(5_000)
+        if (controlsVisible && controlsTimeoutSeconds > 0 && !paused && !scrubbing &&
+            vodPanel == VodPanel.NONE && activelyPlaying) {
+            delay(controlsTimeoutSeconds * 1_000L)
             controlsVisible = false
         }
     }

@@ -110,6 +110,16 @@ fun VlcVodFallback(
     var showStartupSpinner by remember(mediaKey, streamUrl) { mutableStateOf(false) }
     var errorText by remember { mutableStateOf<String?>(null) }
     var controlsVisible by remember { mutableStateOf(true) }
+    val controlsTimeoutSeconds by graph.settings.controlsTimeoutSeconds.collectAsState()
+    var controlsInteraction by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    LaunchedEffect(controlsVisible, controlsInteraction, playing, controlsTimeoutSeconds,
+        movingSlider, errorText) {
+        if (controlsVisible && playing && !movingSlider && errorText == null &&
+            controlsTimeoutSeconds > 0) {
+            delay(controlsTimeoutSeconds * 1_000L)
+            controlsVisible = false
+        }
+    }
     var movingSlider by remember { mutableStateOf(false) }
     var sliderValue by remember { mutableStateOf(0f) }
     var initialized by remember(mediaKey, streamUrl) { mutableStateOf(false) }
@@ -297,7 +307,10 @@ fun VlcVodFallback(
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(
-            modifier = Modifier.fillMaxSize().clickable { controlsVisible = !controlsVisible },
+            modifier = Modifier.fillMaxSize().clickable {
+                controlsVisible = !controlsVisible
+                controlsInteraction++
+            },
             factory = { ctx -> VLCVideoLayout(ctx).also { layout = it } },
         )
         // Show a small startup indicator only until the first playback/video-output event.

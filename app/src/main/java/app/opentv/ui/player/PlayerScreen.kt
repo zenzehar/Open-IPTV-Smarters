@@ -180,6 +180,7 @@ fun PlayerScreen(
     var paused by remember { mutableStateOf(false) }
     var resizeMode by remember { mutableIntStateOf(settings.playerResizeMode.value) }
 
+    val controlsTimeoutSeconds by settings.controlsTimeoutSeconds.collectAsState()
     var controlsVisible by remember { mutableStateOf(true) }
     var panel by remember { mutableStateOf(Panel.NONE) }
     var channelListVisible by remember { mutableStateOf(false) }
@@ -302,11 +303,11 @@ fun PlayerScreen(
     }
 
     // Auto-hide the bar after a few seconds — but never while paused or with a picker open.
-    LaunchedEffect(controlsVisible, interaction, state, paused, panel) {
-        if (controlsVisible && !paused && panel == Panel.NONE &&
+    LaunchedEffect(controlsVisible, interaction, state, paused, panel, controlsTimeoutSeconds) {
+        if (controlsVisible && controlsTimeoutSeconds > 0 && !paused && panel == Panel.NONE &&
             state is PlayerController.State.Playing
         ) {
-            delay(CONTROLS_TIMEOUT_MILLIS)
+            delay(controlsTimeoutSeconds * 1_000L)
             controlsVisible = false
         }
     }
@@ -929,7 +930,6 @@ private fun BarChip(
     }
 }
 
-private const val CONTROLS_TIMEOUT_MILLIS = 5_000L
 private const val NUMBER_ENTRY_TIMEOUT_MILLIS = 2_000L
 
 /** Maps a remote's number keys (top row and numeric keypad) to a digit, or null for other keys. */
