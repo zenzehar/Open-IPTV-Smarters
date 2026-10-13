@@ -215,7 +215,7 @@ class AppSettings private constructor(context: Context) {
     }
 
     enum class PosterSize(val cardDp: Int, val gridMinDp: Int) {
-        SMALL(108, 112), MEDIUM(124, 128), LARGE(140, 144)
+        SMALL(92, 96), MEDIUM(108, 112), LARGE(124, 128)
     }
 
     private val _posterSize = MutableStateFlow(
@@ -226,6 +226,28 @@ class AppSettings private constructor(context: Context) {
     fun setPosterSize(value: PosterSize) {
         prefs.edit().putString("poster_size", value.name).apply()
         _posterSize.value = value
+    }
+
+    /** Auto-hide all video-player controls. Zero disables auto-hide. */
+    private val _controlsTimeoutSeconds = MutableStateFlow(
+        prefs.getInt("controls_timeout_seconds", 3).takeIf { it in listOf(0, 2, 3, 5, 8, 10, 15) } ?: 3
+    )
+    val controlsTimeoutSeconds: StateFlow<Int> = _controlsTimeoutSeconds.asStateFlow()
+    fun setControlsTimeoutSeconds(seconds: Int) {
+        require(seconds in listOf(0, 2, 3, 5, 8, 10, 15))
+        prefs.edit().putInt("controls_timeout_seconds", seconds).apply()
+        _controlsTimeoutSeconds.value = seconds
+    }
+
+    /** Scheduled background catalogue and EPG refresh (0 = manual only). */
+    private val _catalogueUpdateHours = MutableStateFlow(
+        prefs.getInt("catalogue_update_hours", 6).takeIf { it in listOf(0, 1, 3, 6, 12, 24) } ?: 6
+    )
+    val catalogueUpdateHours: StateFlow<Int> = _catalogueUpdateHours.asStateFlow()
+    fun setCatalogueUpdateHours(hours: Int) {
+        require(hours in listOf(0, 1, 3, 6, 12, 24))
+        prefs.edit().putInt("catalogue_update_hours", hours).apply()
+        _catalogueUpdateHours.value = hours
     }
 
     /** Whether launching the app jumps straight back to the last channel you watched. */

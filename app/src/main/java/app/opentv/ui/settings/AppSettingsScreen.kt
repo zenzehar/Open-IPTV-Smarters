@@ -74,6 +74,8 @@ fun AppSettingsScreen(onBack: () -> Unit) {
     val captions by settings.subtitlesEnabled.collectAsState()
     val resumeLast by settings.resumeLastChannel.collectAsState()
     val autoplayNext by settings.autoplayNextEpisode.collectAsState()
+    val controlsTimeout by settings.controlsTimeoutSeconds.collectAsState()
+    val updateHours by settings.catalogueUpdateHours.collectAsState()
     val posterSize by settings.posterSize.collectAsState()
     val language by settings.languageTag.collectAsState()
     val liveEnabled by settings.liveEnabled.collectAsState()
@@ -154,6 +156,22 @@ fun AppSettingsScreen(onBack: () -> Unit) {
 
         Spacer(Modifier.height(16.dp))
 
+        SettingsSection("Automatic channel updates") {
+            Text("Background refresh of channels, movies, series and guide. Android may delay "+
+                "work for battery and network conditions.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            listOf(0, 1, 3, 6, 12, 24).forEach { hours ->
+                val label = when (hours) {
+                    0 -> "Off (manual update only)"
+                    1 -> "Every hour"
+                    else -> "Every $hours hours"
+                }
+                ThemeOption(label, updateHours == hours) {
+                    settings.setCatalogueUpdateHours(hours)
+                    SyncWorker.schedule(context)
+                }
+            }
+        }
+        Spacer(Modifier.height(16.dp))
         SettingsSection(stringResource(R.string.settings_section_content)) {
             Text(
                 stringResource(R.string.settings_content_note),
@@ -235,6 +253,14 @@ fun AppSettingsScreen(onBack: () -> Unit) {
         Spacer(Modifier.height(16.dp))
 
         SettingsSection(stringResource(R.string.settings_section_playback)) {
+            Text("Playback control-bar timeout", style = MaterialTheme.typography.titleMedium)
+            Text("Hide controls automatically while video is playing.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            listOf(0, 2, 3, 5, 8, 10, 15).forEach { seconds ->
+                ThemeOption(if (seconds == 0) "Never hide" else "$seconds seconds",
+                    controlsTimeout == seconds) { settings.setControlsTimeoutSeconds(seconds) }
+            }
+            Spacer(Modifier.height(12.dp))
             ToggleRow(
                 title = stringResource(R.string.settings_subtitles_title),
                 subtitle = stringResource(R.string.settings_subtitles_subtitle),
@@ -243,7 +269,7 @@ fun AppSettingsScreen(onBack: () -> Unit) {
             )
             ToggleRow(
                 title = "Automatically play next series episode",
-                subtitle = "When an episode finishes, start the next one. Off by default.",
+                subtitle = "When an episode finishes, start the next one. On by default.",
                 checked = autoplayNext,
                 onToggle = settings::setAutoplayNextEpisode,
             )
