@@ -31,6 +31,18 @@ class AppSettings private constructor(context: Context) {
     /** How the app chooses light vs dark. TV defaults to dark under [ThemeMode.SYSTEM]. */
     enum class ThemeMode { SYSTEM, DARK, LIGHT }
 
+    enum class DeviceMode { AUTO, TV, MOBILE }
+    private val _deviceMode = MutableStateFlow(
+        runCatching { DeviceMode.valueOf(prefs.getString("device_mode", "AUTO") ?: "AUTO") }
+            .getOrDefault(DeviceMode.AUTO),
+    )
+    val deviceMode: StateFlow<DeviceMode> = _deviceMode.asStateFlow()
+
+    fun setDeviceMode(value: DeviceMode) {
+        prefs.edit().putString("device_mode", value.name).apply()
+        _deviceMode.value = value
+    }
+
     private val _themeMode = MutableStateFlow(readThemeMode())
     val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
 
