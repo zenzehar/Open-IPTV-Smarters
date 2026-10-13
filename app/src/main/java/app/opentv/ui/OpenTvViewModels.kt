@@ -184,29 +184,38 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { graph.catalogRepository.setLiveFormat(source.id, format) }
     }
 
-    /**
-     * Refresh Live -> Movies -> Series in order. Partial failures are retained as
-     * labelled tile states; existing user data is never cleared on an HTTP error.
+    /** Update the three catalogue sections in order or one chosen section on demand.
+     * Both entry points use the same state and refuse overlapping refresh jobs.
+     * Errors are retained per tile while successfully refreshed catalogues remain intact.
      */
-    fun refreshAll() {
+    fun refreshAll() = refreshCatalogues(null)
+
+    fun refreshStage(stage: String) {
+        if (stage !in setOf("live", "movies", "series")) return
+        refreshCatalogues(stage)
+    }
+
+    private fun refreshCatalogues(onlyStage: String?) {
         if (_ui.value.syncing) return
+        _ui.value = _ui.value.copy(syncing = true,
+            refreshStage = onlyStage ?: "live", syncMessage = "Preparing catalogue update…",
+            completedStages = emptySet(), failedStages = emptySet())
         viewModelScope.launch {
             val failed = mutableSetOf<String>()
             val completed = mutableSetOf<String>()
             val now = System.currentTimeMillis()
             try {
                 val enabled = graph.sourceRepository.enabled()
-                if (enabled.isEmpty()) return@launch
+                if (enabled.isEmpty()) {
+                    failed += onlyStage ?: "live"
+                    return@launch
+                }
                 val stages = listOf(
                     "live" to settings.liveEnabled.value,
                     "movies" to settings.moviesEnabled.value,
                     "series" to settings.seriesEnabled.value,
-                ).filter { it.second }.map { it.first }
-                _ui.value = _ui.value.copy(
-                    syncing = true, syncMessage = "Updating catalogues",
-                    refreshStage = stages.firstOrNull(), completedStages = emptySet(),
-                    failedStages = emptySet(),
-                )
+                ).filter { it.second && (onlyStage == null || it.first == onlyStage) }
+                    .map { it.first }
                 for (stage in stages) {
                     _ui.value = _ui.value.copy(
                         refreshStage = stage,
@@ -224,24 +233,37 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
                             "movies" -> {
                                 val result = graph.catalogRepository.syncVod(source, now,
                                     includeMovies = true, includeSeries = false)
-                                if (result.movieError != null) failed += stage
+                                if (result.movieError != null) {
+                                    failed += stage
+                                    Log.w("OpenTV", "Movie refresh: ${result.movieError}")
+                                }
                             }
                             "series" -> {
                                 val result = graph.catalogRepository.syncVod(source, now,
                                     includeMovies = false, includeSeries = true)
-                                if (result.seriesError != null) failed += stage
+                                if (result.seriesError != null) {
+                                    failed += stage
+                                    Log.w("OpenTV", "Series refresh: ${result.seriesError}")
+                                }
                             }
                         }
                     }
-                    if (stage !in failed) completed += stage
+                    if (stage !in failed) {
+                        completed += stage
+                        settings.recordCatalogueUpdated(stage, System.currentTimeMillis())
+                        if (stage == "series" || (stage == "movies" && !settings.seriesEnabled.value))
+                            settings.vodSyncedAtMillis = System.currentTimeMillis()
+                    }
                     _ui.value = _ui.value.copy(
                         completedStages = completed.toSet(), failedStages = failed.toSet(),
                     )
                 }
-                // Guide refresh doesn't re-request the three catalogues.
-                val guide = graph.epgRepository.syncAll(now, force = true)
-                if (guide.feedsFailed > 0) failed += "guide"
-                runCatching { graph.recordingEngine.rescanSeriesRules() }
+                // Guide loading runs separately; do not delay the three on-tile refresh outcomes.
+                if ("live" in stages) {
+                    runCatching { graph.epgRepository.syncAll(now, force = true) }
+                        .onFailure { Log.w("OpenTV", "Background guide refresh failed", it) }
+                    runCatching { graph.recordingEngine.rescanSeriesRules() }
+                }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -251,8 +273,8 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
                 _ui.value = _ui.value.copy(
                     syncing = false, refreshStage = null,
                     failedStages = failed.toSet(), completedStages = completed.toSet(),
-                    syncMessage = if (failed.isEmpty()) "All enabled catalogues updated"
-                        else "Some updates failed: ${failed.joinToString()}. Retry is available.",
+                    syncMessage = if (failed.isEmpty()) "Update completed"
+                        else "Update failed for: ${failed.joinToString()}. Tap the retry icon.",
                 )
             }
         }
