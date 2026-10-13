@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.12.20 — VLC playback regression triage and Android TV/phone smoke checks
+
+- Remove the 25-second forced Media3-to-LibVLC switch on slow startup buffering. Only known unsupported codecs/containers and explicit user choice activate VLC.
+- Add a visible manual VLC alternative when startup buffering is prolonged; don't interrupt a stream that may still recover.
+- Correct misleading LibVLC error text: a generic VLC error event does not prove unsupported video. Show a Retry VLC button and emit focused, credential-free playback diagnostic logs.
+- Log native VLC surface-detach/stop/release failures to help isolate intermittent returns to Android home; preserve native cleanup and single-exit navigation logic.
+- Add separate phone and Android TV emulator smoke jobs to GitHub Actions for the PR (cold launch, D-pad focus actions, force-stop and relaunch, process liveness, saved logcat diagnostics).
+- Emulator smoke coverage does NOT establish every application feature or actual-provider/native decoder compatibility. Capture logcat/tombstone on the user's TV if process crashes continue. No database or app-ID migration.
+
+
 ## 0.12.19 — Restore usable movie seeking on Media3 and LibVLC
 
 - Fix movie timebars freezing at zero: both Media3 and LibVLC previously fell back to an unusable 0..1 millisecond Slider when the decoder did not yet expose a duration. Use the same shared timeline policy for movies and episodes and restore provider movie duration, watch-history duration and actual decoder duration in order.

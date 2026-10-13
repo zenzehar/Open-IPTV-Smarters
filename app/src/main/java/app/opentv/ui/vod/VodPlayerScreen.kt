@@ -233,14 +233,18 @@ fun VodPlayerScreen(
     LaunchedEffect(state) {
         if (state is PlayerController.State.Playing) beganPlayback = true
     }
-    // TV decoder stalls can remain in BUFFERING without an exception. Only fall back
-    // before the first successful frame, never during normal mid-stream rebuffering.
+    // A slow first frame is NOT evidence of an unsupported container/codec.
+    // Previously 25 seconds of buffering silently switched every kind of stream into
+    // LibVLC, which caused intermittent VLC errors and complicated native shutdown.
+    // Keep Media3 alive; offer a deliberate VLC option rather than forcing it.
+    var slowStartup by remember(mediaKey) { mutableStateOf(false) }
     LaunchedEffect(state, useVlc, beganPlayback) {
+        slowStartup = false
         if (!useVlc && !beganPlayback && state is PlayerController.State.Buffering) {
             delay(25_000L)
-            if (!useVlc && !beganPlayback && controller.state.value is PlayerController.State.Buffering) {
-                controller.stop()
-                useVlc = true
+            if (!useVlc && !beganPlayback &&
+                controller.state.value is PlayerController.State.Buffering) {
+                slowStartup = true
             }
         }
     }
@@ -251,6 +255,7 @@ fun VodPlayerScreen(
             error.message.contains("DECODING_FAILED", ignoreCase = true)
         ) {
             // Do not retry forever with the same demuxer that has rejected the container.
+            android.util.Log.w("KokyTV/VOD", "Media3 unsupported decoder code=${error.errorCode}; VLC fallback mediaKey=$mediaKey")
             controller.stop()
             useVlc = true
         }
@@ -602,6 +607,17 @@ fun VodPlayerScreen(
                         CircularProgressIndicator()
                         Spacer(Modifier.height(16.dp))
                         Text(current.title, color = Color.White)
+                        if (slowStartup) {
+                            Spacer(Modifier.height(10.dp))
+                            Text("Stream is taking longer to load", color = Color.White)
+                            Spacer(Modifier.height(12.dp))
+                            Button(onClick = {
+                                vlcInitialSeekMs = pendingSeek ?: controller.player.currentPosition
+                                    .coerceAtLeast(0L)
+                                controller.stop()
+                                useVlc = true
+                            }) { Text("Try VLC instead") }
+                        }
                     }
                 }
 

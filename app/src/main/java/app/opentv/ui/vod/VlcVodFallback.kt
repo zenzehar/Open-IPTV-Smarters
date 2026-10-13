@@ -10,6 +10,7 @@ package app.opentv.ui.vod
 
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.util.Log
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -193,6 +194,7 @@ fun VlcVodFallback(
     val libVlc = remember { LibVLC(context.applicationContext, arrayListOf("--network-caching=750", "--http-reconnect")) }
     val player = remember { MediaPlayer(libVlc) }
     val shuttingDown = remember { AtomicBoolean(false) }
+    var vlcErrorCount by remember(mediaKey) { androidx.compose.runtime.mutableIntStateOf(0) }
 
     fun openExternal() {
         try {
@@ -307,7 +309,15 @@ fun VlcVodFallback(
                             if (!startedVideo) buffering = true
                         }
                         MediaPlayer.Event.EncounteredError -> {
-                            errorText = "VLC could not decode this stream. Check provider access or try an external player."
+                            vlcErrorCount++
+                            Log.e("KokyTV/VLC",
+                                "VLC playback error #$vlcErrorCount mediaKey=$mediaKey " +
+                                    "startedVideo=$startedVideo playing=$playing " +
+                                    "positionMs=$positionMs durationMs=$durationMs " +
+                                    "pendingSeek=${pendingSeekMs != null}")
+                            playing = false
+                            errorText = "VLC playback was interrupted. This can be a stream, " +
+                                "network or decoder error; it does not prove the episode is unsupported."
                             buffering = false
                         }
                         MediaPlayer.Event.EndReached -> {
@@ -393,15 +403,22 @@ fun VlcVodFallback(
                     ))
                 }
             }
-            // Detach the native video output before freeing native VLC resources.
-            // Stop/release may block on decoder threads, so perform that native cleanup
-            // off the main Compose navigation path.
-            runCatching { player.detachViews() }
+            // A surface must be detached on the UI thread before native cleanup.
+            // Never let a late VLC event retain a disposed Compose screen.
+            runCatching { player.detachViews() }.onFailure {
+                Log.w("KokyTV/VLC", "VLC view detach failed mediaKey=$mediaKey", it)
+            }
             attachedLayout = null
             CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-                runCatching { player.stop() }
-                runCatching { player.release() }
-                runCatching { libVlc.release() }
+                runCatching { player.stop() }.onFailure {
+                    Log.w("KokyTV/VLC", "VLC native stop failed mediaKey=$mediaKey", it)
+                }
+                runCatching { player.release() }.onFailure {
+                    Log.e("KokyTV/VLC", "VLC native release failed mediaKey=$mediaKey", it)
+                }
+                runCatching { libVlc.release() }.onFailure {
+                    Log.e("KokyTV/VLC", "LibVLC release failed mediaKey=$mediaKey", it)
+                }
             }
         }
     }
@@ -489,6 +506,22 @@ fun VlcVodFallback(
                     style = MaterialTheme.typography.titleMedium)
                 Text(errorText.orEmpty().take(250), color = Color.White.copy(alpha = 0.85f),
                     style = MaterialTheme.typography.bodySmall, maxLines = 5)
+                Button(onClick = {
+                    if (!shuttingDown.get()) {
+                        errorText = null
+                        buffering = true
+                        pendingSeekMs = null
+                        seekFailure = false
+                        runCatching {
+                            player.stop()
+                            player.play()
+                        }.onFailure {
+                            Log.e("KokyTV/VLC", "VLC retry failed mediaKey=$mediaKey", it)
+                            errorText = "VLC retry failed. Try the external player or go back."
+                            buffering = false
+                        }
+                    }
+                }) { Text("Retry VLC") }
                 Button(onClick = ::openExternal) { Text("Open in another player", maxLines = 1) }
             }
         }
