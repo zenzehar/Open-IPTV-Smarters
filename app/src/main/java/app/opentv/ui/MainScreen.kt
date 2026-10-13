@@ -74,6 +74,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.opentv.R
 import app.opentv.core.AppSettings
+import app.opentv.core.findActivity
 import app.opentv.core.StatusBus
 import app.opentv.data.model.Channel
 import app.opentv.data.model.Movie
