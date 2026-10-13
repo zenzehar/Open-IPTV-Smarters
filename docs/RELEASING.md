@@ -52,8 +52,8 @@ across consecutive runs, rather than inferring identity from successful builds.
 ## Versioning
 
 Bump both `versionCode` (monotonically increasing integer) and
-`versionName` in `app/build.gradle.kts`. The initial stability patch is
-`0.11.9` / `21`. Android compares `versionCode` to enforce upgrades,
+`versionName` in `app/build.gradle.kts`. The current UI/playback development version is
+`0.12.0` / `22`. Android compares `versionCode` to enforce upgrades,
 not `versionName`.
 
 ## Publishing
