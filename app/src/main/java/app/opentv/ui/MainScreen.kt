@@ -9,7 +9,6 @@ package app.opentv.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.activity.compose.LocalActivity
 import android.content.pm.ActivityInfo
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.draw.alpha
@@ -108,6 +107,7 @@ fun MainScreen(
     refreshedStages: Set<String>,
     failedRefreshStages: Set<String>,
     refreshMessage: String?,
+    liveCatalogueTimestamp: Long,
     onPlayChannel: (Channel) -> Unit,
     onOpenMovie: (Movie) -> Unit,
     onOpenSeries: (Series) -> Unit,
@@ -170,7 +170,7 @@ fun MainScreen(
         }
     }
     var tab by remember { mutableStateOf(DashboardTab.HOME) }
-    val activity = LocalActivity.current
+    val activity = context.findActivity()
     DisposableEffect(activity, tab, isTelevision, landscapeHome) {
         val before = activity?.requestedOrientation
         if (activity != null && !isTelevision) {
@@ -225,7 +225,7 @@ fun MainScreen(
                         compact = compact,
                         isTelevision = isTelevision,
                         liveState = tileState("live"),
-                        liveLastUpdated = liveUpdated,
+                        liveLastUpdated = liveUpdated.takeIf { it > 0L } ?: liveCatalogueTimestamp,
                         moviesLastUpdated = moviesUpdated.takeIf { it > 0L } ?: settings.vodSyncedAtMillis,
                         seriesLastUpdated = seriesUpdated.takeIf { it > 0L } ?: settings.vodSyncedAtMillis,
                         onRefreshStage = onRefreshStage,
@@ -283,7 +283,7 @@ fun MainScreen(
                     DashboardTab.RECORDINGS -> RecordingsScreen(onPlay = onPlayRecording)
                 }
             }
-            StatusBar()
+            if (tab != DashboardTab.HOME) StatusBar()
             if (compact && tab != DashboardTab.HOME) {
                 MobileBottomNav(
                     tabs = choices.filter { it != DashboardTab.RECORDINGS },
