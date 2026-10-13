@@ -39,20 +39,28 @@ class SourceRepository(
         }
     }
 
-    /** Validate with the actual provider before any login is persisted. */
-    suspend fun test(source: Source): Result<String> = withContext(Dispatchers.IO) {
+    data class ConnectionCheck(val message: String, val expiryMillis: Long? = null)
+
+    suspend fun test(source: Source): Result<String> =
+        testDetailed(source).map { it.message }
+
+    /** Checks connection and carries account expiry without exposing login details. */
+    suspend fun testDetailed(source: Source): Result<ConnectionCheck> = withContext(Dispatchers.IO) {
         try {
             val checked = source.copy(url = normaliseUrl(source.url, source.kind))
-            val message = when (checked.kind) {
+            val check = when (checked.kind) {
                 SourceKind.XTREAM -> {
                     val info = api.authenticate(checked)
-                    buildString {
-                        append("Connection verified")
-                        info.maxConnections?.let { append(" · $it connection(s)") }
-                        info.expiryMillis?.let {
-                            append(" · expires ${java.text.DateFormat.getDateInstance().format(java.util.Date(it))}")
-                        }
-                    }
+                    ConnectionCheck(
+                        message = buildString {
+                            append("Connection verified")
+                            info.maxConnections?.let { append(" · $it connection(s)") }
+                            info.expiryMillis?.let {
+                                append(" · expires ${java.text.DateFormat.getDateInstance().format(java.util.Date(it))}")
+                            }
+                        },
+                        expiryMillis = info.expiryMillis?.takeIf { it > 0L },
+                    )
                 }
                 SourceKind.M3U -> {
                     val address = checked.url.toHttpUrlOrNull()
@@ -64,15 +72,15 @@ class SourceRepository(
                             throw IllegalStateException("Playlist server returned HTTP ${response.code}.")
                         // Reachability only. A full playlist is validated by the streaming M3U
                         // parser during sync, not downloaded twice by Test Connection.
-                        "Playlist server is reachable. Content will be checked during import."
+                        ConnectionCheck("Playlist server is reachable. Content will be checked during import.")
                     }
                 }
                 SourceKind.STALKER -> {
                     stalkerApi.handshakeTest(checked)
-                    "Portal connection verified. Loading channels…"
+                    ConnectionCheck("Portal connection verified. Loading channels…")
                 }
             }
-            Result.success(message)
+            Result.success(check)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
