@@ -5,6 +5,7 @@
  */
 package app.opentv.ui.vod
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -28,12 +29,14 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -89,8 +92,10 @@ fun MovieDetailScreen(
     onPlayUrl: (key: String, url: String, title: String) -> Unit,
     onOpenMovie: (Movie) -> Unit,
     onOpenPerson: (String) -> Unit,
+    onBack: () -> Unit,
     viewModel: VodViewModel = viewModel(),
 ) {
+    BackHandler(onBack = onBack)
     var movie by remember(movieId) { mutableStateOf<Movie?>(null) }
     var moreLike by remember(movieId) { mutableStateOf<List<Movie>>(emptyList()) }
     var resumeExists by remember(movieId) { mutableStateOf(false) }
@@ -118,7 +123,9 @@ fun MovieDetailScreen(
         runCatching { playFocus.requestFocus() }
     }
 
-    LazyColumn(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize()) {
+        DetailBackBar(onBack = onBack, label = "Back to movies")
+        LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
         item(key = "header") {
             DetailBackdrop(title = m.displayTitle, backdropUrl = m.backdropUrl, posterUrl = m.posterUrl, meta = movieMeta(m)) {
                 DetailButton(
@@ -163,6 +170,7 @@ fun MovieDetailScreen(
                 Spacer(Modifier.height(4.dp))
                 MoviePosterRow(stringResource(R.string.vod_more_like_this), moreLike, onOpenMovie)
             }
+        }
         }
     }
 
@@ -270,8 +278,10 @@ fun SeriesDetailScreen(
     onPlayEpisode: (mediaKey: String, url: String, title: String) -> Unit,
     onOpenSeries: (Series) -> Unit,
     onOpenPerson: (String) -> Unit,
+    onBack: () -> Unit,
     viewModel: VodViewModel = viewModel(),
 ) {
+    BackHandler(onBack = onBack)
     var series by remember(seriesId) { mutableStateOf<Series?>(null) }
     var moreLike by remember(seriesId) { mutableStateOf<List<Series>>(emptyList()) }
     var showResetConfirmation by remember(seriesId) { mutableStateOf(false) }
@@ -307,7 +317,9 @@ fun SeriesDetailScreen(
             .toSortedMap()
     }
 
-    LazyColumn(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize()) {
+        DetailBackBar(onBack = onBack, label = "Back to series")
+        LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
         item(key = "header") {
             DetailBackdrop(title = s.displayTitle, backdropUrl = s.backdropUrl, posterUrl = s.posterUrl, meta = seriesMeta(s)) {
                 DetailButton(
@@ -361,6 +373,7 @@ fun SeriesDetailScreen(
                 SeriesPosterRow(stringResource(R.string.vod_more_like_this), moreLike, onOpenSeries)
             }
         }
+        }
     }
 
     if (showResetConfirmation) {
@@ -387,6 +400,31 @@ fun SeriesDetailScreen(
                 }
             },
         )
+    }
+}
+
+/** Fixed, remote-focusable navigation affordance; remains visible while scrolling episodes. */
+@Composable
+private fun DetailBackBar(onBack: () -> Unit, label: String) {
+    var focused by remember { mutableStateOf(false) }
+    Row(
+        Modifier.fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        OutlinedButton(
+            onClick = onBack,
+            modifier = Modifier.onFocusChanged { focused = it.isFocused },
+            border = androidx.compose.foundation.BorderStroke(
+                if (focused) 3.dp else 1.dp,
+                if (focused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+            ),
+        ) {
+            Icon(Icons.Filled.ArrowBack, contentDescription = null)
+            Spacer(Modifier.width(6.dp))
+            Text(label, maxLines = 1)
+        }
     }
 }
 
