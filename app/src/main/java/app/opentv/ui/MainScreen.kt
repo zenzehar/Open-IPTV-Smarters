@@ -9,8 +9,6 @@ package app.opentv.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import android.content.pm.ActivityInfo
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -61,6 +59,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -73,7 +73,6 @@ import androidx.compose.ui.unit.dp
 import app.opentv.R
 import app.opentv.core.AppSettings
 import app.opentv.core.StatusBus
-import app.opentv.core.findActivity
 import app.opentv.data.model.Channel
 import app.opentv.data.model.Movie
 import app.opentv.data.model.Recording
@@ -133,7 +132,6 @@ fun MainScreen(
     val liveEnabled by settings.liveEnabled.collectAsState()
     val moviesEnabled by settings.moviesEnabled.collectAsState()
     val seriesEnabled by settings.seriesEnabled.collectAsState()
-    val landscapeHome by settings.landscapeHome.collectAsState()
     val liveUpdated by settings.liveUpdated.collectAsState()
     val moviesUpdated by settings.moviesUpdated.collectAsState()
     val seriesUpdated by settings.seriesUpdated.collectAsState()
@@ -170,16 +168,6 @@ fun MainScreen(
         }
     }
     var tab by remember { mutableStateOf(DashboardTab.HOME) }
-    val activity = context.findActivity()
-    DisposableEffect(activity, tab, isTelevision, landscapeHome) {
-        val before = activity?.requestedOrientation
-        if (activity != null && !isTelevision) {
-            activity.requestedOrientation = if (tab == DashboardTab.HOME && landscapeHome)
-                ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            else ActivityInfo.SCREEN_ORIENTATION_FULL_USER
-        }
-        onDispose { if (before != null) activity?.requestedOrientation = before }
-    }
     if (tab !in choices) tab = DashboardTab.HOME
     var showExit by remember { mutableStateOf(false) }
 
@@ -204,10 +192,7 @@ fun MainScreen(
     }
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFF080D1C))) {
-        // Home deliberately uses the widescreen Smarters-style dashboard on phones.
-        // Other sections remain mobile-optimised even when the Home was landscape.
-        // A rotated phone can be under 700dp wide in logical density-independent pixels.
-        // Select the two-column Home by aspect ratio, not an arbitrary tablet breakpoint.
+        // Home respects system orientation; the same dashboard adapts to both window shapes.
         val compact = if (tab == DashboardTab.HOME) maxWidth < maxHeight * 1.35f
             else !isTelevision || maxWidth < 700.dp
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
