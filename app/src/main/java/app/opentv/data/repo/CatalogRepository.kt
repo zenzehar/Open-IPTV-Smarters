@@ -178,6 +178,9 @@ class CatalogRepository(
 
     fun observeSeries(categoryId: String? = null): Flow<List<Series>> = seriesDao.observe(categoryId)
 
+    fun observeSeriesPage(categoryId: String?, sourceId: Long?, filter: String, limit: Int):
+        Flow<List<Series>> = seriesDao.observePage(categoryId, sourceId, filter, limit.coerceIn(1, 2_001))
+
     fun observeEpisodes(sourceId: Long, seriesId: String): Flow<List<Episode>> =
         episodeDao.observeForSeries(sourceId, seriesId)
 

@@ -571,6 +571,16 @@ interface SeriesDao {
     )
     fun observe(categoryId: String?): Flow<List<Series>>
 
+    @Query("""
+        SELECT * FROM series
+        WHERE (:categoryId IS NULL OR categoryId = :categoryId)
+        AND (:sourceId IS NULL OR sourceId = :sourceId)
+        AND (:filter = '' OR name LIKE '%' || :filter || '%')
+        ORDER BY addedMillis DESC, id DESC
+        LIMIT :limit
+    """)
+    fun observePage(categoryId: String?, sourceId: Long?, filter: String, limit: Int): Flow<List<Series>>
+
     @Query("SELECT * FROM series WHERE name LIKE '%' || :query || '%' ORDER BY name LIMIT :limit")
     fun search(query: String, limit: Int = 200): Flow<List<Series>>
 

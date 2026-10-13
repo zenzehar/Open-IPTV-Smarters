@@ -1022,6 +1022,9 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
     fun movieCategoryPage(categoryId: String?, sourceId: Long?, filter: String, limit: Int) =
         graph.catalogRepository.observeMoviesPage(categoryId, sourceId, filter, limit)
 
+    fun seriesCategoryPage(categoryId: String?, sourceId: Long?, filter: String, limit: Int) =
+        graph.catalogRepository.observeSeriesPage(categoryId, sourceId, filter, limit)
+
     fun selectSeriesCategory(id: String?) { seriesCategory.value = id }
 
     /** True when at least one Stremio add-on is configured — gates the "add-on sources" button. */
