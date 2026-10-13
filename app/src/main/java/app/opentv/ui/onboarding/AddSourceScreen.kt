@@ -54,6 +54,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -103,6 +104,7 @@ fun AddSourceScreen(
     // Editing an existing provider always uses the direct form (the fields are pre-filled, and there
     // is nothing to pair); only a fresh add on a TV offers the phone-pairing QR first.
     var usePhone by remember { mutableStateOf(false) }
+    var pairedDraft by remember { mutableStateOf<Source?>(null) }
 
     if (usePhone) {
         PhonePairingScreen(
@@ -110,7 +112,10 @@ fun AddSourceScreen(
             // Return to manual entry with a visible failure reason instead of navigating Home.
             onReceived = { draft ->
                 viewModel.saveAndSync(draft) { ok ->
-                    if (ok) onFinished() else usePhone = false
+                    if (ok) onFinished() else {
+                        pairedDraft = draft
+                        usePhone = false
+                    }
                 }
             },
             onCancel = { usePhone = false },
@@ -137,6 +142,21 @@ fun AddSourceScreen(
     var confirmHttp by remember { mutableStateOf(false) }
     var revealPassword by remember { mutableStateOf(false) }
     var userAgent by remember(existing?.id) { mutableStateOf(existing?.userAgent ?: Source.DEFAULT_USER_AGENT) }
+
+    // Failed QR pairing returns to the editable form with the received credentials intact.
+    // Nothing was persisted if authentication failed, and the visible error remains available.
+    LaunchedEffect(pairedDraft) {
+        pairedDraft?.let { draft ->
+            kind = draft.kind
+            name = draft.name
+            url = draft.url
+            username = draft.username.orEmpty()
+            password = draft.password.orEmpty()
+            mac = draft.macAddress.orEmpty()
+            epgUrl = draft.epgUrl.orEmpty()
+            userAgent = draft.userAgent
+        }
+    }
 
     // Editing copies onto the existing row, so id, enabled state, live format and last-sync stamp
     // are preserved; a fresh add starts from a blank Source (id 0, so save() inserts).
@@ -387,7 +407,7 @@ fun AddSourceScreen(
                     ).forEach { (value, label) ->
                         FilterChip(
                             selected = kind == value,
-                            onClick = { kind = value },
+                            onClick = { kind = value; viewModel.clearConnectionResult() },
                             label = { Text(label, maxLines = 1) },
                             modifier = Modifier.padding(end = 5.dp),
                         )
