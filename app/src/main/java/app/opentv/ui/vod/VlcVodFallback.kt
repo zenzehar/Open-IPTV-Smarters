@@ -17,6 +17,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -265,7 +270,7 @@ fun VlcVodFallback(
     }
     LaunchedEffect(mediaKey) {
         while (isActive) {
-            delay(15_000L)
+            delay(10_000L)
             persistPosition()
         }
     }
@@ -321,6 +326,15 @@ fun VlcVodFallback(
             }
         }
         if (controlsVisible) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier.align(Alignment.TopStart)
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(
+                        WindowInsetsSides.Horizontal + WindowInsetsSides.Top))
+                    .padding(12.dp).background(Color.Black.copy(alpha = .65f), RoundedCornerShape(10.dp)),
+            ) {
+                Icon(Icons.Filled.ArrowBack, contentDescription = "Back to library", tint = Color.White)
+            }
             Column(
                 modifier = Modifier.align(Alignment.BottomCenter)
                     .fillMaxWidth()
@@ -358,18 +372,18 @@ fun VlcVodFallback(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     IconButton(onClick = {
-                        runCatching { player.setTime((player.time - 15_000L).coerceAtLeast(0L)) }
+                        runCatching { player.setTime((player.time - 10_000L).coerceAtLeast(0L)) }
                     }) {
-                        Icon(Icons.Filled.FastRewind, contentDescription = "Back 15 seconds", tint = Color.White)
+                        Icon(Icons.Filled.FastRewind, contentDescription = "Back 10 seconds", tint = Color.White)
                     }
                     IconButton(onClick = { if (playing) player.pause() else player.play() }) {
                         Icon(if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                             contentDescription = if (playing) "Pause" else "Play", tint = Color.White)
                     }
                     IconButton(onClick = {
-                        runCatching { player.setTime((player.time + 15_000L).coerceAtMost(durationMs.coerceAtLeast(0L))) }
+                        runCatching { player.setTime((player.time + 10_000L).coerceAtMost(durationMs.coerceAtLeast(0L))) }
                     }) {
-                        Icon(Icons.Filled.FastForward, contentDescription = "Forward 15 seconds", tint = Color.White)
+                        Icon(Icons.Filled.FastForward, contentDescription = "Forward 10 seconds", tint = Color.White)
                     }
                     if (nextEpisode != null) {
                         IconButton(onClick = { goNextOnce() }) {
