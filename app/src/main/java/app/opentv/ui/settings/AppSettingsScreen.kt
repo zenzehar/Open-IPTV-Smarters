@@ -67,6 +67,7 @@ fun AppSettingsScreen(onBack: () -> Unit) {
     val resetScope = rememberCoroutineScope()
     var confirmEpisodeReset by remember { mutableStateOf(false) }
     val themeMode by settings.themeMode.collectAsState()
+    val deviceMode by settings.deviceMode.collectAsState()
     val channelLayout by settings.channelLayout.collectAsState()
     val previewVideo by settings.guidePreviewVideo.collectAsState()
     val previewSound by settings.guidePreviewSound.collectAsState()
@@ -100,6 +101,22 @@ fun AppSettingsScreen(onBack: () -> Unit) {
         }
 
         Spacer(Modifier.height(20.dp))
+
+        SettingsSection("Device layout") {
+            Text("Automatically detects TVs and Fire TV devices. Override it if the interface looks wrong.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            ThemeOption("Automatic (recommended)", deviceMode == AppSettings.DeviceMode.AUTO) {
+                settings.setDeviceMode(AppSettings.DeviceMode.AUTO)
+            }
+            ThemeOption("TV / remote controls", deviceMode == AppSettings.DeviceMode.TV) {
+                settings.setDeviceMode(AppSettings.DeviceMode.TV)
+            }
+            ThemeOption("Phone / tablet touch", deviceMode == AppSettings.DeviceMode.MOBILE) {
+                settings.setDeviceMode(AppSettings.DeviceMode.MOBILE)
+            }
+        }
+        Spacer(Modifier.height(16.dp))
 
         SettingsSection(stringResource(R.string.settings_appearance)) {
             ThemeOption(stringResource(R.string.settings_theme_system), themeMode == AppSettings.ThemeMode.SYSTEM) {
