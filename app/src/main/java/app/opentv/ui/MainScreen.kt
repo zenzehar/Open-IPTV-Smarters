@@ -55,6 +55,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -168,7 +169,8 @@ fun MainScreen(
             add(DashboardTab.RECORDINGS)
         }
     }
-    var tab by remember { mutableStateOf(DashboardTab.HOME) }
+    // Returning from a movie/series detail restores its library tab instead of Home.
+    var tab by rememberSaveable { mutableStateOf(DashboardTab.HOME) }
     if (tab !in choices) tab = DashboardTab.HOME
     var showExit by remember { mutableStateOf(false) }
 
