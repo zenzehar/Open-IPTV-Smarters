@@ -260,6 +260,13 @@ private fun OpenTvApp(isTelevision: Boolean) {
     // Runs once; backing out returns to the guide and doesn't re-trigger.
     val bootContext = androidx.compose.ui.platform.LocalContext.current
     val bootSettings = remember { ServiceLocator.get(bootContext).settings }
+    val providerExpiryRevision by bootSettings.providerExpiryRevision.collectAsState()
+    val primarySource = sourcesUi.sources.firstOrNull { it.enabled } ?: sourcesUi.sources.firstOrNull()
+    // Collecting the revision ensures a background metadata refresh updates Home immediately.
+    val providerExpiryMillis = remember(primarySource?.id, providerExpiryRevision) {
+        primarySource?.id?.let { bootSettings.providerExpiryFor(it) }
+    }
+
     LaunchedEffect(start) {
         if (start == Routes.HOME && bootSettings.resumeLastChannel.value && bootSettings.lastChannelId != 0L) {
             navController.navigate(Routes.player(bootSettings.lastChannelId))
@@ -401,6 +408,8 @@ private fun OpenTvApp(isTelevision: Boolean) {
                         navController.navigate(Routes.vodPlayer(key, url, title, ua))
                     },
                     activeProfileName = activeProfileName,
+                    providerName = primarySource?.name ?: "No playlist",
+                    providerExpiryMillis = providerExpiryMillis,
                     vodViewModel = vodViewModel,
                 )
             }
