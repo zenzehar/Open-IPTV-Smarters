@@ -13,10 +13,20 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -37,6 +47,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -50,6 +64,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import app.opentv.R
 import app.opentv.data.model.Source
@@ -84,7 +101,7 @@ fun AddSourceScreen(
     val isTelevision = remember(context) { isRunningOnTelevision(context) }
     // Editing an existing provider always uses the direct form (the fields are pre-filled, and there
     // is nothing to pair); only a fresh add on a TV offers the phone-pairing QR first.
-    var usePhone by remember { mutableStateOf(isTelevision && editingSourceId == null) }
+    var usePhone by remember { mutableStateOf(false) }
 
     if (usePhone) {
         PhonePairingScreen(
@@ -113,6 +130,7 @@ fun AddSourceScreen(
     var mac by remember(existing?.id) { mutableStateOf(existing?.macAddress ?: "") }
     var epgUrl by remember(existing?.id) { mutableStateOf(existing?.epgUrl ?: "") }
     var showAdvanced by remember { mutableStateOf(false) }
+    var revealPassword by remember { mutableStateOf(false) }
     var userAgent by remember(existing?.id) { mutableStateOf(existing?.userAgent ?: Source.DEFAULT_USER_AGENT) }
 
     // Editing copies onto the existing row, so id, enabled state, live format and last-sync stamp
@@ -137,238 +155,229 @@ fun AddSourceScreen(
         SourceKind.STALKER -> mac.isNotBlank()
     }
 
-    // Native MyIPTV branding, with the familiar split-screen IPTV login layout on
-    // wide TVs. Keep the same functional form and system keyboard on narrow devices.
+    // Matches the reference's spatial hierarchy, palette and field proportions.
+    // The artwork and wordmark are original MyIPTV elements, not copied brand assets.
+    val rose = Color(0xFFEBC3D3)
+    val ink = Color(0xFF271B2A)
+    val fieldColors = OutlinedTextFieldDefaults.colors(
+        focusedContainerColor = rose,
+        unfocusedContainerColor = rose.copy(alpha = 0.94f),
+        focusedTextColor = ink,
+        unfocusedTextColor = ink,
+        focusedPlaceholderColor = ink.copy(alpha = 0.65f),
+        unfocusedPlaceholderColor = ink.copy(alpha = 0.65f),
+        focusedBorderColor = Color.White,
+        unfocusedBorderColor = Color.White.copy(alpha = 0.45f),
+        cursorColor = ink,
+        focusedLeadingIconColor = ink,
+        unfocusedLeadingIconColor = ink,
+        focusedTrailingIconColor = ink,
+        unfocusedTrailingIconColor = ink,
+    )
     BoxWithConstraints(
-        Modifier.fillMaxSize().background(
-            Brush.linearGradient(listOf(Color(0xFF4C2BC9), Color(0xFFAF4EAA), Color(0xFFF27F86))),
-        ),
+        Modifier.fillMaxSize()
+            .background(Brush.horizontalGradient(
+                listOf(Color(0xFF4D30D2), Color(0xFF9D48B6), Color(0xFFEF7384)),
+            ))
+            .windowInsetsPadding(WindowInsets.safeDrawing),
     ) {
-        val wide = isTelevision && maxWidth >= 800.dp
+        val wide = maxWidth >= 780.dp
+        val fieldHeight = if (wide) 66.dp else 56.dp
+        val fieldFont = if (wide) 22.sp else 17.sp
         Row(Modifier.fillMaxSize()) {
             if (wide) {
                 Column(
-                    Modifier.weight(0.42f).fillMaxHeight().padding(32.dp),
+                    Modifier.weight(0.46f).fillMaxHeight().padding(36.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
                 ) {
+                    // Large graphic wordmark, intentionally independent of Smarters assets.
                     Icon(Icons.Filled.Tv, contentDescription = null,
-                        modifier = Modifier.padding(12.dp), tint = Color.White)
+                        modifier = Modifier.padding(16.dp), tint = Color.White)
                     Text("MyIPTV", style = MaterialTheme.typography.displayLarge,
-                        color = Color.White, fontWeight = FontWeight.Bold)
-                    Text("Your channels. Your screen.", style = MaterialTheme.typography.titleMedium,
-                        color = Color.White.copy(alpha = 0.88f))
+                        color = Color.White, fontWeight = FontWeight.Light,
+                        maxLines = 1)
+                    Text("SMART TV PLAYER", style = MaterialTheme.typography.titleLarge,
+                        color = Color.White, fontWeight = FontWeight.Bold,
+                        maxLines = 1)
                 }
             }
             Column(
-                modifier = Modifier.weight(if (wide) 0.58f else 1f)
+                modifier = Modifier.weight(if (wide) 0.54f else 1f)
                     .fillMaxHeight()
                     .verticalScroll(rememberScrollState())
-                    .padding(if (wide) 24.dp else 16.dp),
+                    .padding(horizontal = if (wide) 28.dp else 22.dp, vertical = if (wide) 30.dp else 22.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(if (wide) 12.dp else 10.dp),
             ) {
-                Column(
-                    Modifier.widthIn(max = 640.dp)
-                        .background(Color.Black.copy(alpha = 0.14f), RoundedCornerShape(16.dp))
-                        .padding(20.dp),
-                ) {
-            Text(
-                stringResource(
-                    if (existing != null) R.string.settings_edit_provider_title
-                    else R.string.onboarding_add_provider_title,
-                ),
-                style = MaterialTheme.typography.displaySmall,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                stringResource(R.string.onboarding_add_provider_desc),
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            Spacer(Modifier.height(24.dp))
-
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                FilterChip(
-                    selected = kind == SourceKind.XTREAM,
-                    onClick = { kind = SourceKind.XTREAM },
-                    label = { Text(stringResource(R.string.onboarding_xtream_login)) },
-                )
-                FilterChip(
-                    selected = kind == SourceKind.M3U,
-                    onClick = { kind = SourceKind.M3U },
-                    label = { Text(stringResource(R.string.onboarding_m3u_url)) },
-                )
-                FilterChip(
-                    selected = kind == SourceKind.STALKER,
-                    onClick = { kind = SourceKind.STALKER },
-                    label = { Text(stringResource(R.string.onboarding_stalker_portal)) },
-                )
-            }
-
-            Spacer(Modifier.height(20.dp))
-
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text(stringResource(R.string.epg_name_optional)) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(12.dp))
-
-            OutlinedTextField(
-                value = url,
-                onValueChange = { url = it },
-                label = {
-                    Text(
-                        when (kind) {
-                            SourceKind.XTREAM -> stringResource(R.string.onboarding_server_address)
-                            SourceKind.M3U -> stringResource(R.string.onboarding_playlist_url)
-                            SourceKind.STALKER -> stringResource(R.string.onboarding_portal_url)
-                        },
-                    )
-                },
-                supportingText = {
-                    Text(
-                        when (kind) {
-                            SourceKind.XTREAM -> stringResource(R.string.onboarding_server_help)
-                            SourceKind.M3U -> stringResource(R.string.onboarding_playlist_help)
-                            SourceKind.STALKER -> stringResource(R.string.onboarding_portal_help)
-                        },
-                    )
-                },
-                trailingIcon = { PasteButton { url += it } },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            if (kind == SourceKind.XTREAM) {
-                Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = username,
-                    onValueChange = { username = it },
-                    label = { Text(stringResource(R.string.recset_field_username)) },
-                    trailingIcon = { PasteButton { username += it } },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = { Text(stringResource(R.string.recset_field_password)) },
-                    trailingIcon = { PasteButton { password += it } },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-
-            if (kind == SourceKind.STALKER) {
-                Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = mac,
-                    onValueChange = { mac = it },
-                    label = { Text(stringResource(R.string.onboarding_mac_address)) },
-                    supportingText = { Text(stringResource(R.string.onboarding_mac_help)) },
-                    trailingIcon = { PasteButton { mac += it } },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-
-            Spacer(Modifier.height(12.dp))
-            OutlinedButton(onClick = { showAdvanced = !showAdvanced }) {
-                Text(if (showAdvanced) stringResource(R.string.onboarding_hide_advanced) else stringResource(R.string.onboarding_advanced))
-            }
-
-            if (showAdvanced) {
-                Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = epgUrl,
-                    onValueChange = { epgUrl = it },
-                    label = { Text(stringResource(R.string.onboarding_guide_url_optional)) },
-                    supportingText = {
-                        Text(stringResource(R.string.onboarding_guide_blank_help))
-                    },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = userAgent,
-                    onValueChange = { userAgent = it },
-                    label = { Text("User-Agent") },
-                    supportingText = {
-                        Text(stringResource(R.string.onboarding_user_agent_help))
-                    },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-
-            Spacer(Modifier.height(20.dp))
-
-            ui.testResult?.let { message ->
-                Card(Modifier.fillMaxWidth()) {
-                    Text(message, Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)
+                if (!wide) {
+                    Text("MyIPTV", color = Color.White,
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.SemiBold)
                 }
-                Spacer(Modifier.height(12.dp))
-            }
-            ui.testError?.let { message ->
-                Card(Modifier.fillMaxWidth()) {
-                    Text(
-                        message,
-                        Modifier.padding(16.dp),
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodyMedium,
+                Text(
+                    if (existing != null) "Edit Your Login Details" else "Enter Your Login Details",
+                    style = if (wide) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.titleLarge,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                )
+                Spacer(Modifier.height(if (wide) 12.dp else 6.dp))
+
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    placeholder = { Text("Playlist name") },
+                    singleLine = true,
+                    colors = fieldColors,
+                    textStyle = TextStyle(fontSize = fieldFont, color = ink),
+                    modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = fieldHeight),
+                )
+                if (kind == SourceKind.XTREAM) {
+                    OutlinedTextField(
+                        value = username,
+                        onValueChange = { username = it },
+                        placeholder = { Text("Username") },
+                        singleLine = true,
+                        colors = fieldColors,
+                        textStyle = TextStyle(fontSize = fieldFont, color = ink),
+                        modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = fieldHeight),
+                    )
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        placeholder = { Text("Password") },
+                        singleLine = true,
+                        visualTransformation = if (revealPassword) VisualTransformation.None
+                            else PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        trailingIcon = {
+                            IconButton(onClick = { revealPassword = !revealPassword }) {
+                                Icon(if (revealPassword) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+                                    contentDescription = if (revealPassword) "Hide password" else "Show password",
+                                    tint = ink)
+                            }
+                        },
+                        colors = fieldColors,
+                        textStyle = TextStyle(fontSize = fieldFont, color = ink),
+                        modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = fieldHeight),
                     )
                 }
-                Spacer(Modifier.height(12.dp))
-            }
-            ui.syncMessage?.let { message ->
-                Text(message, style = MaterialTheme.typography.bodyMedium)
-                Spacer(Modifier.height(12.dp))
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(
-                    onClick = { viewModel.test(draft()) },
-                    enabled = canSubmit && !ui.testing && !ui.syncing,
-                ) {
-                    if (ui.testing) {
-                        CircularProgressIndicator(Modifier.height(18.dp), strokeWidth = 2.dp)
-                    } else {
-                        Text(stringResource(R.string.recset_test_connection))
-                    }
+                OutlinedTextField(
+                    value = url,
+                    onValueChange = { url = it },
+                    placeholder = {
+                        Text(if (kind == SourceKind.M3U) "M3U playlist URL"
+                            else if (kind == SourceKind.STALKER) "Portal URL"
+                            else "http://server-address:port")
+                    },
+                    singleLine = true,
+                    colors = fieldColors,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                    textStyle = TextStyle(fontSize = fieldFont, color = ink),
+                    modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = fieldHeight),
+                )
+                if (kind == SourceKind.STALKER) {
+                    OutlinedTextField(
+                        value = mac,
+                        onValueChange = { mac = it },
+                        placeholder = { Text("MAC address") },
+                        singleLine = true,
+                        colors = fieldColors,
+                        textStyle = TextStyle(fontSize = fieldFont, color = ink),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
                 Button(
                     onClick = { viewModel.saveAndSync(draft()) { ok -> if (ok) onFinished() } },
                     enabled = canSubmit && !ui.testing && !ui.syncing,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.White,
+                        contentColor = Color(0xFF1E1826),
+                        disabledContainerColor = Color.White.copy(alpha = 0.58f),
+                        disabledContentColor = Color(0xFF423943),
+                    ),
+                    shape = RoundedCornerShape(4.dp),
+                    modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 60.dp),
                 ) {
-                    Text(if (ui.syncing) stringResource(R.string.onboarding_working) else stringResource(R.string.onboarding_save_load))
+                    if (ui.syncing) CircularProgressIndicator(
+                        modifier = Modifier.padding(4.dp).height(19.dp),
+                        color = ink, strokeWidth = 2.dp,
+                    ) else Text(if (existing == null) "ADD USER" else "SAVE USER",
+                        fontSize = if (wide) 22.sp else 17.sp, fontWeight = FontWeight.Medium)
                 }
-            }
-
-            // "Set up from your phone" (the QR pairing flow) is offered only on a TV — see the
-            // isTelevision note above. On a phone it would just show a QR to nowhere.
-            if (isTelevision) {
-                Spacer(Modifier.height(20.dp))
-                OutlinedButton(onClick = { usePhone = true }) {
-                    Text(stringResource(R.string.onboarding_use_phone))
+                if (ui.sources.isNotEmpty()) {
+                    TextButton(onClick = onFinished, enabled = !ui.syncing) {
+                        Icon(Icons.Filled.Person, contentDescription = null, tint = Color.White)
+                        Spacer(Modifier.width(10.dp))
+                        Text("LIST USERS", color = Color.White,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold)
+                    }
                 }
-            }
-
-            Spacer(Modifier.height(28.dp))
-            Text(
-                stringResource(R.string.onboarding_privacy_note),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    listOf(
+                        SourceKind.XTREAM to "Xtream",
+                        SourceKind.M3U to "M3U",
+                        SourceKind.STALKER to "Stalker",
+                    ).forEach { (value, label) ->
+                        FilterChip(
+                            selected = kind == value,
+                            onClick = { kind = value },
+                            label = { Text(label, maxLines = 1) },
+                            modifier = Modifier.padding(end = 5.dp),
+                        )
+                    }
                 }
+                TextButton(
+                    onClick = { showAdvanced = !showAdvanced },
+                ) {
+                    Icon(Icons.Filled.Settings, contentDescription = null, tint = Color.White)
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (showAdvanced) "HIDE ADVANCED SETTINGS" else "ADVANCED SETTINGS",
+                        color = Color.White)
+                }
+                if (showAdvanced) {
+                    OutlinedTextField(
+                        value = epgUrl,
+                        onValueChange = { epgUrl = it },
+                        placeholder = { Text("Optional EPG URL") },
+                        colors = fieldColors,
+                        textStyle = TextStyle(color = ink),
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                    )
+                    OutlinedTextField(
+                        value = userAgent,
+                        onValueChange = { userAgent = it },
+                        placeholder = { Text("User-Agent") },
+                        colors = fieldColors,
+                        textStyle = TextStyle(color = ink),
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                    )
+                }
+                ui.testResult?.let { Text(it, color = Color.White) }
+                ui.testError?.let { Text(it, color = Color.White, fontWeight = FontWeight.Bold) }
+                ui.syncMessage?.let { Text(it, color = Color.White) }
+                OutlinedButton(
+                    onClick = { viewModel.test(draft()) },
+                    enabled = canSubmit && !ui.syncing && !ui.testing,
+                ) { Text(if (ui.testing) "Checking…" else "TEST CONNECTION", color = Color.White) }
+                if (isTelevision) {
+                    OutlinedButton(onClick = { usePhone = true }) {
+                        Text("CONNECT FROM PHONE", color = Color.White)
+                    }
+                }
+                Text(
+                    stringResource(R.string.onboarding_privacy_note),
+                    color = Color.White.copy(alpha = 0.82f),
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
         }
     }
