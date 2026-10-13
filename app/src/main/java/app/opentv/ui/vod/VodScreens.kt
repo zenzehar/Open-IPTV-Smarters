@@ -72,6 +72,7 @@ import app.opentv.data.model.Series
 import app.opentv.data.model.Source
 import app.opentv.data.parser.displayTitle
 import app.opentv.ui.VodViewModel
+import app.opentv.ui.VodLoadPhase
 import coil.compose.AsyncImage
 
 /**
@@ -97,7 +98,7 @@ fun MoviesScreen(
     val genreRows by viewModel.movieGenreRows.collectAsState()
     val categoryMovies by viewModel.movies.collectAsState()
     val allMovies by viewModel.allMovies.collectAsState()
-    val vodLoading by viewModel.vodLoading.collectAsState()
+    val loadState by viewModel.movieStatus.collectAsState()
     val sources by viewModel.sources.collectAsState()
     val selectedSource by viewModel.selectedVodSource.collectAsState()
 
@@ -130,7 +131,7 @@ fun MoviesScreen(
             )
     }
     val entries = (vodSections() + categories.map { it.id to it.name }).distinctBy { it.first }
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().background(Color(0xFF0C1526))) {
         if (!isTelevision) SearchAffordance(onOpenSearch)
         if (sources.size > 1) ProviderChips(
             sources = sources,
@@ -148,12 +149,19 @@ fun MoviesScreen(
                 onSelectCategory = onCategory,
             ) {
                 when {
+                    loadState.phase == VodLoadPhase.PENDING || loadState.phase == VodLoadPhase.LOADING ->
+                        LoadingVod(loadState.message.ifBlank { "Loading movies…" })
+                    loadState.phase == VodLoadPhase.FAILED ->
+                        VodLoadFailure("Movies are unavailable", loadState.message, viewModel::refreshVod)
+                    loadState.phase == VodLoadPhase.READY && allMovies.isEmpty() ->
+                        LoadingVod("Preparing movie catalogue…")
                     browseCategory == CONTINUE_WATCHING_CATEGORY -> ContinueWatchingGrid(resume, onResume, isTelevision)
                     browseCategory == FAVOURITES_CATEGORY -> MovieCategoryGrid(scopedMovies.filter { it.favourite }, viewModel, onOpenMovie)
                     browseCategory == RECENTLY_ADDED_CATEGORY -> MovieCategoryGrid(recentlyAdded, viewModel, onOpenMovie)
                     browseCategory != null -> MovieCategoryGrid(categoryMovies.filter { selectedSource == null || it.sourceId == selectedSource }, viewModel, onOpenMovie)
                     !hasContent -> when {
-                        vodLoading || isSyncing -> LoadingVod(stringResource(R.string.vod_loading_movies))
+                        loadState.phase == VodLoadPhase.LOADING || isSyncing -> LoadingVod(stringResource(R.string.vod_loading_movies))
+                        scopedMovies.isNotEmpty() -> MovieCategoryGrid(scopedMovies, viewModel, onOpenMovie)
                         hasSources -> EmptyVod(stringResource(R.string.vod_no_movies), stringResource(R.string.vod_no_movies_provider))
                         else -> EmptyVod(stringResource(R.string.vod_no_movies), stringResource(R.string.vod_no_movies_add))
                     }
@@ -196,7 +204,7 @@ fun SeriesScreen(
     val genreRows by viewModel.seriesGenreRows.collectAsState()
     val categorySeries by viewModel.series.collectAsState()
     val allSeries by viewModel.allSeries.collectAsState()
-    val vodLoading by viewModel.vodLoading.collectAsState()
+    val loadState by viewModel.seriesStatus.collectAsState()
     val sources by viewModel.sources.collectAsState()
     val selectedSource by viewModel.selectedVodSource.collectAsState()
 
@@ -228,7 +236,7 @@ fun SeriesScreen(
             )
     }
     val entries = (vodSections() + categories.map { it.id to it.name }).distinctBy { it.first }
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().background(Color(0xFF0C1526))) {
         if (!isTelevision) SearchAffordance(onOpenSearch)
         if (sources.size > 1) ProviderChips(
             sources = sources,
@@ -246,12 +254,19 @@ fun SeriesScreen(
                 onSelectCategory = onCategory,
             ) {
                 when {
+                    loadState.phase == VodLoadPhase.PENDING || loadState.phase == VodLoadPhase.LOADING ->
+                        LoadingVod(loadState.message.ifBlank { "Loading series…" })
+                    loadState.phase == VodLoadPhase.FAILED ->
+                        VodLoadFailure("Series are unavailable", loadState.message, viewModel::refreshVod)
+                    loadState.phase == VodLoadPhase.READY && allSeries.isEmpty() ->
+                        LoadingVod("Preparing series catalogue…")
                     browseCategory == CONTINUE_WATCHING_CATEGORY -> ContinueWatchingGrid(resume, onResume, isTelevision)
                     browseCategory == FAVOURITES_CATEGORY -> SeriesCategoryGrid(scopedSeries.filter { it.favourite }, onOpenSeries)
                     browseCategory == RECENTLY_ADDED_CATEGORY -> SeriesCategoryGrid(recentlyAdded, onOpenSeries)
                     browseCategory != null -> SeriesCategoryGrid(categorySeries.filter { selectedSource == null || it.sourceId == selectedSource }, onOpenSeries)
                     !hasContent -> when {
-                        vodLoading || isSyncing -> LoadingVod(stringResource(R.string.vod_loading_shows))
+                        loadState.phase == VodLoadPhase.LOADING || isSyncing -> LoadingVod(stringResource(R.string.vod_loading_shows))
+                        scopedSeries.isNotEmpty() -> SeriesCategoryGrid(scopedSeries, onOpenSeries)
                         hasSources -> EmptyVod(stringResource(R.string.vod_no_shows), stringResource(R.string.vod_no_shows_provider))
                         else -> EmptyVod(stringResource(R.string.vod_no_shows), stringResource(R.string.vod_no_shows_add))
                     }
@@ -373,14 +388,32 @@ private fun VodBrowserFrame(
             Box(Modifier.weight(1f).fillMaxHeight()) { page() }
         }
     } else {
+        var drawerOpen by remember { mutableStateOf(false) }
         Box(Modifier.fillMaxSize()) {
-            Row(Modifier.fillMaxSize()) {
-                Spacer(Modifier.width(62.dp))
-                Box(Modifier.weight(1f).fillMaxHeight()) { page() }
+            page()
+            if (drawerOpen) {
+                Box(Modifier.fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.68f))
+                    .clickable { drawerOpen = false })
+                VodCategorySidebar(
+                    entries, counts, selected, true,
+                    onSelectHome = { onSelectHome(); drawerOpen = false },
+                    onSelectCategory = { onSelectCategory(it); drawerOpen = false },
+                    modifier = Modifier.align(Alignment.CenterStart).zIndex(2f),
+                    onDismiss = { drawerOpen = false },
+                )
+            } else {
+                IconButton(
+                    onClick = { drawerOpen = true },
+                    modifier = Modifier.align(Alignment.TopStart)
+                        .padding(8.dp)
+                        .background(Color(0xFF087688), RoundedCornerShape(8.dp))
+                        .zIndex(2f),
+                ) {
+                    Icon(Icons.Filled.Menu, contentDescription = "Browse categories",
+                        tint = Color.White)
+                }
             }
-            // Expansion overlays the grid instead of reducing the phone to a tiny poster column.
-            VodCategorySidebar(entries, counts, selected, false, onSelectHome, onSelectCategory,
-                Modifier.align(Alignment.CenterStart).zIndex(2f))
         }
     }
 }
@@ -394,6 +427,7 @@ private fun VodCategorySidebar(
     onSelectHome: () -> Unit,
     onSelectCategory: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onDismiss: (() -> Unit)? = null,
 ) {
     var expanded by remember(isTelevision) { mutableStateOf(isTelevision) }
     var categorySearch by remember { mutableStateOf("") }
@@ -403,11 +437,11 @@ private fun VodCategorySidebar(
     }
     val chooseHome: () -> Unit = {
         onSelectHome()
-        if (!isTelevision) expanded = false
+        if (onDismiss != null) onDismiss() else if (!isTelevision) expanded = false
     }
     val chooseCategory: (String) -> Unit = { id ->
         onSelectCategory(id)
-        if (!isTelevision) expanded = false
+        if (onDismiss != null) onDismiss() else if (!isTelevision) expanded = false
     }
     Column(
         modifier = modifier
@@ -419,7 +453,7 @@ private fun VodCategorySidebar(
             Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = { expanded = !expanded }) {
+            IconButton(onClick = { if (onDismiss != null) onDismiss() else expanded = !expanded }) {
                 Icon(
                     if (expanded) Icons.Filled.Menu else Icons.Filled.ChevronRight,
                     contentDescription = if (expanded) "Collapse categories" else "Expand categories",
@@ -911,7 +945,7 @@ private fun SearchAffordance(onOpenSearch: () -> Unit) {
             .clip(RoundedCornerShape(10.dp))
             .background(
                 if (focused) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.surfaceVariant,
+                else Color(0xFF1C2A43),
             )
             .onFocusChanged { focused = it.isFocused }
             .clickable(onClick = onOpenSearch)
@@ -919,7 +953,7 @@ private fun SearchAffordance(onOpenSearch: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         val tint = if (focused) MaterialTheme.colorScheme.onPrimary
-        else MaterialTheme.colorScheme.onSurfaceVariant
+        else Color.White
         Icon(Icons.Filled.Search, contentDescription = null, tint = tint)
         Spacer(Modifier.width(12.dp))
         Text(
@@ -934,9 +968,9 @@ private fun SearchAffordance(onOpenSearch: () -> Unit) {
 private fun EmptyVod(title: String, body: String) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(title, style = MaterialTheme.typography.headlineSmall)
+            Text(title, style = MaterialTheme.typography.headlineSmall, color = Color.White)
             Spacer(Modifier.height(8.dp))
-            Text(body, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(body, color = Color(0xFFBDCBDF), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
         }
     }
 }
@@ -947,12 +981,26 @@ private fun LoadingVod(message: String) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             CircularProgressIndicator()
             Spacer(Modifier.height(16.dp))
-            Text(message, style = MaterialTheme.typography.headlineSmall)
+            Text(message, style = MaterialTheme.typography.headlineSmall, color = Color.White)
             Spacer(Modifier.height(8.dp))
             Text(
                 stringResource(R.string.vod_large_provider_note),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = Color(0xFFB4C3D6),
             )
+        }
+    }
+}
+
+@Composable
+private fun VodLoadFailure(title: String, message: String, onRetry: () -> Unit) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(title, color = Color.White, style = MaterialTheme.typography.titleLarge)
+            Text(message, color = Color(0xFFB4C3D6),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            androidx.compose.material3.Button(onClick = onRetry) { Text("Retry loading") }
         }
     }
 }
