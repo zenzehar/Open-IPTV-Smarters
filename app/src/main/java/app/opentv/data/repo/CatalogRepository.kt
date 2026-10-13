@@ -740,7 +740,7 @@ class CatalogRepository(
 
     private fun providerFailureDescription(error: Throwable): String {
         val reason = error.message.orEmpty()
-        val code = Regex("""HTTP\\s+(\\d{3})""").find(reason)?.groupValues?.getOrNull(1)
+        val code = Regex("""HTTP\s+(\d{3})""").find(reason)?.groupValues?.getOrNull(1)
         return when {
             code == "429" -> "Provider is rate limiting requests (HTTP 429). Wait and retry."
             code == "401" || code == "403" -> "Provider denied access (HTTP $code). Verify subscription."
