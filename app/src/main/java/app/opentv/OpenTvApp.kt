@@ -19,6 +19,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 
 class OpenTvApp : Application(), ImageLoaderFactory {
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -60,6 +61,7 @@ class OpenTvApp : Application(), ImageLoaderFactory {
         super.onCreate()
         val graph = ServiceLocator.get(this)
         SyncWorker.schedule(this)
+        SyncWorker.refreshDueAtStartup(this)
         app.opentv.data.work.NasAutoSyncWorker.schedule(this, graph.settings.nasAutoSync.value)
 
         // When the normaliser has moved on since the catalogue was last processed, re-clean
@@ -108,7 +110,9 @@ class OpenTvApp : Application(), ImageLoaderFactory {
             // refresh window are skipped), but it is what makes the free regional guide turn
             // itself on and download the first time — without waiting for the user to find
             // the refresh button. ensureFeeds + auto-enable-by-region + matcher all live here.
-            graph.epgRepository.syncAll(System.currentTimeMillis(), force = false)
+            graph.catalogueRefreshMutex.withLock {
+                graph.epgRepository.syncAll(System.currentTimeMillis(), force = false)
+            }
         }
     }
 }
