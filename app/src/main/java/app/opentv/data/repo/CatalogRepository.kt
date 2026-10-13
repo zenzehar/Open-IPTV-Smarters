@@ -646,12 +646,27 @@ class CatalogRepository(
         }
     }
 
-    /** Movies + series — best-effort, meant to run in the background so a huge VOD list never
-     * blocks live TV. Silent on failure: an account with no VOD is normal, not an error. */
-    suspend fun syncVod(source: Source, nowUtcMillis: Long) = withContext(Dispatchers.IO) {
-        runCatching { if (source.kind == SourceKind.XTREAM) syncXtreamVod(source, nowUtcMillis) }
-            .onFailure { Log.w(TAG, "VOD sync failed for source ${source.id}", it) }
-    }
+    /**
+     * Preserve failures for the UI. A network/credential error is not an empty
+     * catalogue, and users must not see "No movies" during or after such a failure.
+     */
+    data class VodSyncResult(
+        val movieError: String? = null,
+        val seriesError: String? = null,
+    )
+
+    suspend fun syncVod(source: Source, nowUtcMillis: Long): VodSyncResult =
+        withContext(Dispatchers.IO) {
+            if (source.kind != SourceKind.XTREAM) return@withContext VodSyncResult()
+            try {
+                syncXtreamVod(source, nowUtcMillis)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "VOD sync failed for source ${source.id}", e)
+                VodSyncResult(e.message ?: "Movie download failed", e.message ?: "Series download failed")
+            }
+        }
 
     private suspend fun syncXtreamLive(source: Source, nowUtcMillis: Long): SyncResult {
         // Authenticate first so a wrong password produces a clear message rather than
@@ -708,32 +723,43 @@ class CatalogRepository(
         return runCatching { stalkerApi.createLink(source, cmd) }.getOrNull() ?: channel.streamUrl
     }
 
-    private suspend fun syncXtreamVod(source: Source, nowUtcMillis: Long) {
-        // VOD is optional: plenty of accounts have live TV only, and a 404 on get_vod_streams
-        // must not cost the user their channel list. Movies and series are gated independently so
-        // a user who only turned off, say, Series still gets their movie library refreshed.
+    private suspend fun syncXtreamVod(source: Source, nowUtcMillis: Long): VodSyncResult {
         val moviesOn = settings.moviesEnabled.value
         val seriesOn = settings.seriesEnabled.value
-        if (!moviesOn && !seriesOn) return
+        if (!moviesOn && !seriesOn) return VodSyncResult()
 
-        val movieCategories =
-            if (moviesOn) runCatching { api.movieCategories(source) }.getOrDefault(emptyList())
-            else emptyList()
-        val movies =
-            if (moviesOn) runCatching { api.movies(source) }.getOrDefault(emptyList())
-            else emptyList()
-        val seriesCategories =
-            if (seriesOn) runCatching { api.seriesCategories(source) }.getOrDefault(emptyList())
-            else emptyList()
-        val series =
-            if (seriesOn) runCatching { api.series(source) }.getOrDefault(emptyList())
-            else emptyList()
-
-        if (movieCategories.isNotEmpty() || seriesCategories.isNotEmpty()) {
-            categoryDao.upsertAll(movieCategories + seriesCategories)
+        suspend fun <T> fetch(block: suspend () -> T): Result<T> = try {
+            Result.success(block())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "VOD provider request failed (source ${source.id})", e)
+            Result.failure(e)
         }
-        if (movies.isNotEmpty()) movieDao.upsertAll(movies)
-        if (series.isNotEmpty()) seriesDao.upsertAll(series)
+
+        val movieCategories = if (moviesOn) fetch { api.movieCategories(source) }
+            else Result.success(emptyList())
+        val movies = if (moviesOn) fetch { api.movies(source) }
+            else Result.success(emptyList())
+        val seriesCategories = if (seriesOn) fetch { api.seriesCategories(source) }
+            else Result.success(emptyList())
+        val series = if (seriesOn) fetch { api.series(source) }
+            else Result.success(emptyList())
+
+        // A failure in one service must not block the other one; keep existing Room
+        // catalogue rows intact if a request fails or returns an empty response.
+        val categoriesToSave = movieCategories.getOrNull().orEmpty() +
+            seriesCategories.getOrNull().orEmpty()
+        if (categoriesToSave.isNotEmpty()) categoryDao.upsertAll(categoriesToSave)
+        val downloadedMovies = movies.getOrNull().orEmpty()
+        val downloadedSeries = series.getOrNull().orEmpty()
+        if (downloadedMovies.isNotEmpty()) movieDao.upsertAll(downloadedMovies)
+        if (downloadedSeries.isNotEmpty()) seriesDao.upsertAll(downloadedSeries)
+
+        return VodSyncResult(
+            movieError = if (moviesOn) (movies.exceptionOrNull() ?: movieCategories.exceptionOrNull())?.message else null,
+            seriesError = if (seriesOn) (series.exceptionOrNull() ?: seriesCategories.exceptionOrNull())?.message else null,
+        )
     }
 
     private suspend fun syncM3u(source: Source, nowUtcMillis: Long): SyncResult {
