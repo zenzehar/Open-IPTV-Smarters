@@ -148,6 +148,34 @@ interface ChannelDao {
     )
     fun search(query: String, limit: Int = 200): Flow<List<Channel>>
 
+    /** Search without leaving the selected Live category/EPG layout. Bound the result set. */
+    @Query("""
+        SELECT * FROM channels
+        WHERE hidden = 0
+          AND (:sourceId IS NULL OR sourceId = :sourceId)
+          AND (:onlyFavourites = 0 OR favourite = 1)
+          AND (displayName LIKE '%' || :query || '%'
+               OR name LIKE '%' || :query || '%'
+               OR customName LIKE '%' || :query || '%')
+        ORDER BY favourite DESC, sortIndex, displayName
+        LIMIT 1000
+    """)
+    fun searchScoped(query: String, sourceId: Long?, onlyFavourites: Boolean): Flow<List<Channel>>
+
+    @Query("""
+        SELECT * FROM channels
+        WHERE hidden = 0
+          AND (:sourceId IS NULL OR sourceId = :sourceId)
+          AND categoryId IN (:categoryIds)
+          AND (displayName LIKE '%' || :query || '%'
+               OR name LIKE '%' || :query || '%'
+               OR customName LIKE '%' || :query || '%')
+        ORDER BY favourite DESC, sortIndex, displayName
+        LIMIT 1000
+    """)
+    fun searchInCategoriesScoped(query: String, sourceId: Long?,
+        categoryIds: List<String>): Flow<List<Channel>>
+
     /** Like [search] but keeps hidden channels in — the channel manager needs them to unhide. */
     @Query(
         """

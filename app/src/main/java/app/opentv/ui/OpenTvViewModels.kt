@@ -543,7 +543,11 @@ class ChannelsViewModel(app: Application) : AndroidViewModel(app) {
             .combine(selectedSource) { key, source -> key to source }
             .flatMapLatest { (key, source) ->
                 val channelFlow = when {
-                    key.query.isNotBlank() -> graph.catalogRepository.searchChannels(key.query)
+                    key.query.isNotBlank() && key.categoryIds != null ->
+                        graph.catalogRepository.searchChannelsInCategoriesScoped(
+                            key.query, source, key.categoryIds)
+                    key.query.isNotBlank() ->
+                        graph.catalogRepository.searchChannelsScoped(key.query, source, key.favs)
                     key.favs -> graph.catalogRepository.observeFavouriteChannels()
                     key.categoryIds != null -> graph.catalogRepository.observeChannelsIn(key.categoryIds)
                     else -> graph.catalogRepository.observeChannels(source)

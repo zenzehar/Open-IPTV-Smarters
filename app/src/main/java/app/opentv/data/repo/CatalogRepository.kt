@@ -183,6 +183,12 @@ class CatalogRepository(
 
     fun searchChannels(query: String): Flow<List<Channel>> = channelDao.search(query)
 
+    fun searchChannelsScoped(query: String, sourceId: Long?, favouritesOnly: Boolean):
+        Flow<List<Channel>> = channelDao.searchScoped(query, sourceId, favouritesOnly)
+
+    fun searchChannelsInCategoriesScoped(query: String, sourceId: Long?, categoryIds: List<String>):
+        Flow<List<Channel>> = channelDao.searchInCategoriesScoped(query, sourceId, categoryIds)
+
     fun searchChannelsIncludingHidden(query: String): Flow<List<Channel>> =
         channelDao.searchIncludingHidden(query)
 
