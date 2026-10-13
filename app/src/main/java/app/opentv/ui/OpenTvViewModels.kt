@@ -101,6 +101,18 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             graph.sourceRepository.observeAll().collect { sources ->
                 _ui.value = _ui.value.copy(sources = sources, loaded = true)
+                // A low-frequency provider lookup populates expiry on first Home open,
+                // then revalidates it at most once per day. Never block catalogue browsing.
+                sources.filter { it.enabled && it.kind == SourceKind.XTREAM }.forEach { source ->
+                    if (System.currentTimeMillis() - settings.expiryLastChecked(source.id) > 86_400_000L) {
+                        // Mark the attempt up front, so a Room emission cannot start a duplicate.
+                        settings.recordExpiryCheckAttempt(source.id)
+                        viewModelScope.launch {
+                            val check = graph.sourceRepository.testDetailed(source).getOrNull()
+                            if (check != null) settings.recordProviderExpiry(source.id, check.expiryMillis)
+                        }
+                    }
+                }
             }
         }
     }
@@ -117,10 +129,18 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
             _ui.value = _ui.value.copy(testing = true, testResult = null,
                 testError = null, syncError = null, syncMessage = null)
             try {
-                val result = graph.sourceRepository.test(draft)
+                val result = graph.sourceRepository.testDetailed(draft)
+                // Display expiry immediately when testing unchanged saved credentials.
+                if (result.isSuccess && draft.id != 0L) {
+                    val saved = graph.sourceRepository.byId(draft.id)
+                    if (saved?.url == draft.url && saved.username == draft.username &&
+                        saved.password == draft.password) {
+                        settings.recordProviderExpiry(draft.id, result.getOrNull()?.expiryMillis)
+                    }
+                }
                 _ui.value = _ui.value.copy(
                     testing = false,
-                    testResult = result.getOrNull(),
+                    testResult = result.getOrNull()?.message,
                     testError = result.exceptionOrNull()?.let { safeRefreshFailure(it.message) },
                 )
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -144,7 +164,7 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
                 failedStages = emptySet(), completedStages = emptySet(),
                 failureMessages = emptyMap(), refreshStage = null)
             try {
-                val verification = graph.sourceRepository.test(draft)
+                val verification = graph.sourceRepository.testDetailed(draft)
                 if (verification.isFailure) {
                     _ui.value = _ui.value.copy(syncing = false, syncMessage = null,
                         syncError = safeRefreshFailure(verification.exceptionOrNull()?.message))
@@ -182,6 +202,7 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
                         return@launch
                     }
                     is CatalogRepository.SyncResult.Success -> {
+                        settings.recordProviderExpiry(id, verification.getOrNull()?.expiryMillis)
                         _ui.value = _ui.value.copy(syncing = false, syncError = null,
                             syncMessage = "Loaded ${result.channelCount} channels. " +
                                 "Guide and on-demand sections can update in the background.")
