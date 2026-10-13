@@ -1397,9 +1397,8 @@ class ProfilesViewModel(app: Application) : AndroidViewModel(app) {
 
     fun remove(id: Long) {
         viewModelScope.launch {
-            val existing = graph.profiles.all()
-            if (existing.size <= 1 || existing.none { it.id == id }) return@launch
-            val replacement = existing.first { it.id != id }.id
+            val replacement = replacementProfileId(graph.profiles.all(), id)
+                ?: return@launch
             // Switch first so no observer can read a deleted active profile.
             if (settings.activeProfileId.value == id) settings.setActiveProfile(replacement)
             graph.profiles.detachRecordings(id)
