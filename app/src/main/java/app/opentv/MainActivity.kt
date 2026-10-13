@@ -338,6 +338,7 @@ private fun OpenTvApp(isTelevision: Boolean) {
                     refreshStage = sourcesUi.refreshStage,
                     refreshedStages = sourcesUi.completedStages,
                     failedRefreshStages = sourcesUi.failedStages,
+                    failedRefreshMessages = sourcesUi.failureMessages,
                     refreshMessage = sourcesUi.syncMessage,
                     liveCatalogueTimestamp = sourcesUi.sources.maxOfOrNull { it.lastCatalogSyncMillis } ?: 0L,
                     onPlayChannel = { channel -> navController.navigate(Routes.player(channel.id)) },
