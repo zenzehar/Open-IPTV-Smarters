@@ -172,11 +172,11 @@ fun MainScreen(
         // Cached Live TV is ready while another category updates, not "Waiting".
         isSyncing && key == "live" && (liveUpdated > 0L || liveCatalogueTimestamp > 0L) -> ""
         isSyncing -> "WAITING"
-        key == "movies" && movieLoad.phase == VodLoadPhase.LOADING -> "UPDATING"
-        key == "movies" && movieLoad.phase == VodLoadPhase.PENDING -> "WAITING"
+        key == "movies" && movieLoad.phase == VodLoadPhase.LOADING &&
+            movieLoad.message.startsWith("Movies · provider") -> "UPDATING"
         key == "movies" && movieLoad.phase == VodLoadPhase.FAILED -> "FAILED"
-        key == "series" && seriesLoad.phase == VodLoadPhase.LOADING -> "UPDATING"
-        key == "series" && seriesLoad.phase == VodLoadPhase.PENDING -> "WAITING"
+        key == "series" && seriesLoad.phase == VodLoadPhase.LOADING &&
+            seriesLoad.message.startsWith("Series · provider") -> "UPDATING"
         key == "series" && seriesLoad.phase == VodLoadPhase.FAILED -> "FAILED"
         else -> ""
     }

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.12.17 — Seek reliability, VLC Back, remote OK hold and startup status
+
+- Keep the movie seek thumb at the requested position until Media3 confirms the seek; retry ignored or unsupported seek operations through embedded VLC with the target position.
+- Keep the VLC output attached during the deferred Back transition; route Back from VLC's visible/hidden control states through one guarded exit request. Prevent double pops if Back is pressed repeatedly.
+- Implement native remote OK/Enter held-duration handling for Continue Watching cards, independent of Compose touch long-click. MENU key also opens the same actions; short OK still resumes.
+- Remove the redundant preview poster and 'Select the poster to resume playback' pane in Continue Watching. Cards now occupy the available content width.
+- Prevent false dashboard 'updating' badges during a warm cached VOD check; only show UPDATING for actual foreground provider downloads.
+- Skip startup WorkManager enqueuing if persisted per-section stamps show the configured interval has not passed. Retain worker-level due checks and periodic Android scheduling.
+- Keep existing package IDs and saved user data; device verification remains required for seek support, native VLC lifecycle and remote key events.
+
+
 ## 0.12.16 — Live category search, launch refresh, Continue Watching reset and safer navigation
 
 - Search live category names within the TV sidebar or phone category bar, independent of the existing channel-title search.

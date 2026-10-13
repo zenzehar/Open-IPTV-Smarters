@@ -132,6 +132,7 @@ fun VodPlayerScreen(
     val graph = remember { ServiceLocator.get(context) }
     val settings = remember { graph.settings }
     var leavingPlayer by remember { mutableStateOf(false) }
+    var vlcInitialSeekMs by remember(mediaKey) { mutableStateOf<Long?>(null) }
     fun requestPlayerExit() {
         if (!leavingPlayer) {
             leavingPlayer = true
@@ -182,16 +183,31 @@ fun VodPlayerScreen(
             quickVodStart = !growingRec,
         )
     }
-    // Skip forward/back within the recorded portion. For a growing recording ExoPlayer won't report
-    // the item as seekable (no fixed length), so we seek directly, clamped to what's on disk.
-    fun seekRelative(deltaMs: Long) {
+    var useVlc by remember(mediaKey) { mutableStateOf(false) }
+    var pendingSeek by remember(mediaKey) { mutableStateOf<Long?>(null) }
+    var pendingSeekStartedAt by remember(mediaKey) { androidx.compose.runtime.mutableLongStateOf(0L) }
+    var seekFailure by remember(mediaKey) { mutableStateOf(false) }
+    // A request may not immediately move ExoPlayer's currentPosition; keep the slider
+    // at the requested position while the decoder/buffer catches up.
+    fun seekToMs(requested: Long) {
         val p = controller.player
         val ceiling = if (growingRec) p.bufferedPosition.coerceAtLeast(0L)
-        else (p.duration.takeIf { it > 0 } ?: Long.MAX_VALUE)
-        p.seekTo((p.currentPosition + deltaMs).coerceIn(0L, ceiling))
+            else (p.duration.takeIf { it > 0L } ?: Long.MAX_VALUE)
+        val target = requested.coerceIn(0L, ceiling)
+        if (!growingRec && !p.isCurrentMediaItemSeekable) {
+            vlcInitialSeekMs = target
+            p.stop()
+            useVlc = true
+        } else {
+            pendingSeek = target
+            pendingSeekStartedAt = android.os.SystemClock.uptimeMillis()
+            p.seekTo(target)
+        }
+    }
+    fun seekRelative(deltaMs: Long) {
+        seekToMs((pendingSeek ?: controller.player.currentPosition) + deltaMs)
     }
     val state by controller.state.collectAsState()
-    var useVlc by remember(mediaKey) { mutableStateOf(false) }
     var beganPlayback by remember(mediaKey) { mutableStateOf(false) }
     LaunchedEffect(state) {
         if (state is PlayerController.State.Playing) beganPlayback = true
@@ -389,7 +405,21 @@ fun VodPlayerScreen(
     LaunchedEffect(Unit) {
         while (isActive) {
             if (!scrubbing) {
-                positionMs = controller.player.currentPosition.coerceAtLeast(0)
+                val actual = controller.player.currentPosition.coerceAtLeast(0L)
+                val target = pendingSeek
+                if (target != null && kotlin.math.abs(actual - target) <= 4_000L) {
+                    pendingSeek = null
+                    seekFailure = false
+                } else if (target != null &&
+                    android.os.SystemClock.uptimeMillis() - pendingSeekStartedAt > 8_000L) {
+                    pendingSeek = null
+                    if (!growingRec && !useVlc) {
+                        vlcInitialSeekMs = target
+                        controller.player.stop()
+                        useVlc = true
+                    } else seekFailure = true
+                }
+                positionMs = (pendingSeek ?: actual).coerceAtLeast(0L)
                 // A growing recording has no fixed length; the recorded-so-far extent (how far you
                 // can skip ahead) is what's been read into the buffer.
                 durationMs = if (growingRec) controller.player.bufferedPosition.coerceAtLeast(0)
@@ -425,10 +455,9 @@ fun VodPlayerScreen(
         }
     }
 
-    BackHandler {
+    BackHandler(enabled = !useVlc || leavingPlayer) {
         when {
-            leavingPlayer -> Unit // Repeated Back must not escape during route disposal.
-            useVlc -> Unit // Nested VLC handler takes precedence while displayed.
+            leavingPlayer -> Unit // Consume repeated Back until the Navigation pop finishes.
             vodPanel != VodPanel.NONE -> vodPanel = VodPanel.NONE
             controlsVisible -> {
                 controlsVisible = false
@@ -476,7 +505,7 @@ fun VodPlayerScreen(
                             else -> 5_000L
                         }
                         seekRelative(if (event.key == Key.DirectionLeft) -amount else amount)
-                        positionMs = controller.player.currentPosition.coerceAtLeast(0L)
+                        positionMs = pendingSeek ?: controller.player.currentPosition.coerceAtLeast(0L)
                         scrubbing = false
                         interaction++
                         true
@@ -493,10 +522,12 @@ fun VodPlayerScreen(
                 detectTapGestures { if (controlsVisible) controlsVisible = false else reveal() }
             },
     ) {
-        if (leavingPlayer) {
+        if (leavingPlayer && !useVlc) {
             Box(Modifier.fillMaxSize().background(Color.Black))
         } else if (useVlc) {
             VlcVodFallback(
+                exitRequested = leavingPlayer,
+                initialSeekMs = vlcInitialSeekMs,
                 mediaKey = mediaKey,
                 streamUrl = streamUrl,
                 title = title,
@@ -636,8 +667,8 @@ fun VodPlayerScreen(
                         valueRange = 0f..(durationMs.takeIf { it > 0 }?.toFloat() ?: 1f),
                         onValueChange = { scrubbing = true; scrubValue = it; interaction++ },
                         onValueChangeFinished = {
-                            controller.player.seekTo(scrubValue.toLong())
-                            positionMs = scrubValue.toLong()
+                            seekToMs(scrubValue.toLong())
+                            positionMs = pendingSeek ?: scrubValue.toLong()
                             scrubbing = false
                             interaction++
                         },
@@ -652,6 +683,10 @@ fun VodPlayerScreen(
                     Text(formatDuration(durationMs), color = Color.White)
                 }
 
+                if (seekFailure) {
+                    Text("Seeking is not supported by this stream", color = Color(0xFFFFD89E),
+                        style = MaterialTheme.typography.bodySmall)
+                }
                 Spacer(Modifier.height(10.dp))
 
                 Row(

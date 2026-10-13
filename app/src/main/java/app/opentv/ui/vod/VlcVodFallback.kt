@@ -102,6 +102,8 @@ fun VlcVodFallback(
     title: String,
     userAgent: String,
     onBack: () -> Unit,
+    exitRequested: Boolean = false,
+    initialSeekMs: Long? = null,
     nextEpisode: Episode? = null,
     autoplayNext: Boolean = false,
     onAutoplayChange: (Boolean) -> Unit = {},
@@ -194,7 +196,7 @@ fun VlcVodFallback(
         }
     }
 
-    BackHandler {
+    BackHandler(enabled = !exitRequested) {
         // Back is non-destructive while controls are visible; the next Back exits.
         if (controlsVisible) {
             controlsVisible = false
@@ -244,6 +246,7 @@ fun VlcVodFallback(
             initialized = true
             errorText = null
             var resumeApplied = false
+            val initialPosition = initialSeekMs ?: resumeFrom
             player.setEventListener { event ->
                 if (!shuttingDown.get()) scope.launch {
                     if (shuttingDown.get()) return@launch
@@ -253,10 +256,10 @@ fun VlcVodFallback(
                             playing = true
                             startedVideo = true
                             errorText = null
-                            if (resumeFrom > 0L && !resumeApplied) {
-                                // A pause/resume must not jump back to the original timestamp.
+                            if (initialPosition > 0L && !resumeApplied) {
+                                // Respect a seek that triggered the Media3-to-VLC fallback.
                                 resumeApplied = true
-                                runCatching { player.setTime(resumeFrom) }
+                                runCatching { player.setTime(initialPosition) }
                             }
                         }
                         MediaPlayer.Event.Paused -> playing = false

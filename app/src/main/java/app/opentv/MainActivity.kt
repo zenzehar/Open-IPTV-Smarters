@@ -600,6 +600,7 @@ private fun OpenTvApp(isTelevision: Boolean) {
             }
 
             composable(Routes.VOD_PLAYER) { entry ->
+                var returning by remember(entry) { mutableStateOf(false) }
                 fun arg(name: String) = entry.arguments?.getString(name)
                     ?.let { java.net.URLDecoder.decode(it, "UTF-8") }.orEmpty()
                 VodPlayerScreen(
@@ -608,8 +609,11 @@ private fun OpenTvApp(isTelevision: Boolean) {
                     title = arg("title"),
                     userAgent = arg("ua").ifEmpty { "OpenTV/0.1 (Android)" },
                     onBack = {
-                        if (!navController.popBackStack()) {
-                            navController.navigate(Routes.HOME) { launchSingleTop = true }
+                        if (!returning) {
+                            returning = true
+                            if (!navController.popBackStack()) {
+                                navController.navigate(Routes.HOME) { launchSingleTop = true }
+                            }
                         }
                     },
                     onNextEpisode = { episode ->

@@ -11,6 +11,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.type
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -410,54 +413,26 @@ private fun ContinueWatchingGrid(
         }
         return
     }
-    var focusedResume by remember(items) { mutableStateOf(items.first().mediaKey) }
-    val highlighted = items.firstOrNull { it.mediaKey == focusedResume } ?: items.first()
     Column(Modifier.fillMaxSize().background(Brush.verticalGradient(
         listOf(Color(0xFF1D2C43), Color(0xFF070D18)),
     ))) {
         Text("CONTINUE WATCHING", color = Color.White,
             style = MaterialTheme.typography.headlineSmall,
             modifier = Modifier.padding(start = 20.dp, top = 14.dp, bottom = 6.dp))
-        Row(Modifier.fillMaxSize()) {
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = if (isTelevision) 160.dp else 130.dp),
-                contentPadding = PaddingValues(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = if (isTelevision) Modifier.weight(1.5f).fillMaxHeight() else Modifier.fillMaxSize(),
-            ) {
-                gridItems(items, key = { it.historyGroupKey }) { item ->
-                    ResumeCard(item, onClick = {
-                        onResume(item.mediaKey, item.streamUrl, item.title)
-                    }, onOpenDetails = { onOpenResumeDetails(item) },
-                        onResetProgress = { scope.launch { viewModel.resetContinueWatching(item) } },
-                        onFocus = { focusedResume = item.mediaKey })
-                }
-            }
-            if (isTelevision) {
-                // A lightweight title preview (not a second active IPTV stream).
-                Column(Modifier.weight(1f).fillMaxHeight().padding(20.dp),
-                    verticalArrangement = Arrangement.Center) {
-                    Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFF101A2B))) {
-                        AsyncImage(model = highlighted.posterUrl,
-                            contentDescription = highlighted.title,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize())
-                    }
-                    Spacer(Modifier.height(14.dp))
-                    Text(highlighted.title, color = Color.White,
-                        style = MaterialTheme.typography.titleLarge, maxLines = 2,
-                        overflow = TextOverflow.Ellipsis)
-                    highlighted.episodeLabel?.let {
-                        Text(it, color = Color(0xFF62D8DF),
-                            style = MaterialTheme.typography.bodyMedium)
-                    }
-                    Text("Select the poster to resume playback",
-                        color = Color.White.copy(alpha = 0.7f),
-                        style = MaterialTheme.typography.bodySmall)
-                }
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = if (isTelevision) 160.dp else 130.dp),
+            contentPadding = PaddingValues(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            gridItems(items, key = { it.historyGroupKey }) { item ->
+                ResumeCard(
+                    item = item,
+                    onClick = { onResume(item.mediaKey, item.streamUrl, item.title) },
+                    onOpenDetails = { onOpenResumeDetails(item) },
+                    onResetProgress = { scope.launch { viewModel.resetContinueWatching(item) } },
+                )
             }
         }
     }
@@ -1040,6 +1015,8 @@ private fun ResumeCard(
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     var confirmReset by remember { mutableStateOf(false) }
+    var okPressedAt by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    var longClickFired by remember { mutableStateOf(false) }
     if (menuOpen) {
         AlertDialog(
             onDismissRequest = { menuOpen = false },
@@ -1092,6 +1069,43 @@ private fun ResumeCard(
                 if (it.isFocused) onFocus()
             }
             .clip(RoundedCornerShape(7.dp))
+            // Handle physical remote OK/Enter on key-down/repeats/up directly.
+            // Android TV remotes often do not generate Compose's touch long-click.
+            .onPreviewKeyEvent { e ->
+                val native = e.nativeKeyEvent
+                when {
+                    native.keyCode == android.view.KeyEvent.KEYCODE_MENU &&
+                        e.type == KeyEventType.KeyDown -> {
+                        menuOpen = true
+                        true
+                    }
+                    native.keyCode != android.view.KeyEvent.KEYCODE_DPAD_CENTER &&
+                        native.keyCode != android.view.KeyEvent.KEYCODE_ENTER &&
+                        native.keyCode != android.view.KeyEvent.KEYCODE_NUMPAD_ENTER -> false
+                    e.type == KeyEventType.KeyDown -> {
+                        if (okPressedAt == 0L) {
+                            okPressedAt = native.downTime
+                            longClickFired = false
+                        }
+                        if (!longClickFired &&
+                            native.eventTime - okPressedAt >= 500L) {
+                            longClickFired = true
+                            menuOpen = true
+                        }
+                        true
+                    }
+                    e.type == KeyEventType.KeyUp -> {
+                        if (!longClickFired) {
+                            if (native.eventTime - okPressedAt >= 500L) menuOpen = true
+                            else onClick()
+                        }
+                        okPressedAt = 0L
+                        longClickFired = false
+                        true
+                    }
+                    else -> false
+                }
+            }
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = { menuOpen = true },

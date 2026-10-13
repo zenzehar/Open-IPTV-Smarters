@@ -126,7 +126,17 @@ class SyncWorker(
         /** A single stale-only check on app start. The mutex and stage stamps prevent
          * another fetch when periodic work happens to launch at the same moment. */
         fun refreshDueAtStartup(context: Context) {
-            if (app.opentv.core.AppSettings.get(context).catalogueUpdateHours.value == 0) return
+            val settings = app.opentv.core.AppSettings.get(context)
+            val hours = settings.catalogueUpdateHours.value
+            if (hours == 0) return
+            val now = System.currentTimeMillis()
+            val due = (settings.liveEnabled.value &&
+                CatalogueRefreshPolicy.isDue(settings.liveUpdated.value, hours, now)) ||
+                (settings.moviesEnabled.value &&
+                    CatalogueRefreshPolicy.isDue(settings.moviesUpdated.value, hours, now)) ||
+                (settings.seriesEnabled.value &&
+                    CatalogueRefreshPolicy.isDue(settings.seriesUpdated.value, hours, now))
+            if (!due) return
             val request = OneTimeWorkRequestBuilder<SyncWorker>()
                 .setConstraints(Constraints.Builder()
                     .setRequiredNetworkType(NetworkType.CONNECTED).build())
