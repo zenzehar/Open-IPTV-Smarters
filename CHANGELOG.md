@@ -3,6 +3,7 @@
 ## 0.12.12 — TV remote playback, clean login focus and stable exit
 
 - TV login now shows remote-focusable, clearly bordered, inert field tiles. Actual Android TextFields are created only after pressing OK; this prevents provider TV keyboards from flashing open while moving between login fields. Phone input remains native.
+- Live player: dedicated Channel Up/Down still tune channels; ordinary D-pad arrows reveal the bar and navigate its selectable transport controls instead of unexpectedly changing channels.
 - Playback: D-pad Up/Down reveals the transport overlay. Left/Right reveals the overlay and seeks by 10 seconds when playback background has focus or controls are hidden. When visible, focus is moved onto the Pause/Play button so directional navigation can select all transport chips; embedded VLC gets matching arrow handling and its own focusable Play/Pause.
 - Player Back consistently exits when no track picker is open rather than consuming a press merely to hide the bar. Back at the top left also remains visible while playback is paused.
 - Player return removes the media surface and navigates after a short frame, with deferred Media3 release on its required main looper, and VLC native stop/release performed away from Compose teardown. Saved position persists on exit; the same stream format fallback and autoplay behaviour remain.
