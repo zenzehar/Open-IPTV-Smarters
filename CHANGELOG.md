@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.12.8 — remote-focus reliability for compact Home and Settings
+
+- Fix the missing initial D-pad focus on the Home dashboard when TV/remote layout is selected on a portrait or narrow screen. Choose the first available tile (Live TV, Movies, Series, or Recordings) consistently in both compact and wide Home layouts.
+- Restore focus to the initial Home tile after changing between compact and wide screen layouts. Add focused unit tests for the tile-selection fallback policy.
+- In TV/remote mode, open Settings with focus on its first action rather than relying on implicit Android focus discovery. Apply this to both the compact settings list and TV settings grid, including after a width change.
+- Retain natural Android orientation, system-bar insets, existing Back behaviour, playback engines, IPTV credentials and watch history; no Room migrations.
+- Signing is not yet permanent, and physical remote navigation still requires device verification.
+
+
 ## 0.12.7 — system orientation, TV remote navigation and title Back
 
 - Stop forcing the Home screen into landscape. Phones and tablets follow Android's current orientation; Home rearranges responsively without deliberate scrollbars.

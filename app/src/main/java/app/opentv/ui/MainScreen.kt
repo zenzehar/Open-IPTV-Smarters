@@ -400,7 +400,12 @@ private fun DashboardHome(
     // TV/Fire TV remotes must land on an actionable, visibly focused item, with
     // arrow keys traversing the normal Compose focus tree. No pointer required.
     val homeFocus = remember { FocusRequester() }
-    LaunchedEffect(isTelevision) {
+    val firstFocusTarget = remember(liveEnabled, moviesEnabled, seriesEnabled) {
+        firstDashboardFocusTarget(liveEnabled, moviesEnabled, seriesEnabled)
+    }
+    // A TV layout override can be used even on a portrait/narrow display. A layout
+    // change also recreates tile focus targets, so request focus again in that case.
+    LaunchedEffect(isTelevision, compact, firstFocusTarget) {
         if (isTelevision) {
             kotlinx.coroutines.delay(85)
             runCatching { homeFocus.requestFocus() }
@@ -465,7 +470,7 @@ private fun DashboardHome(
                             listOf(Color(0xFF29CAA0), Color(0xFF355CDE)),
                             available, Modifier.weight(1.05f), onLive, liveState,
                             liveLastUpdated, { onRefreshStage("live") }, liveFailure,
-                            firstFocus = if (isTelevision) homeFocus else null,
+                            firstFocus = if (isTelevision && firstFocusTarget == DashboardFocusTarget.LIVE) homeFocus else null,
                         )
                     }
                     Column(
@@ -481,14 +486,14 @@ private fun DashboardHome(
                                 listOf(Color(0xFFEA365A), Color(0xFFF89A38)),
                                 upperHeight, Modifier.weight(1f), onMovies, movieState,
                                 moviesLastUpdated, { onRefreshStage("movies") }, movieFailure,
-                                firstFocus = if (isTelevision && !liveEnabled) homeFocus else null,
+                                firstFocus = if (isTelevision && firstFocusTarget == DashboardFocusTarget.MOVIES) homeFocus else null,
                             )
                             if (seriesEnabled) DashboardTile(
                                 "SERIES", "Seasons & episodes", Icons.Filled.Tv,
                                 listOf(Color(0xFF963AAE), Color(0xFF3995DB)),
                                 upperHeight, Modifier.weight(1f), onSeries, seriesState,
                                 seriesLastUpdated, { onRefreshStage("series") }, seriesFailure,
-                                firstFocus = if (isTelevision && !liveEnabled && !moviesEnabled)
+                                firstFocus = if (isTelevision && firstFocusTarget == DashboardFocusTarget.SERIES)
                                     homeFocus else null,
                             )
                         }
@@ -500,8 +505,8 @@ private fun DashboardHome(
                                 Modifier.weight(1f), onGuide, shortcutHeight)
                             ShortcutTile("RECORDINGS", Icons.Filled.FiberManualRecord,
                                 Modifier.weight(1f), onRecordings, shortcutHeight,
-                                firstFocus = if (isTelevision &&
-                                    !liveEnabled && !moviesEnabled && !seriesEnabled) homeFocus else null)
+                                firstFocus = if (isTelevision && firstFocusTarget == DashboardFocusTarget.RECORDINGS)
+                                    homeFocus else null)
                             ShortcutTile("UPDATE", Icons.Filled.Refresh,
                                 Modifier.weight(1f), onRefresh, shortcutHeight)
                         }
@@ -517,6 +522,8 @@ private fun DashboardHome(
                     listOf(Color(0xFF29CAA0), Color(0xFF355CDE)),
                     liveHeight, Modifier.fillMaxWidth(), onLive, liveState,
                     liveLastUpdated, { onRefreshStage("live") }, liveFailure,
+                    firstFocus = if (isTelevision && firstFocusTarget == DashboardFocusTarget.LIVE)
+                        homeFocus else null,
                 )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(gap)) {
                     if (moviesEnabled) DashboardTile(
@@ -524,12 +531,16 @@ private fun DashboardHome(
                         listOf(Color(0xFFEA365A), Color(0xFFF89A38)),
                         vodHeight, Modifier.weight(1f), onMovies, movieState,
                         moviesLastUpdated, { onRefreshStage("movies") }, movieFailure,
+                        firstFocus = if (isTelevision && firstFocusTarget == DashboardFocusTarget.MOVIES)
+                            homeFocus else null,
                     )
                     if (seriesEnabled) DashboardTile(
                         "SERIES", "Episodes", Icons.Filled.Tv,
                         listOf(Color(0xFF963AAE), Color(0xFF3995DB)),
                         vodHeight, Modifier.weight(1f), onSeries, seriesState,
                         seriesLastUpdated, { onRefreshStage("series") }, seriesFailure,
+                        firstFocus = if (isTelevision && firstFocusTarget == DashboardFocusTarget.SERIES)
+                            homeFocus else null,
                     )
                 }
                 Row(
@@ -539,7 +550,9 @@ private fun DashboardHome(
                     if (liveEnabled) ShortcutTile("EPG", Icons.Filled.LiveTv,
                         Modifier.weight(1f), onGuide, quickHeight)
                     ShortcutTile("RECORD", Icons.Filled.FiberManualRecord,
-                        Modifier.weight(1f), onRecordings, quickHeight)
+                        Modifier.weight(1f), onRecordings, quickHeight,
+                        firstFocus = if (isTelevision && firstFocusTarget == DashboardFocusTarget.RECORDINGS)
+                            homeFocus else null)
                     ShortcutTile("UPDATE", Icons.Filled.Refresh,
                         Modifier.weight(1f), onRefresh, quickHeight)
                 }

@@ -452,6 +452,7 @@ private fun OpenTvApp(isTelevision: Boolean) {
                     onOpenRecordings = { navController.navigate(Routes.REC_SETTINGS) },
                     onOpenAbout = { navController.navigate(Routes.ABOUT) },
                     onBack = { navController.popBackStack() },
+                    isTelevision = isTelevision,
                 )
             }
 

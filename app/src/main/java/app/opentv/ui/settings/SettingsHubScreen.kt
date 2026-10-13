@@ -47,6 +47,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,11 +57,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 import app.opentv.R
 
 /**
@@ -81,10 +85,12 @@ fun SettingsHubScreen(
     onOpenRecordings: () -> Unit,
     onOpenAbout: () -> Unit,
     onBack: () -> Unit,
+    isTelevision: Boolean = false,
 ) {
     val context = LocalContext.current
     var resetStage by remember { mutableStateOf(0) }
     var resetFailed by remember { mutableStateOf(false) }
+    val firstEntryFocus = remember { FocusRequester() }
     if (resetStage > 0) {
         AlertDialog(
             onDismissRequest = { resetStage = 0 },
@@ -160,20 +166,31 @@ fun SettingsHubScreen(
         Spacer(Modifier.height(20.dp))
 
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-            if (maxWidth >= 650.dp) {
+            val wideLayout = maxWidth >= 650.dp
+            LaunchedEffect(isTelevision, wideLayout) {
+                if (isTelevision) {
+                    delay(85)
+                    runCatching { firstEntryFocus.requestFocus() }
+                }
+            }
+            if (wideLayout) {
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 174.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    gridItems(entries) { entry -> HubTile(entry) }
+                    gridItems(entries) { entry ->
+                        HubTile(entry, if (entry === entries.first()) firstEntryFocus else null)
+                    }
                 }
             } else {
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.fillMaxSize(),
                 ) {
-                    items(entries) { entry -> HubRow(entry) }
+                    items(entries) { entry ->
+                        HubRow(entry, if (entry === entries.first()) firstEntryFocus else null)
+                    }
                 }
             }
         }
@@ -188,11 +205,12 @@ private data class HubEntry(
 )
 
 @Composable
-private fun HubRow(entry: HubEntry) {
+private fun HubRow(entry: HubEntry, firstFocus: FocusRequester? = null) {
     var focused by remember { mutableStateOf(false) }
     Row(
         Modifier
             .fillMaxWidth()
+            .then(if (firstFocus != null) Modifier.focusRequester(firstFocus) else Modifier)
             .onFocusChanged { focused = it.isFocused }
             .clip(RoundedCornerShape(14.dp))
             .background(
@@ -251,11 +269,12 @@ internal fun HubTextButton(label: String, onClick: () -> Unit) {
 
 /** Remote-friendly tiles for the television Settings screen. */
 @Composable
-private fun HubTile(entry: HubEntry) {
+private fun HubTile(entry: HubEntry, firstFocus: FocusRequester? = null) {
     var focused by remember { mutableStateOf(false) }
     Column(
         Modifier
             .fillMaxWidth()
+            .then(if (firstFocus != null) Modifier.focusRequester(firstFocus) else Modifier)
             .height(150.dp)
             .clip(RoundedCornerShape(11.dp))
             .background(if (focused) Color(0xFF5835BA) else Color(0xFF1A2449))
