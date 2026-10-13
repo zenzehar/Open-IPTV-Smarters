@@ -316,7 +316,7 @@ fun PlayerScreen(
     // catcher (so the next remote press brings the bar back).
     LaunchedEffect(controlsVisible, panel) {
         if (controlsVisible) {
-            delay(40)
+            delay(110L)
             runCatching { if (panel != Panel.NONE) panelFocus.requestFocus() else barFocus.requestFocus() }
         } else {
             runCatching { rootFocus.requestFocus() }
@@ -379,20 +379,19 @@ fun PlayerScreen(
                         interaction++
                         false
                     }
-                    // Channel up/down works whether or not the bar is showing — this remote has no
-                    // CH+/CH- keys, so up/down IS the channel changer. Each zap flashes the bar as a
-                    // channel banner, then it auto-hides.
-                    event.key == Key.DirectionUp || event.key == Key.ChannelUp -> { zapBy(-1); reveal(); true }
-                    event.key == Key.DirectionDown || event.key == Key.ChannelDown -> { zapBy(1); reveal(); true }
-                    // With the bar up, left/right drive its buttons; let them through.
+                    // Dedicated channel keys still zap. Ordinary arrow keys are reserved
+                    // for transport control focus, matching the VOD player.
+                    event.key == Key.ChannelUp -> { zapBy(-1); reveal(); true }
+                    event.key == Key.ChannelDown -> { zapBy(1); reveal(); true }
                     controlsVisible -> {
+                        // Let D-pad focus move between pause, quality, list and other chips.
                         interaction++
                         false
                     }
-                    // Immersive: left opens the channel list, right the quality picker.
-                    event.key == Key.DirectionLeft -> { if (queue.isNotEmpty()) channelListVisible = true; true }
-                    event.key == Key.DirectionRight -> {
-                        if (variants.size > 1) { reveal(); panel = Panel.QUALITY }; true
+                    event.key == Key.DirectionLeft || event.key == Key.DirectionRight ||
+                        event.key == Key.DirectionUp || event.key == Key.DirectionDown -> {
+                        reveal()
+                        true
                     }
                     else -> { reveal(); true }
                 }
