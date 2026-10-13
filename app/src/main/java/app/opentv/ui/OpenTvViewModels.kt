@@ -703,6 +703,14 @@ class EpgViewModel(app: Application) : AndroidViewModel(app) {
     }
 }
 
+enum class VodLoadPhase { PENDING, LOADING, READY, EMPTY, FAILED }
+
+data class VodSectionStatus(
+    val phase: VodLoadPhase = VodLoadPhase.PENDING,
+    val message: String = "",
+    val count: Int = 0,
+)
+
 class VodViewModel(app: Application) : AndroidViewModel(app) {
     private val graph = ServiceLocator.get(app)
     private val settings = graph.settings
@@ -961,67 +969,95 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    // Movies + series load on demand — the first time the user opens Movies or Shows — rather than
-    // up front at login. A provider's 40,000-title VOD list is exactly what makes a first sync
-    // crawl, and most sessions only ever watch live TV. Loaded once per app run.
+    // These states are shared by the home dashboard and both VOD screens.
+    // PENDING is deliberately *not* EMPTY: Room may not have emitted yet.
+    private val _movieStatus = MutableStateFlow(VodSectionStatus())
+    val movieStatus: StateFlow<VodSectionStatus> = _movieStatus.asStateFlow()
+    private val _seriesStatus = MutableStateFlow(VodSectionStatus())
+    val seriesStatus: StateFlow<VodSectionStatus> = _seriesStatus.asStateFlow()
+
     private val _vodLoading = MutableStateFlow(false)
     val vodLoading: StateFlow<Boolean> = _vodLoading.asStateFlow()
-
     @Volatile private var vodRequested = false
-
-    /** How long a fetched VOD catalogue is trusted before a warm launch re-syncs it. */
-    private val VOD_TTL_MILLIS = 12L * 60 * 60 * 1000  // 12 hours
+    private val vodSyncMutex = Mutex()
+    private val VOD_TTL_MILLIS = 12L * 60 * 60 * 1000
 
     fun ensureVodLoaded() {
         if (vodRequested) return
         vodRequested = true
+        // Set LOADING before launching a coroutine. Otherwise an initial recomposition
+        // incorrectly renders the "No movies" state on the very first frame.
+        _movieStatus.value = VodSectionStatus(VodLoadPhase.LOADING, "Checking movies…")
+        _seriesStatus.value = VodSectionStatus(VodLoadPhase.LOADING, "Checking series…")
+        _vodLoading.value = true
         viewModelScope.launch { syncVodIfStale(force = false) }
     }
 
-    /**
-     * Force a fresh download of the movies/series catalogue, ignoring the freshness cache. Wired
-     * to the pull-to-refresh / refresh action so the user always has a way to pull new titles in
-     * before the TTL lapses.
-     */
     fun refreshVod() {
+        if (_vodLoading.value) return
         vodRequested = true
+        _movieStatus.value = VodSectionStatus(VodLoadPhase.LOADING, "Refreshing movies…")
+        _seriesStatus.value = VodSectionStatus(VodLoadPhase.LOADING, "Refreshing series…")
+        _vodLoading.value = true
         viewModelScope.launch { syncVodIfStale(force = true) }
     }
 
-    private suspend fun syncVodIfStale(force: Boolean) {
-        val now = System.currentTimeMillis()
+    private fun completedStatus(count: Int, failed: Boolean, detail: String?): VodSectionStatus = when {
+        count > 0 -> VodSectionStatus(VodLoadPhase.READY,
+            if (failed) "Showing saved catalogue; provider refresh failed" else "Ready", count)
+        failed -> VodSectionStatus(VodLoadPhase.FAILED,
+            "The provider could not load this catalogue. Retry from the dashboard.", 0)
+        else -> VodSectionStatus(VodLoadPhase.EMPTY, "This provider has no titles in this section", 0)
+    }
 
-        // Warm-launch fast path. The catalogue is persisted in Room, so once it has been fetched
-        // there is no reason to re-download and re-upsert a 40k-title list on every launch — that
-        // was both the multi-minute "Loading movies & shows…" and the bandwidth hog that starved
-        // the live preview into buffering. When we synced recently and already have rows, skip the
-        // network entirely and just (re)build the home shelves off what is stored.
-        if (!force) {
-            val haveCatalogue = runCatching {
-                graph.catalogRepository.movieCount() + graph.catalogRepository.seriesCount()
-            }.getOrDefault(0) > 0
-            val last = settings.vodSyncedAtMillis
-            val fresh = last > 0 && now - last < VOD_TTL_MILLIS
-            if (haveCatalogue && fresh) {
+    private suspend fun syncVodIfStale(force: Boolean) = vodSyncMutex.withLock {
+        try {
+            val now = System.currentTimeMillis()
+            val initialMovies = graph.catalogRepository.movieCount()
+            val initialSeries = graph.catalogRepository.seriesCount()
+            val fresh = settings.vodSyncedAtMillis.let { it > 0 && now - it < VOD_TTL_MILLIS }
+            // Warm-cache path must be immediate; never re-download a large library
+            // when persisted rows are still fresh.
+            if (!force && fresh && (initialMovies > 0 || initialSeries > 0)) {
+                _movieStatus.value = completedStatus(initialMovies, false, null)
+                _seriesStatus.value = completedStatus(initialSeries, false, null)
                 loadHomeFeeds()
-                return
+                return@withLock
             }
-        }
 
-        _vodLoading.value = true
-        val synced = StatusBus.during("Loading movies & shows…") {
-            runCatching {
-                for (source in graph.sourceRepository.enabled()) {
-                    graph.catalogRepository.syncVod(source, now)
+            val enabled = graph.sourceRepository.enabled()
+            var movieFailure = false
+            var seriesFailure = false
+            var completedSources = 0
+            StatusBus.during("Loading movies & series…") {
+                for (source in enabled) {
+                    completedSources++
+                    val result = graph.catalogRepository.syncVod(source, now)
+                    movieFailure = movieFailure || result.movieError != null
+                    seriesFailure = seriesFailure || result.seriesError != null
+                    _movieStatus.value = VodSectionStatus(VodLoadPhase.LOADING,
+                        "Loading movies · $completedSources/${enabled.size} providers")
+                    _seriesStatus.value = VodSectionStatus(VodLoadPhase.LOADING,
+                        "Loading series · $completedSources/${enabled.size} providers")
                 }
-            }.isSuccess
+            }
+            val finalMovies = graph.catalogRepository.movieCount()
+            val finalSeries = graph.catalogRepository.seriesCount()
+            _movieStatus.value = completedStatus(finalMovies, movieFailure, null)
+            _seriesStatus.value = completedStatus(finalSeries, seriesFailure, null)
+            if (!movieFailure && !seriesFailure) settings.vodSyncedAtMillis = now
+            loadHomeFeeds()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w("OpenTV", "VOD loading failed", e)
+            val cachedMovies = runCatching { graph.catalogRepository.movieCount() }.getOrDefault(0)
+            val cachedSeries = runCatching { graph.catalogRepository.seriesCount() }.getOrDefault(0)
+            _movieStatus.value = completedStatus(cachedMovies, true, e.message)
+            _seriesStatus.value = completedStatus(cachedSeries, true, e.message)
+        } finally {
+            _vodLoading.value = false
         }
-        _vodLoading.value = false
-        // Stamp the cache only when the fetch actually succeeded, so a failed sync retries on the
-        // next open instead of being remembered as "fresh" and leaving the user with no catalogue.
-        if (synced) settings.vodSyncedAtMillis = now
-        // The catalogue may have grown — recompute the computed home rows off the fresh data.
-        loadHomeFeeds()
     }
 
     // ---- VOD search (shared by the unified search screen) --------------------------------------
