@@ -9,6 +9,7 @@ package app.opentv.ui
 
 import androidx.activity.compose.BackHandler
 import android.os.SystemClock
+import android.widget.Toast
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -50,14 +51,12 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tv
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -201,30 +200,32 @@ fun MainScreen(
     var movieFilter by rememberSaveable { mutableStateOf("") }
     var seriesFilter by rememberSaveable { mutableStateOf("") }
     if (tab !in choices) tab = DashboardTab.HOME
-    var showExit by remember { mutableStateOf(false) }
+    var exitBackCount by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    var lastExitBack by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
     val bottomJumpFocus = remember { FocusRequester() }
     val categoryJumpFocus = remember { FocusRequester() }
     var lastDownAt by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
     var lastUpAt by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
 
-    BackHandler(enabled = tab != DashboardTab.HOME) { tab = DashboardTab.HOME }
-    BackHandler(enabled = tab == DashboardTab.HOME) { showExit = true }
-    if (showExit) {
-        AlertDialog(
-            onDismissRequest = { showExit = false },
-            title = { Text(stringResource(R.string.exit_title)) },
-            text = { Text(stringResource(R.string.exit_body)) },
-            confirmButton = {
-                TextButton(onClick = { showExit = false; context.findActivity()?.finish() }) {
-                    Text(stringResource(R.string.exit_confirm))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showExit = false }) {
-                    Text(stringResource(R.string.exit_cancel))
-                }
-            },
-        )
+    // No exit dialog. Back from a section counts as the first press.
+    // From Home the second Back warns; the third finishes the Activity.
+    BackHandler(enabled = tab != DashboardTab.HOME) {
+        tab = DashboardTab.HOME
+        exitBackCount = 1
+        lastExitBack = SystemClock.uptimeMillis()
+    }
+    BackHandler(enabled = tab == DashboardTab.HOME) {
+        val now = SystemClock.uptimeMillis()
+        if (now - lastExitBack > 5_000L) exitBackCount = 0
+        when (exitBackCount) {
+            0 -> exitBackCount = 1
+            1 -> {
+                exitBackCount = 2
+                Toast.makeText(context, "Press Back again to exit Koky TV", Toast.LENGTH_LONG).show()
+            }
+            else -> context.findActivity()?.finish()
+        }
+        lastExitBack = now
     }
 
     BoxWithConstraints(
@@ -237,7 +238,7 @@ fun MainScreen(
                     val now = SystemClock.uptimeMillis()
                     when (event.key) {
                         Key.DirectionDown -> {
-                            val doublePress = now - lastDownAt in 2_000L..7_000L
+                            val doublePress = now - lastDownAt in 1_000L..7_000L
                             lastDownAt = now
                             lastUpAt = 0L
                             if (doublePress) {
@@ -246,7 +247,7 @@ fun MainScreen(
                             } else false
                         }
                         Key.DirectionUp -> {
-                            val doublePress = now - lastUpAt in 2_000L..7_000L
+                            val doublePress = now - lastUpAt in 1_000L..7_000L
                             lastUpAt = now
                             lastDownAt = 0L
                             if (doublePress && (tab == DashboardTab.MOVIES || tab == DashboardTab.SERIES)) {
