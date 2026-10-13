@@ -988,7 +988,7 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
         // Set LOADING before launching a coroutine. Otherwise an initial recomposition
         // incorrectly renders the "No movies" state on the very first frame.
         _movieStatus.value = VodSectionStatus(VodLoadPhase.LOADING, "Checking movies…")
-        _seriesStatus.value = VodSectionStatus(VodLoadPhase.LOADING, "Checking series…")
+        _seriesStatus.value = VodSectionStatus(VodLoadPhase.PENDING, "Waiting for movies…")
         _vodLoading.value = true
         viewModelScope.launch { syncVodIfStale(force = false) }
     }
@@ -997,7 +997,7 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
         if (_vodLoading.value) return
         vodRequested = true
         _movieStatus.value = VodSectionStatus(VodLoadPhase.LOADING, "Refreshing movies…")
-        _seriesStatus.value = VodSectionStatus(VodLoadPhase.LOADING, "Refreshing series…")
+        _seriesStatus.value = VodSectionStatus(VodLoadPhase.PENDING, "Waiting for movies…")
         _vodLoading.value = true
         viewModelScope.launch { syncVodIfStale(force = true) }
     }
@@ -1031,22 +1031,33 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
             val enabled = graph.sourceRepository.enabled()
             var movieFailure = false
             var seriesFailure = false
-            var completedSources = 0
-            StatusBus.during("Loading movies & series…") {
-                for (source in enabled) {
-                    completedSources++
-                    val result = graph.catalogRepository.syncVod(source, now)
-                    movieFailure = movieFailure || result.movieError != null
-                    seriesFailure = seriesFailure || result.seriesError != null
-                    _movieStatus.value = VodSectionStatus(VodLoadPhase.LOADING,
-                        "Loading movies · $completedSources/${enabled.size} providers")
-                    _seriesStatus.value = VodSectionStatus(VodLoadPhase.LOADING,
-                        "Loading series · $completedSources/${enabled.size} providers")
+            // Every source finishes the Movies pass before the first Series request begins.
+            // This makes the dashboard's active tile genuinely reflect the active network work.
+            if (settings.moviesEnabled.value) {
+                StatusBus.during("Updating movies…") {
+                    enabled.forEachIndexed { index, source ->
+                        _movieStatus.value = VodSectionStatus(VodLoadPhase.LOADING,
+                            "Movies · provider ${index + 1}/${enabled.size}")
+                        val result = graph.catalogRepository.syncVod(source, now,
+                            includeMovies = true, includeSeries = false)
+                        movieFailure = movieFailure || result.movieError != null
+                    }
                 }
             }
             val finalMovies = graph.catalogRepository.movieCount()
-            val finalSeries = graph.catalogRepository.seriesCount()
             _movieStatus.value = completedStatus(finalMovies, movieFailure)
+            if (settings.seriesEnabled.value) {
+                StatusBus.during("Updating series…") {
+                    enabled.forEachIndexed { index, source ->
+                        _seriesStatus.value = VodSectionStatus(VodLoadPhase.LOADING,
+                            "Series · provider ${index + 1}/${enabled.size}")
+                        val result = graph.catalogRepository.syncVod(source, now,
+                            includeMovies = false, includeSeries = true)
+                        seriesFailure = seriesFailure || result.seriesError != null
+                    }
+                }
+            }
+            val finalSeries = graph.catalogRepository.seriesCount()
             _seriesStatus.value = completedStatus(finalSeries, seriesFailure)
             if (!movieFailure && !seriesFailure) settings.vodSyncedAtMillis = now
             loadHomeFeeds()
