@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.12.6 — fixed Home, expiry and account management
+
+- The dashboard no longer scrolls: Live TV, Movies, Series, shortcuts and the playlist/expiry footer are all sized to the screen’s available height.
+- Display the Xtream provider's real account expiry date from `user_info.exp_date`, if returned, in the Home footer by default. Cache expiry locally per source and refresh the account response on startup at most daily; no extra Test button.
+- Allow any viewing profile, including the original, to be removed if at least one will remain. Require explicit confirmation before deleting that profile’s resume history; preserve recordings and select a remaining profile if needed.
+- Add **Factory reset** to Settings with a two-stage destructive confirmation. Android clears MyIPTV’s private application data, including provider credentials, playlists, favourites, profiles, playback history, settings and internal recordings. External NAS/USB files are not intentionally deleted.
+- Reuse the existing signing and side-by-side MyIPTV QA mechanisms; no Room schema version change.
+
+
 ## 0.12.5 — login and TLS diagnostics
 
 - Detect likely HTTPS/TLS-on-HTTP-port mismatch and explain what to check without showing passwords or private URLs.
