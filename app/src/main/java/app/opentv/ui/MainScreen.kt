@@ -124,6 +124,8 @@ fun MainScreen(
     onPlayRecording: (Recording) -> Unit,
     onPlayCatchup: (mediaKey: String, url: String, title: String, ua: String) -> Unit,
     activeProfileName: String,
+    providerName: String,
+    providerExpiryMillis: Long?,
     vodViewModel: VodViewModel,
 ) {
     val context = LocalContext.current
@@ -236,6 +238,8 @@ fun MainScreen(
                         moviesEnabled = moviesEnabled,
                         seriesEnabled = seriesEnabled,
                         profile = activeProfileName,
+                        providerName = providerName,
+                        providerExpiryMillis = providerExpiryMillis,
                         onLive = { tab = DashboardTab.LIVE },
                         onMovies = { tab = DashboardTab.MOVIES },
                         onSeries = { tab = DashboardTab.SERIES },
@@ -388,6 +392,8 @@ private fun DashboardHome(
     moviesEnabled: Boolean,
     seriesEnabled: Boolean,
     profile: String,
+    providerName: String,
+    providerExpiryMillis: Long?,
     onLive: () -> Unit,
     onMovies: () -> Unit,
     onSeries: () -> Unit,
@@ -399,157 +405,158 @@ private fun DashboardHome(
     onRepairProvider: () -> Unit,
     onRefresh: () -> Unit,
 ) {
-    val landscapePhone = !compact && !isTelevision
-    val pad = if (compact || landscapePhone) 14.dp else 36.dp
-    val liveHeight = if (landscapePhone) 244.dp else 310.dp
-    val vodHeight = if (landscapePhone) 157.dp else 210.dp
     val failure = when {
         liveState == "FAILED" -> liveFailure ?: "Live TV could not update."
         movieState == "FAILED" -> movieFailure ?: "Movies could not update."
         seriesState == "FAILED" -> seriesFailure ?: "Series could not update."
         else -> null
     }
-    LazyColumn(
-        Modifier.fillMaxSize().background(Color(0xFF0A1023)),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(
-            horizontal = pad, vertical = if (compact) 18.dp else 32.dp
-        ),
-        verticalArrangement = Arrangement.spacedBy(if (compact) 16.dp else 26.dp),
-    ) {
-        if (failure != null) item(key = "provider-repair") {
-            Row(
-                Modifier.fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Color(0xFF3C2647))
-                    .padding(horizontal = 12.dp, vertical = 5.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text("Provider issue: $failure", color = Color.White,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 2, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f))
-                TextButton(onClick = onRepairProvider) {
-                    Text("Edit login", color = Color.White, maxLines = 1)
-                }
-                TextButton(onClick = onRefresh) {
-                    Text("Retry", color = Color.White, maxLines = 1)
-                }
-            }
-        }
-        if (compact) item(key = "welcome") {
-            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text(
-                    if (compact) "Welcome back" else "Your entertainment, your way",
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    if (compact) profile else "Watch live TV, explore movies and catch up on your series.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFF9FAFCC),
-                )
-            }
-        }
-        if (compact) {
-            if (liveEnabled) item(key = "live") {
-                DashboardTile("LIVE TV", "Browse channels and guide", Icons.Filled.LiveTv,
-                    listOf(Color(0xFF126EB7), Color(0xFF4935BC)), 148.dp, Modifier.fillMaxWidth(), onLive, liveState,
-                    liveLastUpdated, { onRefreshStage("live") }, liveFailure)
-            }
-            if (moviesEnabled || seriesEnabled) item(key = "vod") {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                    if (moviesEnabled) DashboardTile("MOVIES", "On demand", Icons.Filled.Movie,
-                        listOf(Color(0xFFF65457), Color(0xFFFF9729)), 155.dp, Modifier.weight(1f), onMovies, movieState,
-                        moviesLastUpdated, { onRefreshStage("movies") }, movieFailure)
-                    if (seriesEnabled) DashboardTile("SERIES", "Seasons & episodes", Icons.Filled.Tv,
-                        listOf(Color(0xFF9631B8), Color(0xFF168DD8)), 155.dp, Modifier.weight(1f), onSeries, seriesState,
-                        seriesLastUpdated, { onRefreshStage("series") }, seriesFailure)
-                }
-            }
-            item(key = "quick-title") {
-                Text("Quick access", style = MaterialTheme.typography.titleLarge, color = Color.White)
-            }
-            item(key = "quick") {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        if (liveEnabled) ShortcutTile("TV GUIDE", Icons.Filled.LiveTv, Modifier.weight(1f), onGuide)
-                        ShortcutTile("RECORDINGS", Icons.Filled.FiberManualRecord, Modifier.weight(1f), onRecordings)
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        ShortcutTile("SEARCH", Icons.Filled.Search, Modifier.weight(1f), onSearch)
-                        ShortcutTile("SETTINGS", Icons.Filled.Settings, Modifier.weight(1f), onSettings)
-                    }
-                    ShortcutTile("UPDATE ALL CONTENT", Icons.Filled.Refresh, Modifier.fillMaxWidth(), onRefresh)
-                }
-            }
-        } else {
-            // On televisions the large Live tile anchors the left, with Movies/Series
-            // above three quick actions on the right, matching familiar IPTV layouts.
-            item(key = "tv-showcase") {
+
+    val expiryText = remember(providerExpiryMillis) {
+        if (providerExpiryMillis == null || providerExpiryMillis <= 0L) "Not provided"
+        else java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM)
+            .format(java.util.Date(providerExpiryMillis))
+    }
+    // Never scroll Home: fit the showcase, optional failure line and provider footer to
+    // the measured safe-area height. TV/landscape uses two columns; narrow screens stack.
+    BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFF0A1023))) {
+        val pad = if (isTelevision) 16.dp else 9.dp
+        val gap = if (isTelevision) 12.dp else 8.dp
+        val footer = 40.dp
+        val warningHeight = if (failure == null) 0.dp else 42.dp
+        val available = (maxHeight - pad * 2 - footer - gap -
+            warningHeight - if (failure == null) 0.dp else gap).coerceAtLeast(0.dp)
+        val wide = !compact
+        Column(
+            modifier = Modifier.fillMaxSize()
+                .padding(horizontal = pad, vertical = pad),
+            verticalArrangement = Arrangement.spacedBy(gap),
+        ) {
+            if (failure != null) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(18.dp),
+                    modifier = Modifier.fillMaxWidth().height(warningHeight)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xFF3C2647))
+                        .padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    if (liveEnabled) DashboardTile(
-                        "LIVE TV", "Live channels & guide", Icons.Filled.LiveTv,
-                        listOf(Color(0xFF29CAA0), Color(0xFF355CDE)),
-                        liveHeight, Modifier.weight(1.05f), onLive, liveState,
-                        liveLastUpdated, { onRefreshStage("live") }, liveFailure,
-                    )
+                    Text("Provider: $failure", style = MaterialTheme.typography.labelSmall,
+                        color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f))
+                    TextButton(onClick = onRepairProvider) {
+                        Text("Edit login", color = Color.White, maxLines = 1)
+                    }
+                    TextButton(onClick = onRefresh) {
+                        Text("Retry", color = Color.White, maxLines = 1)
+                    }
+                }
+            }
+            if (wide) {
+                val shortcutHeight = (available * 0.28f).coerceIn(38.dp, 64.dp)
+                val upperHeight = (available - shortcutHeight - gap).coerceAtLeast(0.dp)
+                Row(
+                    modifier = Modifier.fillMaxWidth().height(available),
+                    horizontalArrangement = Arrangement.spacedBy(gap),
+                ) {
+                    if (liveEnabled) {
+                        DashboardTile(
+                            "LIVE TV", "Live channels & guide", Icons.Filled.LiveTv,
+                            listOf(Color(0xFF29CAA0), Color(0xFF355CDE)),
+                            available, Modifier.weight(1.05f), onLive, liveState,
+                            liveLastUpdated, { onRefreshStage("live") }, liveFailure,
+                        )
+                    }
                     Column(
-                        modifier = Modifier.weight(1.95f),
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        modifier = Modifier.weight(1.95f).fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(gap),
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(gap),
                         ) {
                             if (moviesEnabled) DashboardTile(
                                 "MOVIES", "Films on demand", Icons.Filled.Movie,
                                 listOf(Color(0xFFEA365A), Color(0xFFF89A38)),
-                                vodHeight, Modifier.weight(1f), onMovies, movieState,
+                                upperHeight, Modifier.weight(1f), onMovies, movieState,
                                 moviesLastUpdated, { onRefreshStage("movies") }, movieFailure,
                             )
                             if (seriesEnabled) DashboardTile(
                                 "SERIES", "Seasons & episodes", Icons.Filled.Tv,
                                 listOf(Color(0xFF963AAE), Color(0xFF3995DB)),
-                                vodHeight, Modifier.weight(1f), onSeries, seriesState,
+                                upperHeight, Modifier.weight(1f), onSeries, seriesState,
                                 seriesLastUpdated, { onRefreshStage("series") }, seriesFailure,
                             )
                         }
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            horizontalArrangement = Arrangement.spacedBy(gap),
                         ) {
-                            if (liveEnabled) ShortcutTile(
-                                "LIVE WITH EPG", Icons.Filled.LiveTv,
-                                Modifier.weight(1f), onGuide,
-                            )
-                            ShortcutTile(
-                                "RECORDINGS", Icons.Filled.FiberManualRecord,
-                                Modifier.weight(1f), onRecordings,
-                            )
-                            ShortcutTile(
-                                "UPDATE", Icons.Filled.Refresh,
-                                Modifier.weight(1f), onRefresh,
-                            )
+                            if (liveEnabled) ShortcutTile("LIVE WITH EPG", Icons.Filled.LiveTv,
+                                Modifier.weight(1f), onGuide, shortcutHeight)
+                            ShortcutTile("RECORDINGS", Icons.Filled.FiberManualRecord,
+                                Modifier.weight(1f), onRecordings, shortcutHeight)
+                            ShortcutTile("UPDATE", Icons.Filled.Refresh,
+                                Modifier.weight(1f), onRefresh, shortcutHeight)
                         }
                     }
                 }
+            } else {
+                val liveHeight = available * 0.46f
+                val vodHeight = available * 0.34f
+                val quickHeight = (available - liveHeight - vodHeight - gap * 2)
+                    .coerceAtLeast(0.dp)
+                if (liveEnabled) DashboardTile(
+                    "LIVE TV", "Browse channels", Icons.Filled.LiveTv,
+                    listOf(Color(0xFF29CAA0), Color(0xFF355CDE)),
+                    liveHeight, Modifier.fillMaxWidth(), onLive, liveState,
+                    liveLastUpdated, { onRefreshStage("live") }, liveFailure,
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(gap)) {
+                    if (moviesEnabled) DashboardTile(
+                        "MOVIES", "On demand", Icons.Filled.Movie,
+                        listOf(Color(0xFFEA365A), Color(0xFFF89A38)),
+                        vodHeight, Modifier.weight(1f), onMovies, movieState,
+                        moviesLastUpdated, { onRefreshStage("movies") }, movieFailure,
+                    )
+                    if (seriesEnabled) DashboardTile(
+                        "SERIES", "Episodes", Icons.Filled.Tv,
+                        listOf(Color(0xFF963AAE), Color(0xFF3995DB)),
+                        vodHeight, Modifier.weight(1f), onSeries, seriesState,
+                        seriesLastUpdated, { onRefreshStage("series") }, seriesFailure,
+                    )
+                }
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(gap),
+                ) {
+                    if (liveEnabled) ShortcutTile("EPG", Icons.Filled.LiveTv,
+                        Modifier.weight(1f), onGuide, quickHeight)
+                    ShortcutTile("RECORD", Icons.Filled.FiberManualRecord,
+                        Modifier.weight(1f), onRecordings, quickHeight)
+                    ShortcutTile("UPDATE", Icons.Filled.Refresh,
+                        Modifier.weight(1f), onRefresh, quickHeight)
+                }
             }
-        }
-        item(key = "manage") {
-            Text(
-                "Manage playlists",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFF93A6CA),
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable(onClick = onAddSource)
-                    .padding(vertical = 10.dp),
-            )
+            Row(
+                Modifier.fillMaxWidth().height(footer),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(gap),
+            ) {
+                Text(
+                    "Playlist: $providerName",
+                    color = Color(0xFFB7C5DF), style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    "Expires: $expiryText",
+                    color = Color.White, style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                TextButton(onClick = onAddSource) {
+                    Text("Manage", color = Color(0xFFCFDCFF), maxLines = 1)
+                }
+            }
         }
     }
 }
@@ -677,11 +684,11 @@ private fun DashboardTile(
 }
 
 @Composable
-private fun ShortcutTile(title: String, icon: ImageVector, modifier: Modifier, onClick: () -> Unit) {
+private fun ShortcutTile(title: String, icon: ImageVector, modifier: Modifier, onClick: () -> Unit, height: Dp = 66.dp) {
     var focused by remember { mutableStateOf(false) }
     Row(
         modifier
-            .height(66.dp)
+            .height(height)
             .clip(RoundedCornerShape(10.dp))
             .background(if (focused) Color(0xFF2CBB9A) else Color(0xFF238F89))
             .onFocusChanged { focused = it.isFocused }
@@ -693,7 +700,7 @@ private fun ShortcutTile(title: String, icon: ImageVector, modifier: Modifier, o
         Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
         Spacer(Modifier.width(8.dp))
         Text(title, style = MaterialTheme.typography.labelLarge,
-            color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 2,
+            color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1,
             overflow = TextOverflow.Ellipsis)
     }
 }
