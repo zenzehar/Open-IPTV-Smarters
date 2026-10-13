@@ -107,6 +107,7 @@ fun MainScreen(
     hasSources: Boolean,
     isSyncing: Boolean,
     refreshStage: String?,
+    refreshProgress: Float,
     refreshedStages: Set<String>,
     failedRefreshStages: Set<String>,
     failedRefreshMessages: Map<String, String>,
@@ -138,6 +139,17 @@ fun MainScreen(
     val liveUpdated by settings.liveUpdated.collectAsState()
     val moviesUpdated by settings.moviesUpdated.collectAsState()
     val seriesUpdated by settings.seriesUpdated.collectAsState()
+    // Start the Live catalogue only when no saved Live rows have ever been fetched.
+    // The flag prevents retries from looping after a failed first connection.
+    var initialLiveRequested by remember { mutableStateOf(false) }
+    LaunchedEffect(hasSources, liveEnabled, liveUpdated, liveCatalogueTimestamp, isSyncing) {
+        if (!initialLiveRequested && hasSources && liveEnabled && !isSyncing &&
+            liveUpdated <= 0L && liveCatalogueTimestamp <= 0L
+        ) {
+            initialLiveRequested = true
+            onRefreshStage("live")
+        }
+    }
     val movieLoad by vodViewModel.movieStatus.collectAsState()
     val seriesLoad by vodViewModel.seriesStatus.collectAsState()
     // Do not launch simultaneous VOD downloads while manual refresh is running.
@@ -216,6 +228,7 @@ fun MainScreen(
                         compact = compact,
                         isTelevision = isTelevision,
                         liveState = tileState("live"),
+                        refreshProgress = refreshProgress,
                         liveFailure = failedRefreshMessages["live"],
                         movieFailure = failedRefreshMessages["movies"] ?: movieLoad.message.takeIf { movieLoad.phase == VodLoadPhase.FAILED },
                         seriesFailure = failedRefreshMessages["series"] ?: seriesLoad.message.takeIf { seriesLoad.phase == VodLoadPhase.FAILED },
@@ -371,6 +384,7 @@ private fun DashboardHome(
     compact: Boolean,
     isTelevision: Boolean,
     liveState: String,
+    refreshProgress: Float,
     liveFailure: String?,
     movieFailure: String?,
     seriesFailure: String?,
@@ -471,6 +485,7 @@ private fun DashboardHome(
                             available, Modifier.weight(1.05f), onLive, liveState,
                             liveLastUpdated, { onRefreshStage("live") }, liveFailure,
                             firstFocus = if (isTelevision && firstFocusTarget == DashboardFocusTarget.LIVE) homeFocus else null,
+                            progress = if (liveState == "UPDATING") refreshProgress else null,
                         )
                     }
                     Column(
@@ -487,6 +502,7 @@ private fun DashboardHome(
                                 upperHeight, Modifier.weight(1f), onMovies, movieState,
                                 moviesLastUpdated, { onRefreshStage("movies") }, movieFailure,
                                 firstFocus = if (isTelevision && firstFocusTarget == DashboardFocusTarget.MOVIES) homeFocus else null,
+                                progress = if (movieState == "UPDATING") refreshProgress else null,
                             )
                             if (seriesEnabled) DashboardTile(
                                 "SERIES", "Seasons & episodes", Icons.Filled.Tv,
@@ -495,6 +511,7 @@ private fun DashboardHome(
                                 seriesLastUpdated, { onRefreshStage("series") }, seriesFailure,
                                 firstFocus = if (isTelevision && firstFocusTarget == DashboardFocusTarget.SERIES)
                                     homeFocus else null,
+                                progress = if (seriesState == "UPDATING") refreshProgress else null,
                             )
                         }
                         Row(
@@ -524,6 +541,7 @@ private fun DashboardHome(
                     liveLastUpdated, { onRefreshStage("live") }, liveFailure,
                     firstFocus = if (isTelevision && firstFocusTarget == DashboardFocusTarget.LIVE)
                         homeFocus else null,
+                    progress = if (liveState == "UPDATING") refreshProgress else null,
                 )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(gap)) {
                     if (moviesEnabled) DashboardTile(
@@ -533,6 +551,7 @@ private fun DashboardHome(
                         moviesLastUpdated, { onRefreshStage("movies") }, movieFailure,
                         firstFocus = if (isTelevision && firstFocusTarget == DashboardFocusTarget.MOVIES)
                             homeFocus else null,
+                        progress = if (movieState == "UPDATING") refreshProgress else null,
                     )
                     if (seriesEnabled) DashboardTile(
                         "SERIES", "Episodes", Icons.Filled.Tv,
@@ -541,6 +560,7 @@ private fun DashboardHome(
                         seriesLastUpdated, { onRefreshStage("series") }, seriesFailure,
                         firstFocus = if (isTelevision && firstFocusTarget == DashboardFocusTarget.SERIES)
                             homeFocus else null,
+                        progress = if (seriesState == "UPDATING") refreshProgress else null,
                     )
                 }
                 Row(
@@ -600,6 +620,7 @@ private fun DashboardTile(
     onRefresh: () -> Unit = {},
     failureReason: String? = null,
     firstFocus: FocusRequester? = null,
+    progress: Float? = null,
 ) {
     var focused by remember { mutableStateOf(false) }
     var showFailureDetails by remember { mutableStateOf(false) }
@@ -655,7 +676,7 @@ private fun DashboardTile(
                     style = MaterialTheme.typography.labelSmall)
             }
             if (status == "UPDATING") {
-                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .67f)),
+                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .51f)),
                     contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator(color = Color.White,
@@ -665,6 +686,15 @@ private fun DashboardTile(
                         Text("Updating", color = Color.White,
                             style = MaterialTheme.typography.labelLarge,
                             maxLines = 1, softWrap = false)
+                    }
+                    if (progress != null) {
+                        // This is completed-provider progress, not fabricated byte transfer %.
+                        LinearProgressIndicator(
+                            progress = { progress.coerceIn(0f, 1f) },
+                            color = Color.White,
+                            trackColor = Color.White.copy(alpha = 0.25f),
+                            modifier = Modifier.fillMaxWidth().height(6.dp).align(Alignment.BottomStart),
+                        )
                     }
                 }
             }

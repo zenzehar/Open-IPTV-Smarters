@@ -89,6 +89,7 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
         val syncing: Boolean = false,
         val syncMessage: String? = null,
         val refreshStage: String? = null,
+        val stageProgress: Float = 0f,
         val completedStages: Set<String> = emptySet(),
         val failedStages: Set<String> = emptySet(),
         val failureMessages: Map<String, String> = emptyMap(),
@@ -260,7 +261,8 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
     private fun refreshCatalogues(onlyStage: String?) {
         if (_ui.value.syncing) return
         _ui.value = _ui.value.copy(syncing = true,
-            refreshStage = onlyStage ?: "live", syncMessage = "Preparing catalogue update…",
+            refreshStage = onlyStage ?: "live", stageProgress = 0f,
+            syncMessage = "Preparing catalogue update…",
             completedStages = emptySet(), failedStages = emptySet(),
             failureMessages = emptyMap())
         viewModelScope.launch {
@@ -285,10 +287,12 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
                 for (stage in stages) {
                     _ui.value = _ui.value.copy(
                         refreshStage = stage,
+                        stageProgress = 0f,
                         syncMessage = "Updating ${stage.replaceFirstChar { it.uppercase() }}…",
                     )
                     for ((index, source) in enabled.withIndex()) {
                         _ui.value = _ui.value.copy(
+                            stageProgress = index.toFloat() / enabled.size,
                             syncMessage = "Updating $stage · provider ${index + 1}/${enabled.size}",
                         )
                         when (stage) {
@@ -318,6 +322,9 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
                                 }
                             }
                         }
+                        _ui.value = _ui.value.copy(
+                            stageProgress = (index + 1).toFloat() / enabled.size,
+                        )
                     }
                     if (stage !in failed) {
                         completed += stage

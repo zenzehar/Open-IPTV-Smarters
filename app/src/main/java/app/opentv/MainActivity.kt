@@ -348,6 +348,7 @@ private fun OpenTvApp(isTelevision: Boolean) {
                     hasSources = sourcesUi.sources.isNotEmpty(),
                     isSyncing = sourcesUi.syncing,
                     refreshStage = sourcesUi.refreshStage,
+                    refreshProgress = sourcesUi.stageProgress,
                     refreshedStages = sourcesUi.completedStages,
                     failedRefreshStages = sourcesUi.failedStages,
                     failedRefreshMessages = sourcesUi.failureMessages,
