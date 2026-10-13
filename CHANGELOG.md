@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.12.13 — category-local search and focusable remote seeking
+
+- Search in Live TV, Movies and Series is now bound to the visible screen's actual state. The Live header and both Live guide layouts explicitly share one ChannelsViewModel; the selected Live category and provider continue to constrain search results.
+- Changing Movies or Series categories no longer silently clears an active search; the same term filters the newly selected category in place. Source changes also preserve the query.
+- Search filtering now covers the original “All” movie/series shelves (Continue Watching, Recommended, Recently Added and genre rows), not just standalone category grids. Empty matches show a clear “No matching titles” state instead of unfiltered or blank rows.
+- Pressing the visible category Search icon focuses that field and explicitly opens the keyboard. Simply moving TV remote focus does not open the keyboard.
+- VOD Media3 and VLC timelines are now explicitly focusable from the remote: Up from the control buttons selects the seek bar, Left/Right moves the playback cursor by 5 seconds per key press, Down returns to the controls, and Up from the timeline moves to the Back button. The focused timeline has an obvious highlight. While the timeline is focused, the control bar remains visible so the user can adjust an exact point.
+- Background-video arrows still reveal controls and seek by 10 seconds when the bar is hidden, while standard Left/Right continue to navigate buttons when the seek bar itself is not focused.
+- Preserve all package identifiers, provider credentials, watched history and existing player buffering settings. Verify precise Android TV D-pad navigation and search behaviour on physical hardware.
+
+
 ## 0.12.12 — TV remote playback, clean login focus and stable exit
 
 - TV login now shows remote-focusable, clearly bordered, inert field tiles. Actual Android TextFields are created only after pressing OK; this prevents provider TV keyboards from flashing open while moving between login fields. Phone input remains native.
