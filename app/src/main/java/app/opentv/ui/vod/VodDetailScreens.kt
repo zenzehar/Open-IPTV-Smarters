@@ -115,7 +115,13 @@ fun MovieDetailScreen(
         }
     }
 
-    val m = movie ?: run { LoadingDetail(); return }
+    val m = movie ?: run {
+        Column(Modifier.fillMaxSize()) {
+            DetailBackBar(onBack = onBack, label = "Back to movies")
+            LoadingDetail()
+        }
+        return
+    }
 
     // Land focus on the primary action once the page is up, so a d-pad has somewhere to be.
     LaunchedEffect(m.id) {
@@ -302,7 +308,13 @@ fun SeriesDetailScreen(
     val episodes by (s?.let { viewModel.episodes(it) } ?: viewModel.noEpisodes)
         .collectAsState(initial = emptyList())
 
-    if (s == null) { LoadingDetail(); return }
+    if (s == null) {
+        Column(Modifier.fillMaxSize()) {
+            DetailBackBar(onBack = onBack, label = "Back to series")
+            LoadingDetail()
+        }
+        return
+    }
 
     LaunchedEffect(s.id) {
         delay(60)
