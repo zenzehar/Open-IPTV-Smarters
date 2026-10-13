@@ -333,7 +333,6 @@ fun AddSourceScreen(
                             else "http://server-address:port")
                     },
                     singleLine = true,
-                    keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
                     colors = fieldColors,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, showKeyboardOnFocus = false),
                     textStyle = TextStyle(fontSize = fieldFont, color = ink),
