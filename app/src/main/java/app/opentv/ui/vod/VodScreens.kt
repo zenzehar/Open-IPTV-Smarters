@@ -118,15 +118,25 @@ fun MoviesScreen(
         viewModel.loadHomeFeeds()
     }
     var browseCategory by remember { mutableStateOf<String?>(RECENTLY_ADDED_CATEGORY) }
+    val matchTitle: (Movie) -> Boolean = { movie ->
+        movie.displayTitle.contains(titleFilter.trim(), ignoreCase = true) &&
+            (selectedSource == null || movie.sourceId == selectedSource)
+    }
+    val filteredResume = resume.filter { it.title.contains(titleFilter.trim(), ignoreCase = true) }
+    val filteredRecommended = recommended.filter(matchTitle)
+    val filteredRecent = recentlyAdded.filter(matchTitle)
+    val filteredGenreRows = genreRows.mapNotNull { row ->
+        val items = row.items.filter(matchTitle)
+        if (items.isEmpty()) null else row.copy(items = items)
+    }
     val hasContent = resume.isNotEmpty() || recommended.isNotEmpty() ||
         recentlyAdded.isNotEmpty() || genreRows.isNotEmpty()
     val onCategory: (String) -> Unit = { id ->
-        onTitleFilterChange("")
+        // Keep the active query while switching categories: re-filter in place.
         browseCategory = id
         viewModel.selectMovieCategory(if (isSpecialVodCategory(id)) null else id)
     }
     val onAll: () -> Unit = {
-        onTitleFilterChange("")
         browseCategory = null
         viewModel.selectMovieCategory(null)
     }
@@ -148,8 +158,8 @@ fun MoviesScreen(
         if (sources.size > 1) ProviderChips(
             sources = sources,
             selected = selectedSource,
-            onSelectAll = { browseCategory = RECENTLY_ADDED_CATEGORY; onTitleFilterChange(""); viewModel.selectVodSource(null) },
-            onSelectSource = { id -> browseCategory = RECENTLY_ADDED_CATEGORY; onTitleFilterChange(""); viewModel.selectVodSource(id) },
+            onSelectAll = { browseCategory = RECENTLY_ADDED_CATEGORY; viewModel.selectVodSource(null) },
+            onSelectSource = { id -> browseCategory = RECENTLY_ADDED_CATEGORY; viewModel.selectVodSource(id) },
         )
         Box(Modifier.weight(1f).fillMaxWidth()) {
             VodBrowserFrame(
@@ -192,19 +202,26 @@ fun MoviesScreen(
                         hasSources -> EmptyVod(stringResource(R.string.vod_no_movies), stringResource(R.string.vod_no_movies_provider))
                         else -> EmptyVod(stringResource(R.string.vod_no_movies), stringResource(R.string.vod_no_movies_add))
                     }
-                    else -> LazyColumn(
+                    else -> if (titleFilter.isNotBlank() && filteredResume.isEmpty() &&
+                        filteredRecommended.isEmpty() && filteredRecent.isEmpty() &&
+                        filteredGenreRows.isEmpty()
+                    ) {
+                        EmptyVod("No matching movies", "No titles match this search in the current selection.")
+                    } else LazyColumn(
                         contentPadding = PaddingValues(vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp),
                         modifier = Modifier.fillMaxSize(),
                     ) {
-                        if (resume.isNotEmpty()) item(key = "cw") { ContinueWatchingRow(resume, onResume) }
-                        if (recommended.isNotEmpty()) item(key = "rec") {
-                            MoviePosterRow(stringResource(R.string.vod_recommended), recommended, onOpenMovie)
+                        if (filteredResume.isNotEmpty()) item(key = "cw") {
+                            ContinueWatchingRow(filteredResume, onResume)
                         }
-                        if (recentlyAdded.isNotEmpty()) item(key = "recent") {
-                            MoviePosterRow(stringResource(R.string.vod_recently_added), recentlyAdded, onOpenMovie)
+                        if (filteredRecommended.isNotEmpty()) item(key = "rec") {
+                            MoviePosterRow(stringResource(R.string.vod_recommended), filteredRecommended, onOpenMovie)
                         }
-                        items(genreRows, key = { "g:${it.genre}" }) { group ->
+                        if (filteredRecent.isNotEmpty()) item(key = "recent") {
+                            MoviePosterRow(stringResource(R.string.vod_recently_added), filteredRecent, onOpenMovie)
+                        }
+                        items(filteredGenreRows, key = { "g:${it.genre}" }) { group ->
                             MoviePosterRow(group.genre, group.items, onOpenMovie)
                         }
                     }
@@ -244,14 +261,23 @@ fun SeriesScreen(
         viewModel.loadHomeFeeds()
     }
     var browseCategory by remember { mutableStateOf<String?>(RECENTLY_ADDED_CATEGORY) }
+    val matchTitle: (Series) -> Boolean = { series ->
+        series.displayTitle.contains(titleFilter.trim(), ignoreCase = true) &&
+            (selectedSource == null || series.sourceId == selectedSource)
+    }
+    val filteredResume = resume.filter { it.title.contains(titleFilter.trim(), ignoreCase = true) }
+    val filteredRecent = recentlyAdded.filter(matchTitle)
+    val filteredGenreRows = genreRows.mapNotNull { row ->
+        val items = row.items.filter(matchTitle)
+        if (items.isEmpty()) null else row.copy(items = items)
+    }
     val hasContent = resume.isNotEmpty() || recentlyAdded.isNotEmpty() || genreRows.isNotEmpty()
     val onCategory: (String) -> Unit = { id ->
-        onTitleFilterChange("")
+        // Keep the active query while switching categories: re-filter in place.
         browseCategory = id
         viewModel.selectSeriesCategory(if (isSpecialVodCategory(id)) null else id)
     }
     val onAll: () -> Unit = {
-        onTitleFilterChange("")
         browseCategory = null
         viewModel.selectSeriesCategory(null)
     }
@@ -273,8 +299,8 @@ fun SeriesScreen(
         if (sources.size > 1) ProviderChips(
             sources = sources,
             selected = selectedSource,
-            onSelectAll = { browseCategory = RECENTLY_ADDED_CATEGORY; onTitleFilterChange(""); viewModel.selectVodSource(null) },
-            onSelectSource = { id -> browseCategory = RECENTLY_ADDED_CATEGORY; onTitleFilterChange(""); viewModel.selectVodSource(id) },
+            onSelectAll = { browseCategory = RECENTLY_ADDED_CATEGORY; viewModel.selectVodSource(null) },
+            onSelectSource = { id -> browseCategory = RECENTLY_ADDED_CATEGORY; viewModel.selectVodSource(id) },
         )
         Box(Modifier.weight(1f).fillMaxWidth()) {
             VodBrowserFrame(
@@ -313,16 +339,22 @@ fun SeriesScreen(
                         hasSources -> EmptyVod(stringResource(R.string.vod_no_shows), stringResource(R.string.vod_no_shows_provider))
                         else -> EmptyVod(stringResource(R.string.vod_no_shows), stringResource(R.string.vod_no_shows_add))
                     }
-                    else -> LazyColumn(
+                    else -> if (titleFilter.isNotBlank() && filteredResume.isEmpty() &&
+                        filteredRecent.isEmpty() && filteredGenreRows.isEmpty()
+                    ) {
+                        EmptyVod("No matching series", "No titles match this search in the current selection.")
+                    } else LazyColumn(
                         contentPadding = PaddingValues(vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp),
                         modifier = Modifier.fillMaxSize(),
                     ) {
-                        if (resume.isNotEmpty()) item(key = "cw") { ContinueWatchingRow(resume, onResume) }
-                        if (recentlyAdded.isNotEmpty()) item(key = "recent") {
-                            SeriesPosterRow(stringResource(R.string.vod_recently_added), recentlyAdded, onOpenSeries)
+                        if (filteredResume.isNotEmpty()) item(key = "cw") {
+                            ContinueWatchingRow(filteredResume, onResume)
                         }
-                        items(genreRows, key = { "g:${it.genre}" }) { group ->
+                        if (filteredRecent.isNotEmpty()) item(key = "recent") {
+                            SeriesPosterRow(stringResource(R.string.vod_recently_added), filteredRecent, onOpenSeries)
+                        }
+                        items(filteredGenreRows, key = { "g:${it.genre}" }) { group ->
                             SeriesPosterRow(group.genre, group.items, onOpenSeries)
                         }
                     }

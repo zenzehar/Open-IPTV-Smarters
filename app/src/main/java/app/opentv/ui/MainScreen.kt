@@ -80,6 +80,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -203,8 +204,11 @@ fun MainScreen(
     var liveFilter by rememberSaveable { mutableStateOf("") }
     var movieFilter by rememberSaveable { mutableStateOf("") }
     val liveSearchVm: ChannelsViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
-    LaunchedEffect(tab, liveFilter) {
-        liveSearchVm.search(if (tab == DashboardTab.LIVE) liveFilter else "")
+    // The same ChannelsViewModel is supplied to BOTH Live layouts below.
+    // Binding search to this single instance prevents an unseen guide retaining
+    // an old query while the visible header edits another instance.
+    LaunchedEffect(liveFilter) {
+        liveSearchVm.search(liveFilter.trim())
     }
     val headerSearchFocus = remember { FocusRequester() }
     var seriesFilter by rememberSaveable { mutableStateOf("") }
@@ -335,6 +339,7 @@ fun MainScreen(
                     )
                     DashboardTab.LIVE -> {
                         if (compact) MobileLiveScreen(
+                            viewModel = liveSearchVm,
                             search = liveFilter,
                             onSearchChange = { liveFilter = it },
                             hasSources = hasSources,
@@ -343,6 +348,7 @@ fun MainScreen(
                             onAddSource = onAddSource,
                             onRefresh = onRefresh,
                         ) else HomeScreen(
+                            viewModel = liveSearchVm,
                             isTelevision = true,
                             hasSources = hasSources,
                             isSyncing = isSyncing,
@@ -418,6 +424,7 @@ private fun DashboardHeader(
     categoryTitleFilter: String?,
     onCategoryTitleFilterChange: (String) -> Unit,
 ) {
+    val softwareKeyboard = LocalSoftwareKeyboardController.current
     Row(
         Modifier
             .fillMaxWidth()
@@ -458,7 +465,12 @@ private fun DashboardHeader(
         }
         HeaderAction(Icons.Filled.Search, "Search",
             if (categoryTitleFilter != null) {
-                { runCatching { headerSearchFocus.requestFocus() }; Unit }
+                {
+                    runCatching { headerSearchFocus.requestFocus() }
+                    // Search was explicitly selected, unlike ordinary D-pad focus.
+                    softwareKeyboard?.show()
+                    Unit
+                }
             } else onSearch)
         HeaderAction(Icons.Filled.Person, "Profiles", onProfiles)
         HeaderAction(Icons.Filled.Settings, "Settings", onSettings)
