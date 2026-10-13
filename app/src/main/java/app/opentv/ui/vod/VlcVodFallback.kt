@@ -77,6 +77,7 @@ import kotlinx.coroutines.launch
 import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
+import java.util.concurrent.atomic.AtomicBoolean
 import org.videolan.libvlc.util.VLCVideoLayout
 
 /**
@@ -141,6 +142,7 @@ fun VlcVodFallback(
     // on the Media instance; unreliable provider networks may still buffer as needed.
     val libVlc = remember { LibVLC(context.applicationContext, arrayListOf("--network-caching=750", "--http-reconnect")) }
     val player = remember { MediaPlayer(libVlc) }
+    val shuttingDown = remember { AtomicBoolean(false) }
 
     fun openExternal() {
         try {
@@ -206,7 +208,8 @@ fun VlcVodFallback(
             errorText = null
             var resumeApplied = false
             player.setEventListener { event ->
-                scope.launch {
+                if (!shuttingDown.get()) scope.launch {
+                    if (shuttingDown.get()) return@launch
                     when (event.type) {
                         MediaPlayer.Event.Playing -> {
                             buffering = false
@@ -287,6 +290,8 @@ fun VlcVodFallback(
 
     DisposableEffect(Unit) {
         onDispose {
+            shuttingDown.set(true)
+            runCatching { player.setEventListener(null) }
             // Use a separate IO scope: composition scope is cancelled on navigation.
             val p = runCatching { player.time }.getOrDefault(0L)
             val d = runCatching { player.length }.getOrDefault(0L)

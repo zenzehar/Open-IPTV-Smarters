@@ -84,6 +84,7 @@ class PlayerController(
      * is a network round-trip — rides over the gaps instead of stalling on every one.
      */
     private val liveRecording: Boolean = false,
+    private val quickVodStart: Boolean = false,
 ) {
 
     /** Channel-surf debounce for this controller — longer for the preview so browsing is calm. */
@@ -205,6 +206,7 @@ class PlayerController(
                     when {
                         preview -> PREVIEW_BUFFER_FOR_PLAYBACK_MILLIS
                         liveRecording -> LIVE_REC_BUFFER_FOR_PLAYBACK_MILLIS
+                        quickVodStart -> VOD_FAST_START_MILLIS
                         else -> BUFFER_FOR_PLAYBACK_MILLIS
                     },
                     when {
@@ -400,6 +402,7 @@ class PlayerController(
         const val MIN_BUFFER_MILLIS = 15_000
         const val MAX_BUFFER_MILLIS = 60_000
         const val BUFFER_FOR_PLAYBACK_MILLIS = 2_500
+        const val VOD_FAST_START_MILLIS = 1_000 // steady buffer and 5s rebuffer unchanged
         const val BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MILLIS = 5_000
 
         // DVR mode (pause & rewind live TV): keep a couple of minutes behind the live edge to seek

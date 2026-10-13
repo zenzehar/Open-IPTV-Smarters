@@ -131,6 +131,15 @@ fun VodPlayerScreen(
     val view = LocalView.current
     val graph = remember { ServiceLocator.get(context) }
     val settings = remember { graph.settings }
+    var leavingPlayer by remember { mutableStateOf(false) }
+    fun requestPlayerExit() { leavingPlayer = true }
+    LaunchedEffect(leavingPlayer) {
+        if (leavingPlayer) {
+            // Detach the native video surface before route disposal destroys the codec.
+            delay(180L)
+            onBack()
+        }
+    }
     val autoplayNext by settings.autoplayNextEpisode.collectAsState()
     val controlsTimeoutSeconds by settings.controlsTimeoutSeconds.collectAsState()
     var nextEpisode by remember(mediaKey) { mutableStateOf<Episode?>(null) }
@@ -166,6 +175,7 @@ fun VodPlayerScreen(
             growingDataSourceFactory =
                 app.opentv.player.GrowingRecordingDataSource.Factory(context.applicationContext),
             liveRecording = growingRec,
+            quickVodStart = !growingRec,
         )
     }
     // Skip forward/back within the recorded portion. For a growing recording ExoPlayer won't report
@@ -386,7 +396,7 @@ fun VodPlayerScreen(
         when {
             vodPanel != VodPanel.NONE -> vodPanel = VodPanel.NONE
             controlsVisible && activelyPlaying && !paused -> controlsVisible = false
-            else -> onBack()
+            else -> requestPlayerExit()
         }
     }
 
@@ -408,13 +418,15 @@ fun VodPlayerScreen(
                 detectTapGestures { if (controlsVisible) controlsVisible = false else reveal() }
             },
     ) {
-        if (useVlc) {
+        if (leavingPlayer) {
+            Box(Modifier.fillMaxSize().background(Color.Black))
+        } else if (useVlc) {
             VlcVodFallback(
                 mediaKey = mediaKey,
                 streamUrl = streamUrl,
                 title = title,
                 userAgent = userAgent,
-                onBack = onBack,
+                onBack = ::requestPlayerExit,
                 nextEpisode = nextEpisode,
                 autoplayNext = autoplayNext,
                 onAutoplayChange = settings::setAutoplayNextEpisode,
@@ -435,6 +447,7 @@ fun VodPlayerScreen(
                     )
                 }
             },
+            onRelease = { playerView -> playerView.player = null },
         )
 
         AnimatedVisibility(
@@ -443,7 +456,7 @@ fun VodPlayerScreen(
             modifier = Modifier.align(Alignment.TopStart),
         ) {
             androidx.compose.material3.IconButton(
-                onClick = onBack,
+                onClick = ::requestPlayerExit,
                 modifier = Modifier
                     .windowInsetsPadding(WindowInsets.safeDrawing.only(
                         WindowInsetsSides.Horizontal + WindowInsetsSides.Top))
