@@ -560,6 +560,11 @@ private fun DashboardHome(
     }
 }
 
+/**
+ * Home tile matching the reference hierarchy: artwork + title above a translucent
+ * last-updated footer with its own refresh action. A stage's progress stays ON
+ * its tile; other stages fade while they wait. It never obscures the whole page.
+ */
 @Composable
 private fun DashboardTile(
     title: String,
@@ -570,45 +575,90 @@ private fun DashboardTile(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
     status: String = "",
+    lastUpdated: Long = 0L,
+    onRefresh: () -> Unit = {},
 ) {
     var focused by remember { mutableStateOf(false) }
+    val compactTile = height < 185.dp
+    val footerHeight = if (compactTile) 43.dp else 48.dp
     Column(
         modifier
             .height(height)
             .alpha(when (status) {
-                "WAITING" -> 0.42f
+                "WAITING" -> 0.38f
                 "FAILED" -> 0.58f
-                "UPDATED" -> 0.78f
                 else -> 1f
             })
-            .clip(RoundedCornerShape(17.dp))
-            .background(Brush.linearGradient(gradient))
-            .onFocusChanged { focused = it.isFocused }
-            .clickable(onClick = onClick)
-            .padding(18.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+            .clip(RoundedCornerShape(if (compactTile) 12.dp else 16.dp))
+            .background(Brush.linearGradient(gradient)),
     ) {
-        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(if (height > 200.dp) 65.dp else 43.dp))
-        Spacer(Modifier.height(12.dp))
-        Text(title, color = Color.White, fontWeight = FontWeight.Bold,
-            style = MaterialTheme.typography.titleLarge, maxLines = 1)
-        if (status == "UPDATING") {
-            Spacer(Modifier.height(8.dp))
-            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(25.dp), strokeWidth = 3.dp)
-            Text("UPDATING…", color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1)
-        } else if (status == "FAILED") {
-            Text("FAILED · Retry from dashboard", color = Color.White,
-                fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        } else {
-            Text(if (status == "UPDATED") "Updated" else subtitle,
-                color = Color.White.copy(alpha = 0.85f),
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Box(
+            Modifier.fillMaxWidth().weight(1f)
+                .onFocusChanged { focused = it.isFocused }
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center) {
+                Icon(icon, contentDescription = null, tint = Color.White,
+                    modifier = Modifier.size(if (compactTile) 39.dp else 63.dp))
+                Spacer(Modifier.height(if (compactTile) 4.dp else 9.dp))
+                Text(title, color = Color.White, fontWeight = FontWeight.Bold,
+                    style = if (compactTile) MaterialTheme.typography.titleMedium
+                    else MaterialTheme.typography.titleLarge,
+                    maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+                if (focused) Text("SELECT", color = Color.White,
+                    style = MaterialTheme.typography.labelSmall)
+            }
+            if (status == "UPDATING") {
+                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .67f)),
+                    contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(color = Color.White,
+                            modifier = Modifier.size(if (compactTile) 22.dp else 39.dp),
+                            strokeWidth = 3.dp)
+                        Spacer(Modifier.height(6.dp))
+                        Text("Updating", color = Color.White,
+                            style = MaterialTheme.typography.labelLarge,
+                            maxLines = 1, softWrap = false)
+                    }
+                }
+            }
         }
-        if (focused) {
-            Spacer(Modifier.height(8.dp))
-            Text("SELECT", color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+        Row(
+            Modifier.fillMaxWidth().height(footerHeight)
+                .background(Color.Black.copy(alpha = 0.25f))
+                .padding(start = 10.dp, end = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            val stamp = when (status) {
+                "UPDATING" -> "Updating…"
+                "WAITING" -> "Waiting…"
+                "FAILED" -> "Failed · retry"
+                else -> if (lastUpdated > 0L) {
+                    val ago = android.text.format.DateUtils.getRelativeTimeSpanString(
+                        lastUpdated, System.currentTimeMillis(),
+                        android.text.format.DateUtils.MINUTE_IN_MILLIS,
+                    ).toString()
+                    if (compactTile) "Updated: $ago" else "Last updated: $ago"
+                } else "Not updated yet"
+            }
+            Text(stamp, color = Color.White,
+                style = if (compactTile) MaterialTheme.typography.labelSmall
+                else MaterialTheme.typography.bodySmall,
+                modifier = Modifier.weight(1f), maxLines = 1,
+                softWrap = false, overflow = TextOverflow.Ellipsis)
+            IconButton(
+                onClick = onRefresh,
+                enabled = status != "UPDATING" && status != "WAITING",
+                modifier = Modifier
+                    .size(if (compactTile) 36.dp else 39.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color.White),
+            ) {
+                Icon(Icons.Filled.Refresh, contentDescription = "Refresh $title",
+                    tint = Color(0xFF141B2C), modifier = Modifier.size(25.dp))
+            }
         }
     }
 }
