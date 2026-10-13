@@ -77,6 +77,7 @@ import app.opentv.data.model.Source
 import app.opentv.data.model.SourceKind
 import app.opentv.isRunningOnTelevision
 import app.opentv.ui.SourcesViewModel
+import app.opentv.ui.explicitImeActivation
 import app.opentv.ui.channels.readClipboardText
 
 /**
@@ -287,9 +288,10 @@ fun AddSourceScreen(
                     onValueChange = { name = oneLine(it); viewModel.clearConnectionResult() },
                     placeholder = { Text("Playlist name") },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
                     colors = fieldColors,
                     textStyle = TextStyle(fontSize = fieldFont, color = ink),
-                    modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = fieldHeight),
+                    modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = fieldHeight).explicitImeActivation(),
                 )
                 if (kind == SourceKind.XTREAM) {
                     OutlinedTextField(
@@ -297,9 +299,10 @@ fun AddSourceScreen(
                         onValueChange = { username = oneLine(it); viewModel.clearConnectionResult() },
                         placeholder = { Text("Username") },
                         singleLine = true,
+                        keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
                         colors = fieldColors,
                         textStyle = TextStyle(fontSize = fieldFont, color = ink),
-                        modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = fieldHeight),
+                        modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = fieldHeight).explicitImeActivation(),
                     )
                     OutlinedTextField(
                         value = password,
@@ -308,7 +311,7 @@ fun AddSourceScreen(
                         singleLine = true,
                         visualTransformation = if (revealPassword) VisualTransformation.None
                             else PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, showKeyboardOnFocus = false),
                         trailingIcon = {
                             IconButton(onClick = { revealPassword = !revealPassword }) {
                                 Icon(if (revealPassword) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
@@ -318,7 +321,7 @@ fun AddSourceScreen(
                         },
                         colors = fieldColors,
                         textStyle = TextStyle(fontSize = fieldFont, color = ink),
-                        modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = fieldHeight),
+                        modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = fieldHeight).explicitImeActivation(),
                     )
                 }
                 OutlinedTextField(
@@ -330,10 +333,11 @@ fun AddSourceScreen(
                             else "http://server-address:port")
                     },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
                     colors = fieldColors,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, showKeyboardOnFocus = false),
                     textStyle = TextStyle(fontSize = fieldFont, color = ink),
-                    modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = fieldHeight),
+                    modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = fieldHeight).explicitImeActivation(),
                 )
                 if (kind == SourceKind.STALKER) {
                     OutlinedTextField(
@@ -341,9 +345,10 @@ fun AddSourceScreen(
                         onValueChange = { mac = oneLine(it); viewModel.clearConnectionResult() },
                         placeholder = { Text("MAC address") },
                         singleLine = true,
+                        keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
                         colors = fieldColors,
                         textStyle = TextStyle(fontSize = fieldFont, color = ink),
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().explicitImeActivation(),
                     )
                 }
                 if (providerError != null) {
@@ -436,7 +441,8 @@ fun AddSourceScreen(
                         placeholder = { Text("Optional EPG URL") },
                         colors = fieldColors,
                         textStyle = TextStyle(color = ink),
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().explicitImeActivation(),
+                        keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
                         singleLine = true,
                     )
                     OutlinedTextField(
@@ -445,7 +451,8 @@ fun AddSourceScreen(
                         placeholder = { Text("User-Agent") },
                         colors = fieldColors,
                         textStyle = TextStyle(color = ink),
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().explicitImeActivation(),
+                        keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
                         singleLine = true,
                     )
                 }
