@@ -57,7 +57,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.zIndex
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -740,8 +740,8 @@ internal fun ContinueWatchingRow(
 @Composable
 private fun ResumeCard(
     item: VodViewModel.ResumeItem,
-    onClick: () -> Unit,
     onFocus: () -> Unit = {},
+    onClick: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (focused) 1.04f else 1f, label = "resumeScale")
