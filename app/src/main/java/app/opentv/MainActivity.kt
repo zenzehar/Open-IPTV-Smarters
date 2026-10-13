@@ -326,7 +326,12 @@ private fun OpenTvApp(isTelevision: Boolean) {
                 AddSourceScreen(
                     viewModel = sourcesViewModel,
                     editingSourceId = sourceId,
-                    onFinished = { navController.popBackStack() },
+                    onFinished = {
+                        // Editing a failed source must recheck VOD, not leave the previous
+                        // ViewModel's failed-state guard permanently latched.
+                        vodViewModel.refreshVod()
+                        navController.popBackStack()
+                    },
                 )
             }
 
