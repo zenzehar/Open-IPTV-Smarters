@@ -67,6 +67,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import app.opentv.ui.explicitImeActivation
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
@@ -190,6 +193,8 @@ fun MainScreen(
     }
     // Returning from a movie/series detail restores its library tab instead of Home.
     var tab by rememberSaveable { mutableStateOf(DashboardTab.HOME) }
+    var movieFilter by rememberSaveable { mutableStateOf("") }
+    var seriesFilter by rememberSaveable { mutableStateOf("") }
     if (tab !in choices) tab = DashboardTab.HOME
     var showExit by remember { mutableStateOf(false) }
     val bottomJumpFocus = remember { FocusRequester() }
@@ -262,6 +267,18 @@ fun MainScreen(
                 onProfiles = onOpenProfiles,
                 profile = activeProfileName,
                 compact = compact,
+                categoryTitleFilter = when (tab) {
+                    DashboardTab.MOVIES -> movieFilter
+                    DashboardTab.SERIES -> seriesFilter
+                    else -> null
+                },
+                onCategoryTitleFilterChange = { value ->
+                    when (tab) {
+                        DashboardTab.MOVIES -> movieFilter = value
+                        DashboardTab.SERIES -> seriesFilter = value
+                        else -> Unit
+                    }
+                },
             )
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when (tab) {
@@ -320,6 +337,8 @@ fun MainScreen(
                         onResume = onResume,
                         onOpenSearch = onOpenSearch,
                         categoryJumpFocus = if (isTelevision) categoryJumpFocus else null,
+                        titleFilter = if (tab == DashboardTab.MOVIES) movieFilter else seriesFilter,
+                        onTitleFilterChange = { if (tab == DashboardTab.MOVIES) movieFilter = it else seriesFilter = it },
                         hasSources = hasSources,
                         isSyncing = isSyncing,
                     )
@@ -330,6 +349,8 @@ fun MainScreen(
                         onResume = onResume,
                         onOpenSearch = onOpenSearch,
                         categoryJumpFocus = if (isTelevision) categoryJumpFocus else null,
+                        titleFilter = if (tab == DashboardTab.MOVIES) movieFilter else seriesFilter,
+                        onTitleFilterChange = { if (tab == DashboardTab.MOVIES) movieFilter = it else seriesFilter = it },
                         hasSources = hasSources,
                         isSyncing = isSyncing,
                     )
@@ -371,6 +392,8 @@ private fun DashboardHeader(
     onProfiles: () -> Unit,
     profile: String,
     compact: Boolean,
+    categoryTitleFilter: String?,
+    onCategoryTitleFilterChange: (String) -> Unit,
 ) {
     Row(
         Modifier
@@ -385,15 +408,26 @@ private fun DashboardHeader(
         } else {
             Icon(Icons.Filled.Tv, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(27.dp))
         }
-        Text(
-            title,
-            color = Color.White,
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
+        if (categoryTitleFilter != null) {
+            OutlinedTextField(
+                value = categoryTitleFilter,
+                onValueChange = onCategoryTitleFilterChange,
+                placeholder = { Text("Filter $title category", maxLines = 1) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
+                modifier = Modifier.weight(1f).explicitImeActivation(),
+            )
+        } else {
+            Text(
+                title,
+                color = Color.White,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+        }
         if (!compact) {
             Text(profile, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyMedium, maxLines = 1,
