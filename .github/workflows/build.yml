@@ -90,8 +90,8 @@ jobs:
           test -s "$DEBUG_APK"
           test -s "$QA_APK"
           AAPT=$(find "$ANDROID_HOME/build-tools" -name aapt -type f | sort -V | tail -1)
-          "$AAPT" dump badging "$DEBUG_APK" | grep -q "package: name='app.opentv.debug' versionCode='28'"
-          "$AAPT" dump badging "$QA_APK" | grep -q "package: name='app.opentv.qa' versionCode='28'"
+          "$AAPT" dump badging "$DEBUG_APK" | grep -q "package: name='app.opentv.debug' versionCode='29'"
+          "$AAPT" dump badging "$QA_APK" | grep -q "package: name='app.opentv.qa' versionCode='29'"
           mkdir -p direct-apks
           cp "$DEBUG_APK" direct-apks/MyIPTV-v0.12.6-debug.apk
           cp "$QA_APK" direct-apks/MyIPTV-v0.12.6-QA.apk
