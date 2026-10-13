@@ -6,6 +6,7 @@
 package app.opentv.ui.vod
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -59,14 +60,24 @@ fun PersonScreen(
     BackHandler { onBack() }
 
     Column(Modifier.fillMaxSize()) {
-        Text(
-            stringResource(R.string.vod_person_title, name),
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 24.dp, vertical = 20.dp),
-        )
+        androidx.compose.foundation.layout.Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            androidx.compose.material3.OutlinedButton(onClick = onBack) {
+                androidx.compose.material3.Icon(
+                    androidx.compose.material.icons.Icons.Filled.ArrowBack, contentDescription = null)
+                Text("Back")
+            }
+            Text(
+                stringResource(R.string.vod_person_title, name),
+                style = MaterialTheme.typography.headlineMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f).padding(start = 12.dp),
+            )
+        }
 
         // Weighted so the grid/empty state fills the space under the fixed header, exactly — the same
         // remaining-space pattern the Movies/Shows home uses.
