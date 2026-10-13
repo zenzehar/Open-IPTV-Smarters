@@ -354,6 +354,12 @@ private fun OpenTvApp(isTelevision: Boolean) {
                         )
                     },
                     onAddSource = { navController.navigate(Routes.ADD_SOURCE) },
+                    onRepairProvider = {
+                        val source = sourcesUi.sources.firstOrNull { it.enabled }
+                            ?: sourcesUi.sources.firstOrNull()
+                        if (source != null) navController.navigate(Routes.editSource(source.id))
+                        else navController.navigate(Routes.ADD_SOURCE)
+                    },
                     onRefresh = sourcesViewModel::refreshAll,
                     onRefreshStage = sourcesViewModel::refreshStage,
                     onOpenSearch = { navController.navigate(Routes.SEARCH) },
