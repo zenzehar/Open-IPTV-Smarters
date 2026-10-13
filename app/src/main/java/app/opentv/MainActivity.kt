@@ -335,6 +335,10 @@ private fun OpenTvApp(isTelevision: Boolean) {
                     isTelevision = isTelevision,
                     hasSources = sourcesUi.sources.isNotEmpty(),
                     isSyncing = sourcesUi.syncing,
+                    refreshStage = sourcesUi.refreshStage,
+                    refreshedStages = sourcesUi.completedStages,
+                    failedRefreshStages = sourcesUi.failedStages,
+                    refreshMessage = sourcesUi.syncMessage,
                     onPlayChannel = { channel -> navController.navigate(Routes.player(channel.id)) },
                     onOpenMovie = { movie ->
                         navController.navigate(Routes.movieDetail(movie.id))
