@@ -6,6 +6,7 @@
 package app.opentv.ui.settings
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -109,32 +110,50 @@ fun ProfilesScreen(
             items(profiles, key = { it.id }) { profile ->
                 val active = profile.id == activeId
                 Card {
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                profile.name,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            if (active) {
-                                Text(
-                                    stringResource(R.string.profiles_active),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
+                    BoxWithConstraints(Modifier.fillMaxWidth()) {
+                        val narrow = maxWidth < 530.dp
+                        Column(Modifier.fillMaxWidth().padding(
+                            horizontal = if (narrow) 10.dp else 18.dp,
+                            vertical = if (narrow) 9.dp else 14.dp,
+                        )) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(profile.name,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.SemiBold)
+                                    if (active) Text(stringResource(R.string.profiles_active),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.primary)
+                                }
+                                if (!narrow) {
+                                    if (!active) TextButton(onClick = { viewModel.select(profile.id) }) {
+                                        Text(stringResource(R.string.profiles_use))
+                                    }
+                                    TextButton(onClick = { editing = profile.id }) {
+                                        Text(stringResource(R.string.profiles_rename))
+                                    }
+                                    TextButton(onClick = { confirmRemoval = profile },
+                                        enabled = profiles.size > 1) {
+                                        Text(stringResource(R.string.common_remove))
+                                    }
+                                }
+                            }
+                            if (narrow) Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
+                            ) {
+                                if (!active) TextButton(onClick = { viewModel.select(profile.id) }) {
+                                    Text(stringResource(R.string.profiles_use))
+                                }
+                                TextButton(onClick = { editing = profile.id }) {
+                                    Text(stringResource(R.string.profiles_rename))
+                                }
+                                TextButton(onClick = { confirmRemoval = profile },
+                                    enabled = profiles.size > 1) {
+                                    Text(stringResource(R.string.common_remove))
+                                }
                             }
                         }
-                        if (!active) {
-                            TextButton(onClick = { viewModel.select(profile.id) }) { Text(stringResource(R.string.profiles_use)) }
-                        }
-                        TextButton(onClick = { editing = profile.id }) { Text(stringResource(R.string.profiles_rename)) }
-                        TextButton(
-                            onClick = { confirmRemoval = profile },
-                            enabled = profiles.size > 1,
-                        ) { Text(stringResource(R.string.common_remove)) }
                     }
                 }
             }
