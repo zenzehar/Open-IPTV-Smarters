@@ -1075,12 +1075,33 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { syncVodIfStale(force = true) }
     }
 
-    private fun completedStatus(count: Int, failed: Boolean): VodSectionStatus = when {
+    private fun completedStatus(count: Int, failed: Boolean, detail: String? = null): VodSectionStatus = when {
         count > 0 -> VodSectionStatus(VodLoadPhase.READY,
-            if (failed) "Showing saved catalogue; provider refresh failed" else "Ready", count)
+            if (failed) "Showing saved catalogue; refresh failed" else "Ready", count)
         failed -> VodSectionStatus(VodLoadPhase.FAILED,
-            "The provider could not load this catalogue. Retry from the dashboard.", 0)
+            detail ?: "Could not reach the IPTV provider. Tap the refresh icon to retry.", 0)
         else -> VodSectionStatus(VodLoadPhase.EMPTY, "This provider has no titles in this section", 0)
+    }
+
+    /** Called after a manual on-tile refresh so the browse tabs see the new Room rows. */
+    fun reconcileManualRefresh(completed: Set<String>, failed: Set<String>) {
+        if (_vodLoading.value) return
+        if (completed.isEmpty() && failed.isEmpty()) return
+        viewModelScope.launch {
+            if ("movies" in completed || "movies" in failed) {
+                _movieStatus.value = completedStatus(
+                    graph.catalogRepository.movieCount(), "movies" in failed,
+                    "Movie catalogue update failed. Tap its refresh icon to retry.",
+                )
+            }
+            if ("series" in completed || "series" in failed) {
+                _seriesStatus.value = completedStatus(
+                    graph.catalogRepository.seriesCount(), "series" in failed,
+                    "Series catalogue update failed. Tap its refresh icon to retry.",
+                )
+            }
+            loadHomeFeeds()
+        }
     }
 
     private suspend fun syncVodIfStale(force: Boolean) = vodSyncMutex.withLock {
@@ -1104,6 +1125,8 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
             val enabled = graph.sourceRepository.enabled()
             var movieFailure = false
             var seriesFailure = false
+            var movieError: String? = null
+            var seriesError: String? = null
             // Every source finishes the Movies pass before the first Series request begins.
             // This makes the dashboard's active tile genuinely reflect the active network work.
             if (settings.moviesEnabled.value) {
@@ -1114,11 +1137,14 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
                         val result = graph.catalogRepository.syncVod(source, now,
                             includeMovies = true, includeSeries = false)
                         movieFailure = movieFailure || result.movieError != null
+                        movieError = movieError ?: result.movieError
                     }
                 }
             }
             val finalMovies = graph.catalogRepository.movieCount()
-            _movieStatus.value = completedStatus(finalMovies, movieFailure)
+            _movieStatus.value = completedStatus(finalMovies, movieFailure, movieError)
+            if (!movieFailure && settings.moviesEnabled.value)
+                settings.recordCatalogueUpdated("movies")
             if (settings.seriesEnabled.value) {
                 StatusBus.during("Updating series…") {
                     enabled.forEachIndexed { index, source ->
@@ -1127,11 +1153,14 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
                         val result = graph.catalogRepository.syncVod(source, now,
                             includeMovies = false, includeSeries = true)
                         seriesFailure = seriesFailure || result.seriesError != null
+                        seriesError = seriesError ?: result.seriesError
                     }
                 }
             }
             val finalSeries = graph.catalogRepository.seriesCount()
-            _seriesStatus.value = completedStatus(finalSeries, seriesFailure)
+            _seriesStatus.value = completedStatus(finalSeries, seriesFailure, seriesError)
+            if (!seriesFailure && settings.seriesEnabled.value)
+                settings.recordCatalogueUpdated("series")
             if (!movieFailure && !seriesFailure) settings.vodSyncedAtMillis = now
             loadHomeFeeds()
         } catch (e: kotlinx.coroutines.CancellationException) {
