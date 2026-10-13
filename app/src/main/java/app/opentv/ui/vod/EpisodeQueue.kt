@@ -29,3 +29,12 @@ internal fun canAutoplayAfterCompletion(
     autoplayEnabled: Boolean,
     nextEpisode: Episode?,
 ): Boolean = reachedEnd && completionHandled && autoplayEnabled && nextEpisode != null
+
+/** Collapse display cards without discarding per-episode playback history.
+ * The supplied order need not be chronological; the most recently stopped item wins.
+ */
+internal fun <T> mostRecentPerTitle(
+    items: List<T>,
+    updatedAt: (T) -> Long,
+    titleKey: (T) -> String,
+): List<T> = items.sortedByDescending(updatedAt).distinctBy(titleKey)
