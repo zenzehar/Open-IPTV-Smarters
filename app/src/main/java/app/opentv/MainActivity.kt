@@ -375,6 +375,7 @@ private fun OpenTvApp(isTelevision: Boolean) {
                         navController.navigate(Routes.vodPlayer(key, url, title, ua))
                     },
                     activeProfileName = activeProfileName,
+                    vodViewModel = vodViewModel,
                 )
             }
 
