@@ -264,8 +264,8 @@ fun VlcVodFallback(
             delay(1_000L)
             val p = runCatching { player.time }.getOrDefault(0L)
             val d = runCatching { player.length }.getOrDefault(0L)
-            positionMs = p.coerceAtLeast(0L)
             durationMs = d.coerceAtLeast(0L)
+            positionMs = if (durationMs > 0L) p.coerceIn(0L, durationMs) else p.coerceAtLeast(0L)
         }
     }
     LaunchedEffect(mediaKey) {

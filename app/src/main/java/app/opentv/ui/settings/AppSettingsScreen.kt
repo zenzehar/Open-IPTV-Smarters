@@ -74,6 +74,7 @@ fun AppSettingsScreen(onBack: () -> Unit) {
     val captions by settings.subtitlesEnabled.collectAsState()
     val resumeLast by settings.resumeLastChannel.collectAsState()
     val autoplayNext by settings.autoplayNextEpisode.collectAsState()
+    val posterSize by settings.posterSize.collectAsState()
     val language by settings.languageTag.collectAsState()
     val liveEnabled by settings.liveEnabled.collectAsState()
     val moviesEnabled by settings.moviesEnabled.collectAsState()
@@ -120,6 +121,16 @@ fun AppSettingsScreen(onBack: () -> Unit) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+        Spacer(Modifier.height(16.dp))
+
+        SettingsSection("Movie & series poster size") {
+            Text("Control title poster size in browsing grids and shelves.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            AppSettings.PosterSize.entries.forEach { size ->
+                ThemeOption(size.name.lowercase().replaceFirstChar { it.uppercase() },
+                    posterSize == size) { settings.setPosterSize(size) }
+            }
         }
         Spacer(Modifier.height(16.dp))
 

@@ -206,12 +206,26 @@ class AppSettings private constructor(context: Context) {
     }
 
     /** Autoplay the next available episode when a series episode reaches its end. */
-    private val _autoplayNextEpisode = MutableStateFlow(prefs.getBoolean(KEY_AUTOPLAY_NEXT_EPISODE, false))
+    private val _autoplayNextEpisode = MutableStateFlow(prefs.getBoolean(KEY_AUTOPLAY_NEXT_EPISODE, true))
     val autoplayNextEpisode: StateFlow<Boolean> = _autoplayNextEpisode.asStateFlow()
 
     fun setAutoplayNextEpisode(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_AUTOPLAY_NEXT_EPISODE, enabled).apply()
         _autoplayNextEpisode.value = enabled
+    }
+
+    enum class PosterSize(val cardDp: Int, val gridMinDp: Int) {
+        SMALL(108, 112), MEDIUM(124, 128), LARGE(140, 144)
+    }
+
+    private val _posterSize = MutableStateFlow(
+        runCatching { PosterSize.valueOf(prefs.getString("poster_size", "MEDIUM") ?: "MEDIUM") }
+            .getOrDefault(PosterSize.MEDIUM)
+    )
+    val posterSize: StateFlow<PosterSize> = _posterSize.asStateFlow()
+    fun setPosterSize(value: PosterSize) {
+        prefs.edit().putString("poster_size", value.name).apply()
+        _posterSize.value = value
     }
 
     /** Whether launching the app jumps straight back to the last channel you watched. */

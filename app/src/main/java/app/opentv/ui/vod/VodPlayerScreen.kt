@@ -177,6 +177,21 @@ fun VodPlayerScreen(
     }
     val state by controller.state.collectAsState()
     var useVlc by remember(mediaKey) { mutableStateOf(false) }
+    var beganPlayback by remember(mediaKey) { mutableStateOf(false) }
+    LaunchedEffect(state) {
+        if (state is PlayerController.State.Playing) beganPlayback = true
+    }
+    // TV decoder stalls can remain in BUFFERING without an exception. Only fall back
+    // before the first successful frame, never during normal mid-stream rebuffering.
+    LaunchedEffect(state, useVlc, beganPlayback) {
+        if (!useVlc && !beganPlayback && state is PlayerController.State.Buffering) {
+            delay(25_000L)
+            if (!useVlc && !beganPlayback && controller.state.value is PlayerController.State.Buffering) {
+                controller.player.stop()
+                useVlc = true
+            }
+        }
+    }
     LaunchedEffect(state) {
         val error = state as? PlayerController.State.Error ?: return@LaunchedEffect
         if (error.errorCode?.let(app.opentv.player.PlaybackErrors::requiresAlternativeDecoder) == true ||

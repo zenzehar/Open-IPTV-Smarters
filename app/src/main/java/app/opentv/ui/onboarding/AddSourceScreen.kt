@@ -54,6 +54,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -95,6 +97,12 @@ fun AddSourceScreen(
     editingSourceId: Long? = null,
 ) {
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    fun dismissInput() {
+        keyboardController?.hide()
+        focusManager.clearFocus(force = true)
+    }
     // The QR "set it up from your phone" flow only makes sense on a TV — it serves a setup page
     // FROM this device for a phone to fill in. On a phone that same screen shows a QR meant to be
     // scanned BY a phone, which is nonsensical and traps the user — so a non-TV device defaults
@@ -216,8 +224,8 @@ fun AddSourceScreen(
         unfocusedTextColor = ink,
         focusedPlaceholderColor = ink.copy(alpha = 0.65f),
         unfocusedPlaceholderColor = ink.copy(alpha = 0.65f),
-        focusedBorderColor = Color.White,
-        unfocusedBorderColor = Color.White.copy(alpha = 0.45f),
+        focusedBorderColor = Color(0xFF00E5FF),
+        unfocusedBorderColor = Color(0xFF715166),
         cursorColor = ink,
         focusedLeadingIconColor = ink,
         unfocusedLeadingIconColor = ink,
@@ -369,7 +377,7 @@ fun AddSourceScreen(
                     Text(ui.syncMessage ?: "Connecting…", color = Color.White)
                 }
                 Button(
-                    onClick = { viewModel.saveAndSync(draft()) { ok -> if (ok) onFinished() } },
+                    onClick = { dismissInput(); viewModel.saveAndSync(draft()) { ok -> if (ok) onFinished() } },
                     enabled = canSubmit && !ui.testing && !ui.syncing,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color.White,
@@ -387,7 +395,7 @@ fun AddSourceScreen(
                         fontSize = if (wide) 22.sp else 17.sp, fontWeight = FontWeight.Medium)
                 }
                 if (ui.sources.isNotEmpty()) {
-                    TextButton(onClick = onFinished, enabled = !ui.syncing) {
+                    TextButton(onClick = { dismissInput(); onFinished() }, enabled = !ui.syncing) {
                         Icon(Icons.Filled.Person, contentDescription = null, tint = Color.White)
                         Spacer(Modifier.width(10.dp))
                         Text("LIST USERS", color = Color.White,
@@ -442,7 +450,7 @@ fun AddSourceScreen(
                     )
                 }
                 OutlinedButton(
-                    onClick = { viewModel.test(draft()) },
+                    onClick = { dismissInput(); viewModel.test(draft()) },
                     enabled = canSubmit && !ui.syncing && !ui.testing,
                 ) { Text(if (ui.testing) "Checking…" else "TEST CONNECTION", color = Color.White) }
                 if (isTelevision) {

@@ -323,14 +323,34 @@ fun SeriesDetailScreen(
 
     // Group episodes by season (seasons ascending, episodes ordered within each) — the classic
     // "episode-by-season" list.
+    var selectedSeason by remember(seriesId) { mutableStateOf<Int?>(null) }
     val seasons = remember(episodes) {
         episodes.groupBy { it.season }
             .mapValues { (_, eps) -> eps.sortedBy { it.episodeNumber } }
             .toSortedMap()
     }
 
+    val activeSeason = selectedSeason?.takeIf { it in seasons } ?: seasons.keys.firstOrNull()
     Column(Modifier.fillMaxSize()) {
         DetailBackBar(onBack = onBack, label = "Back to series")
+        if (seasons.size > 1) {
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    seasons.keys.forEach { season ->
+                        OutlinedButton(
+                            onClick = { selectedSeason = season },
+                            modifier = Modifier.padding(horizontal = 4.dp),
+                        ) {
+                            Text(if (season == activeSeason) "● Season $season" else "Season $season")
+                        }
+                    }
+                }
+            }
+        }
         LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
         item(key = "header") {
             DetailBackdrop(title = s.displayTitle, backdropUrl = s.backdropUrl, posterUrl = s.posterUrl, meta = seriesMeta(s)) {
@@ -368,7 +388,7 @@ fun SeriesDetailScreen(
                 )
             }
         } else {
-            seasons.forEach { (season, eps) ->
+            seasons.filterKeys { it == activeSeason }.forEach { (season, eps) ->
                 item(key = "season:$season") {
                     Spacer(Modifier.height(8.dp))
                     SectionHeader(stringResource(R.string.vod_season, season))
@@ -477,7 +497,7 @@ private fun DetailBackdrop(
             AsyncImage(
                 model = model,
                 contentDescription = null,
-                contentScale = ContentScale.Crop,
+                contentScale = ContentScale.Fit,
                 modifier = Modifier.matchParentSize(),
                 onError = { if (bgIndex < bgCandidates.lastIndex) bgIndex++ },
             )
@@ -569,7 +589,7 @@ private fun HeroPosterCard(posterUrl: String?, title: String) {
             AsyncImage(
                 model = posterUrl,
                 contentDescription = title,
-                contentScale = ContentScale.Crop,
+                contentScale = ContentScale.Fit,
                 modifier = Modifier.matchParentSize(),
                 onError = { posterFailed = true },
             )
