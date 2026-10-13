@@ -9,6 +9,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -93,6 +95,7 @@ import coil.compose.AsyncImage
 fun MoviesScreen(
     onOpenMovie: (Movie) -> Unit,
     onResume: (mediaKey: String, url: String, title: String) -> Unit,
+    onOpenResumeDetails: (VodViewModel.ResumeItem) -> Unit,
     onOpenSearch: () -> Unit,
     hasSources: Boolean,
     isSyncing: Boolean,
@@ -181,7 +184,7 @@ fun MoviesScreen(
                     loadState.phase == VodLoadPhase.READY && allMovies.isEmpty() && browseCategory == null ->
                         LoadingVod("Preparing movie catalogue…")
                     browseCategory == CONTINUE_WATCHING_CATEGORY -> ContinueWatchingGrid(resume.filter {
-                        it.title.contains(titleFilter.trim(), ignoreCase = true) }, onResume, isTelevision)
+                        it.title.contains(titleFilter.trim(), ignoreCase = true) }, onResume, onOpenResumeDetails, isTelevision)
                     browseCategory == FAVOURITES_CATEGORY -> MovieCategoryGrid(scopedMovies.filter {
                         it.favourite && it.displayTitle.contains(titleFilter.trim(), ignoreCase = true) },
                         viewModel, onOpenMovie)
@@ -217,7 +220,7 @@ fun MoviesScreen(
                         modifier = Modifier.fillMaxSize(),
                     ) {
                         if (filteredResume.isNotEmpty()) item(key = "cw") {
-                            ContinueWatchingRow(filteredResume, onResume)
+                            ContinueWatchingRow(filteredResume, onResume, onOpenResumeDetails)
                         }
                         if (filteredRecommended.isNotEmpty()) item(key = "rec") {
                             MoviePosterRow(stringResource(R.string.vod_recommended), filteredRecommended, onOpenMovie)
@@ -241,6 +244,7 @@ fun MoviesScreen(
 fun SeriesScreen(
     onOpenSeries: (Series) -> Unit,
     onResume: (mediaKey: String, url: String, title: String) -> Unit,
+    onOpenResumeDetails: (VodViewModel.ResumeItem) -> Unit,
     onOpenSearch: () -> Unit,
     hasSources: Boolean,
     isSyncing: Boolean,
@@ -326,7 +330,7 @@ fun SeriesScreen(
                     loadState.phase == VodLoadPhase.READY && allSeries.isEmpty() && browseCategory == null ->
                         LoadingVod("Preparing series catalogue…")
                     browseCategory == CONTINUE_WATCHING_CATEGORY -> ContinueWatchingGrid(resume.filter {
-                        it.title.contains(titleFilter.trim(), ignoreCase = true) }, onResume, isTelevision)
+                        it.title.contains(titleFilter.trim(), ignoreCase = true) }, onResume, onOpenResumeDetails, isTelevision)
                     browseCategory == FAVOURITES_CATEGORY -> SeriesCategoryGrid(scopedSeries.filter {
                         it.favourite && it.displayTitle.contains(titleFilter.trim(), ignoreCase = true) }, onOpenSeries)
                     titleFilter.isNotBlank() && browseCategory == RECENTLY_ADDED_CATEGORY ->
@@ -355,7 +359,7 @@ fun SeriesScreen(
                         modifier = Modifier.fillMaxSize(),
                     ) {
                         if (filteredResume.isNotEmpty()) item(key = "cw") {
-                            ContinueWatchingRow(filteredResume, onResume)
+                            ContinueWatchingRow(filteredResume, onResume, onOpenResumeDetails)
                         }
                         if (filteredRecent.isNotEmpty()) item(key = "recent") {
                             SeriesPosterRow(stringResource(R.string.vod_recently_added), filteredRecent, onOpenSeries)
@@ -390,6 +394,7 @@ private fun vodSections() = listOf(
 private fun ContinueWatchingGrid(
     items: List<VodViewModel.ResumeItem>,
     onResume: (mediaKey: String, url: String, title: String) -> Unit,
+    onOpenResumeDetails: (VodViewModel.ResumeItem) -> Unit,
     isTelevision: Boolean,
 ) {
     if (items.isEmpty()) {
@@ -417,7 +422,8 @@ private fun ContinueWatchingGrid(
                 gridItems(items, key = { it.historyGroupKey }) { item ->
                     ResumeCard(item, onClick = {
                         onResume(item.mediaKey, item.streamUrl, item.title)
-                    }, onFocus = { focusedResume = item.mediaKey })
+                    }, onLongClick = { onOpenResumeDetails(item) },
+                        onFocus = { focusedResume = item.mediaKey })
                 }
             }
             if (isTelevision) {
@@ -944,6 +950,7 @@ private fun Badge(text: String, modifier: Modifier = Modifier, highlight: Boolea
 internal fun ContinueWatchingRow(
     items: List<VodViewModel.ResumeItem>,
     onResume: (mediaKey: String, url: String, title: String) -> Unit,
+    onOpenResumeDetails: (VodViewModel.ResumeItem) -> Unit,
 ) {
     Column(Modifier.fillMaxWidth()) {
         SectionHeader(stringResource(R.string.vod_continue_watching))
@@ -952,17 +959,21 @@ internal fun ContinueWatchingRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             items(items, key = { it.mediaKey }) { item ->
-                ResumeCard(item) { onResume(item.mediaKey, item.streamUrl, item.title) }
+                ResumeCard(item,
+                    onLongClick = { onOpenResumeDetails(item) },
+                    onClick = { onResume(item.mediaKey, item.streamUrl, item.title) })
             }
         }
     }
 }
 
 /** Portrait series/movie art, with a clear episode identifier and persisted progress. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ResumeCard(
     item: VodViewModel.ResumeItem,
     onFocus: () -> Unit = {},
+    onLongClick: () -> Unit,
     onClick: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -976,7 +987,11 @@ private fun ResumeCard(
                 if (it.isFocused) onFocus()
             }
             .clip(RoundedCornerShape(7.dp))
-            .clickable(onClick = onClick)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick,
+                onLongClickLabel = "Open title details",
+            )
             .padding(3.dp),
     ) {
         Box(
@@ -1020,6 +1035,13 @@ private fun ResumeCard(
         Spacer(Modifier.height(5.dp))
         Text(item.title, color = Color.White, style = MaterialTheme.typography.bodySmall,
             maxLines = 2, overflow = TextOverflow.Ellipsis)
+        if (item.durationMillis > 0L) {
+            val watchedMinutes = java.util.concurrent.TimeUnit.MILLISECONDS.toMinutes(item.positionMillis)
+            val durationMinutes = java.util.concurrent.TimeUnit.MILLISECONDS.toMinutes(item.durationMillis)
+            Text("${watchedMinutes}m / ${durationMinutes}m · ${(item.progress * 100).toInt()}% watched",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color(0xFF64DBE9), maxLines = 1)
+        }
     }
 }
 
