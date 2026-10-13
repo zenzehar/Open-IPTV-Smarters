@@ -39,6 +39,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -105,10 +106,13 @@ fun AddSourceScreen(
 
     if (usePhone) {
         PhonePairingScreen(
-            // Even on a failed sync, leave the pairing screen: the source is already saved, so the
-            // home screen shows either the guide (success) or a recoverable error (failure) rather
-            // than stranding the user on an endless "Got it — connecting…" spinner.
-            onReceived = { draft -> viewModel.saveAndSync(draft) { onFinished() } },
+            // Failed pairing credentials must never be treated as a successful login.
+            // Return to manual entry with a visible failure reason instead of navigating Home.
+            onReceived = { draft ->
+                viewModel.saveAndSync(draft) { ok ->
+                    if (ok) onFinished() else usePhone = false
+                }
+            },
             onCancel = { usePhone = false },
         )
         return
@@ -130,6 +134,7 @@ fun AddSourceScreen(
     var mac by remember(existing?.id) { mutableStateOf(existing?.macAddress ?: "") }
     var epgUrl by remember(existing?.id) { mutableStateOf(existing?.epgUrl ?: "") }
     var showAdvanced by remember { mutableStateOf(false) }
+    var confirmHttp by remember { mutableStateOf(false) }
     var revealPassword by remember { mutableStateOf(false) }
     var userAgent by remember(existing?.id) { mutableStateOf(existing?.userAgent ?: Source.DEFAULT_USER_AGENT) }
 
@@ -148,6 +153,31 @@ fun AddSourceScreen(
         epgUrl = epgUrl.takeIf { it.isNotBlank() },
         userAgent = userAgent.ifBlank { Source.DEFAULT_USER_AGENT },
     )
+
+    // Explicitly opt-in only. Switching to HTTP can expose credentials on the network.
+    val providerError = ui.testError ?: ui.syncError
+    val suggestedHttp = httpPort80Alternative(url, kind, providerError)
+    if (confirmHttp && suggestedHttp != null) {
+        AlertDialog(
+            onDismissRequest = { confirmHttp = false },
+            title = { Text("Use unencrypted HTTP?") },
+            text = {
+                Text("This provider port may not support HTTPS. HTTP sends the IPTV login " +
+                    "without transport encryption. Only continue if your provider instructs " +
+                    "you to use HTTP on port 80. You can test the connection again before saving.")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    url = suggestedHttp
+                    viewModel.clearConnectionResult()
+                    confirmHttp = false
+                }) { Text("Use HTTP") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmHttp = false }) { Text("Keep HTTPS") }
+            },
+        )
+    }
 
     val canSubmit = url.isNotBlank() && when (kind) {
         SourceKind.XTREAM -> username.isNotBlank() && password.isNotBlank()
@@ -226,7 +256,7 @@ fun AddSourceScreen(
 
                 OutlinedTextField(
                     value = name,
-                    onValueChange = { name = oneLine(it) },
+                    onValueChange = { name = oneLine(it); viewModel.clearConnectionResult() },
                     placeholder = { Text("Playlist name") },
                     singleLine = true,
                     colors = fieldColors,
@@ -236,7 +266,7 @@ fun AddSourceScreen(
                 if (kind == SourceKind.XTREAM) {
                     OutlinedTextField(
                         value = username,
-                        onValueChange = { username = oneLine(it) },
+                        onValueChange = { username = oneLine(it); viewModel.clearConnectionResult() },
                         placeholder = { Text("Username") },
                         singleLine = true,
                         colors = fieldColors,
@@ -245,7 +275,7 @@ fun AddSourceScreen(
                     )
                     OutlinedTextField(
                         value = password,
-                        onValueChange = { password = oneLine(it) },
+                        onValueChange = { password = oneLine(it); viewModel.clearConnectionResult() },
                         placeholder = { Text("Password") },
                         singleLine = true,
                         visualTransformation = if (revealPassword) VisualTransformation.None
@@ -265,7 +295,7 @@ fun AddSourceScreen(
                 }
                 OutlinedTextField(
                     value = url,
-                    onValueChange = { url = oneLine(it) },
+                    onValueChange = { url = oneLine(it); viewModel.clearConnectionResult() },
                     placeholder = {
                         Text(if (kind == SourceKind.M3U) "M3U playlist URL"
                             else if (kind == SourceKind.STALKER) "Portal URL"
@@ -280,13 +310,43 @@ fun AddSourceScreen(
                 if (kind == SourceKind.STALKER) {
                     OutlinedTextField(
                         value = mac,
-                        onValueChange = { mac = oneLine(it) },
+                        onValueChange = { mac = oneLine(it); viewModel.clearConnectionResult() },
                         placeholder = { Text("MAC address") },
                         singleLine = true,
                         colors = fieldColors,
                         textStyle = TextStyle(fontSize = fieldFont, color = ink),
                         modifier = Modifier.fillMaxWidth(),
                     )
+                }
+                if (providerError != null) {
+                    Column(
+                        Modifier.fillMaxWidth()
+                            .background(Color(0xFF601C37).copy(alpha = 0.90f), RoundedCornerShape(10.dp))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text("Connection failed. Login not completed.",
+                            color = Color.White, fontWeight = FontWeight.Bold)
+                        Text(providerError, color = Color.White)
+                        if (suggestedHttp != null) {
+                            Text("HTTPS may not be supported on this port. " +
+                                "Your provider may require HTTP instead.",
+                                color = Color.White)
+                            OutlinedButton(onClick = { confirmHttp = true }) {
+                                Text("Review HTTP option", color = Color.White)
+                            }
+                        }
+                        Text("Check the server address, port, username, password and network. " +
+                            "Use Test Connection before adding this provider.",
+                            color = Color.White.copy(alpha = 0.90f))
+                    }
+                }
+                if (ui.testResult != null) {
+                    Text(ui.testResult ?: "", color = Color.White,
+                        fontWeight = FontWeight.SemiBold)
+                }
+                if (ui.syncing) {
+                    Text(ui.syncMessage ?: "Connecting…", color = Color.White)
                 }
                 Button(
                     onClick = { viewModel.saveAndSync(draft()) { ok -> if (ok) onFinished() } },
@@ -344,7 +404,7 @@ fun AddSourceScreen(
                 if (showAdvanced) {
                     OutlinedTextField(
                         value = epgUrl,
-                        onValueChange = { epgUrl = oneLine(it) },
+                        onValueChange = { epgUrl = oneLine(it); viewModel.clearConnectionResult() },
                         placeholder = { Text("Optional EPG URL") },
                         colors = fieldColors,
                         textStyle = TextStyle(color = ink),
@@ -353,7 +413,7 @@ fun AddSourceScreen(
                     )
                     OutlinedTextField(
                         value = userAgent,
-                        onValueChange = { userAgent = oneLine(it) },
+                        onValueChange = { userAgent = oneLine(it); viewModel.clearConnectionResult() },
                         placeholder = { Text("User-Agent") },
                         colors = fieldColors,
                         textStyle = TextStyle(color = ink),
@@ -361,9 +421,6 @@ fun AddSourceScreen(
                         singleLine = true,
                     )
                 }
-                ui.testResult?.let { Text(it, color = Color.White) }
-                ui.testError?.let { Text(it, color = Color.White, fontWeight = FontWeight.Bold) }
-                ui.syncMessage?.let { Text(it, color = Color.White) }
                 OutlinedButton(
                     onClick = { viewModel.test(draft()) },
                     enabled = canSubmit && !ui.syncing && !ui.testing,
