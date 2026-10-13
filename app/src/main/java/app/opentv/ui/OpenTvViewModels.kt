@@ -71,6 +71,7 @@ import kotlinx.coroutines.sync.withLock
 
 class SourcesViewModel(app: Application) : AndroidViewModel(app) {
     private val graph = ServiceLocator.get(app)
+    private val settings = graph.settings
 
     data class UiState(
         val sources: List<Source> = emptyList(),
