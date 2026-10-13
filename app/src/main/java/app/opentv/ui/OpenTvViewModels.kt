@@ -85,6 +85,7 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
         val testing: Boolean = false,
         val testResult: String? = null,
         val testError: String? = null,
+        val syncError: String? = null,
         val syncing: Boolean = false,
         val syncMessage: String? = null,
         val refreshStage: String? = null,
@@ -104,70 +105,100 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Discard stale test feedback as soon as any login field changes. */
+    fun clearConnectionResult() {
+        _ui.value = _ui.value.copy(testResult = null, testError = null,
+            syncError = null, syncMessage = null)
+    }
+
     fun test(draft: Source) {
+        if (_ui.value.testing || _ui.value.syncing) return
         viewModelScope.launch {
-            _ui.value = _ui.value.copy(testing = true, testResult = null, testError = null)
-            val result = graph.sourceRepository.test(draft)
-            _ui.value = _ui.value.copy(
-                testing = false,
-                testResult = result.getOrNull(),
-                testError = result.exceptionOrNull()?.message,
-            )
+            _ui.value = _ui.value.copy(testing = true, testResult = null,
+                testError = null, syncError = null, syncMessage = null)
+            try {
+                val result = graph.sourceRepository.test(draft)
+                _ui.value = _ui.value.copy(
+                    testing = false,
+                    testResult = result.getOrNull(),
+                    testError = result.exceptionOrNull()?.let { safeRefreshFailure(it.message) },
+                )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _ui.value = _ui.value.copy(testing = false, testError = safeRefreshFailure(e.message))
+            }
         }
     }
 
-    /** Saves, then immediately pulls the catalogue so the user sees channels, not a spinner. */
+    /**
+     * Validate connection BEFORE creating/updating a saved account.
+     * A mistyped URL or password must stay on the login screen and must not create
+     * a phantom provider that makes the next launch navigate straight to an empty Home.
+     */
     fun saveAndSync(draft: Source, onDone: (Boolean) -> Unit = {}) {
+        if (_ui.value.syncing || _ui.value.testing) return
         viewModelScope.launch {
-            _ui.value = _ui.value.copy(syncing = true, syncMessage = "Saving source…")
-            val id = graph.sourceRepository.save(draft)
-            val saved = graph.sourceRepository.byId(id)
-            if (saved == null) {
-                _ui.value = _ui.value.copy(syncing = false, syncMessage = "Could not save source.")
-                onDone(false)
-                return@launch
-            }
-
-            _ui.value = _ui.value.copy(syncMessage = "Loading channels…")
-            val now = System.currentTimeMillis()
-            // Load live channels first and get the user watching straight away. Movies, series and
-            // the guide are what make a big provider take minutes — they load in the background so
-            // "loading channels" is a few seconds, not a twenty-minute blank screen.
-            when (val result = graph.catalogRepository.syncLive(saved, now)) {
-                is CatalogRepository.SyncResult.Failed -> {
-                    _ui.value = _ui.value.copy(syncing = false, syncMessage = result.reason)
+            _ui.value = _ui.value.copy(syncing = true, testResult = null,
+                testError = null, syncError = null, syncMessage = "Checking connection…")
+            try {
+                val verification = graph.sourceRepository.test(draft)
+                if (verification.isFailure) {
+                    _ui.value = _ui.value.copy(syncing = false, syncMessage = null,
+                        syncError = safeRefreshFailure(verification.exceptionOrNull()?.message))
                     onDone(false)
                     return@launch
                 }
-                is CatalogRepository.SyncResult.Success -> {
-                    _ui.value = _ui.value.copy(
-                        syncing = false,
-                        syncMessage = "Loaded ${result.channelCount} channels. The guide is " +
-                            "loading in the background; Movies and Shows load when you open them.",
-                    )
-                    onDone(true)
+                _ui.value = _ui.value.copy(syncMessage = "Connected. Saving provider…")
+                val id = graph.sourceRepository.save(draft)
+                val saved = graph.sourceRepository.byId(id)
+                if (saved == null) {
+                    _ui.value = _ui.value.copy(syncing = false, syncMessage = null,
+                        syncError = "Could not save provider. No changes were confirmed.")
+                    onDone(false)
+                    return@launch
                 }
-            }
 
-            // Background: the guide. Movies/series are pulled on demand from their own tabs, so
-            // nothing the user hasn't asked for ever blocks the channels they can already watch.
-            runCatching {
-                val summary = StatusBus.during("Building the TV guide…") {
-                    graph.epgRepository.syncAll(now)
+                _ui.value = _ui.value.copy(syncMessage = "Loading Live TV channels…")
+                val now = System.currentTimeMillis()
+                when (val result = graph.catalogRepository.syncLive(saved, now)) {
+                    is CatalogRepository.SyncResult.Failed -> {
+                        // Connection was verified. Keep the account for retries, but do not
+                        // claim sign-in is complete or automatically navigate to Home.
+                        _ui.value = _ui.value.copy(syncing = false, syncMessage = null,
+                            syncError = "Account verified and saved, but Live TV could not load. " +
+                                safeRefreshFailure(result.reason) +
+                                " Retry after checking the server.")
+                        onDone(false)
+                        return@launch
+                    }
+                    is CatalogRepository.SyncResult.Success -> {
+                        _ui.value = _ui.value.copy(syncing = false, syncError = null,
+                            syncMessage = "Loaded ${result.channelCount} channels. " +
+                                "Guide and on-demand sections can update in the background.")
+                        onDone(true)
+                    }
                 }
-                _ui.value = _ui.value.copy(
-                    syncMessage = when {
-                        summary.channelsMatched > 0 ->
-                            "Guide ready — matched ${summary.channelsMatched} of " +
-                                "${summary.channelsTotal} channels."
-                        else ->
-                            "Channels ready. No guide data matched yet — add a free guide " +
-                                "under Guide settings."
-                    },
-                )
-                // Book any new series-link airings the fresh guide just revealed.
-                runCatching { graph.recordingEngine.rescanSeriesRules() }
-            }.onFailure { Log.w("OpenTV", "Background VOD/guide load failed", it) }
+
+                // Background guide synchronisation must not block the user or change login outcome.
+                runCatching {
+                    val summary = StatusBus.during("Building the TV guide…") {
+                        graph.epgRepository.syncAll(now)
+                    }
+                    _ui.value = _ui.value.copy(
+                        syncMessage = if (summary.channelsMatched > 0)
+                            "Guide ready: ${summary.channelsMatched} of ${summary.channelsTotal} channels matched."
+                        else "Channels ready. No guide entries matched yet.",
+                    )
+                    runCatching { graph.recordingEngine.rescanSeriesRules() }
+                }.onFailure { Log.w("OpenTV", "Background guide load failed", it) }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _ui.value = _ui.value.copy(syncing = false, syncMessage = null,
+                    syncError = safeRefreshFailure(e.message))
+                onDone(false)
+            }
         }
     }
 
