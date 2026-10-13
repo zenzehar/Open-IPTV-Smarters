@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -100,6 +101,8 @@ fun VlcVodFallback(
     var durationMs by remember { mutableLongStateOf(0L) }
     var playing by remember { mutableStateOf(false) }
     var buffering by remember { mutableStateOf(true) }
+    var startedVideo by remember(mediaKey, streamUrl) { mutableStateOf(false) }
+    var showStartupSpinner by remember(mediaKey, streamUrl) { mutableStateOf(false) }
     var errorText by remember { mutableStateOf<String?>(null) }
     var controlsVisible by remember { mutableStateOf(true) }
     var movingSlider by remember { mutableStateOf(false) }
@@ -119,7 +122,9 @@ fun VlcVodFallback(
         }
     }
 
-    val libVlc = remember { LibVLC(context.applicationContext, arrayListOf("--network-caching=1500", "--http-reconnect")) }
+    // 750 ms reduces startup latency for VOD. Avoid setting a second contradictory cache
+    // on the Media instance; unreliable provider networks may still buffer as needed.
+    val libVlc = remember { LibVLC(context.applicationContext, arrayListOf("--network-caching=750", "--http-reconnect")) }
     val player = remember { MediaPlayer(libVlc) }
 
     fun openExternal() {
@@ -150,6 +155,11 @@ fun VlcVodFallback(
     }
 
     BackHandler { onBack() }
+
+    LaunchedEffect(mediaKey, streamUrl) {
+        delay(700L)
+        showStartupSpinner = true
+    }
 
     LaunchedEffect(layout, streamUrl) {
         val surface = layout ?: return@LaunchedEffect
@@ -186,6 +196,7 @@ fun VlcVodFallback(
                         MediaPlayer.Event.Playing -> {
                             buffering = false
                             playing = true
+                            startedVideo = true
                             errorText = null
                             if (resumeFrom > 0L && !resumeApplied) {
                                 // A pause/resume must not jump back to the original timestamp.
@@ -194,7 +205,15 @@ fun VlcVodFallback(
                             }
                         }
                         MediaPlayer.Event.Paused -> playing = false
-                        MediaPlayer.Event.Buffering, MediaPlayer.Event.Opening -> buffering = true
+                        MediaPlayer.Event.Vout -> {
+                            // A video output exists: never obscure the picture with "Opening".
+                            startedVideo = true
+                            buffering = false
+                        }
+                        MediaPlayer.Event.Buffering, MediaPlayer.Event.Opening -> {
+                            // VLC can emit buffering updates long after video is visible.
+                            if (!startedVideo) buffering = true
+                        }
                         MediaPlayer.Event.EncounteredError -> {
                             errorText = "VLC could not decode this stream. Check provider access or try an external player."
                             buffering = false
@@ -217,7 +236,6 @@ fun VlcVodFallback(
             val media = Media(libVlc, Uri.parse(streamUrl))
             media.setHWDecoderEnabled(true, false)
             media.addOption(":http-user-agent=${userAgent.replace("\n", "").replace("\r", "")}")
-            media.addOption(":network-caching=1500")
             player.media = media
             media.release()
             player.play()
@@ -277,9 +295,13 @@ fun VlcVodFallback(
             modifier = Modifier.fillMaxSize().clickable { controlsVisible = !controlsVisible },
             factory = { ctx -> VLCVideoLayout(ctx).also { layout = it } },
         )
-        if (buffering && errorText == null) {
-            Text("Opening in VLC player…", color = Color.White,
-                modifier = Modifier.align(Alignment.Center).padding(16.dp))
+        // Show a small startup indicator only until the first playback/video-output event.
+        // Never paint a large "Opening" label over video that is already rendering.
+        if (buffering && !startedVideo && showStartupSpinner && errorText == null) {
+            CircularProgressIndicator(
+                modifier = Modifier.align(Alignment.Center),
+                color = Color.White,
+            )
         }
         if (errorText != null && !playing) {
             Column(
