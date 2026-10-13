@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
@@ -53,6 +54,25 @@ fun ProfilesScreen(
 
     // null = list; NEW = adding; a positive id = renaming that profile.
     var editing by remember { mutableStateOf<Long?>(null) }
+    var confirmRemoval by remember { mutableStateOf<app.opentv.data.model.Profile?>(null) }
+    confirmRemoval?.let { toRemove ->
+        AlertDialog(
+            onDismissRequest = { confirmRemoval = null },
+            title = { Text("Remove profile?") },
+            text = { Text("Remove \"${toRemove.name}\" and permanently delete only this profile's " +
+                "Continue Watching history? Other profiles, playlists and recordings are preserved.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.remove(toRemove.id)
+                    confirmRemoval = null
+                }) { Text("Remove profile", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmRemoval = null }) { Text("Cancel") }
+            },
+        )
+    }
+
 
     editing?.let { target ->
         NameEntry(
@@ -111,9 +131,10 @@ fun ProfilesScreen(
                             TextButton(onClick = { viewModel.select(profile.id) }) { Text(stringResource(R.string.profiles_use)) }
                         }
                         TextButton(onClick = { editing = profile.id }) { Text(stringResource(R.string.profiles_rename)) }
-                        if (profile.id != 1L) {
-                            TextButton(onClick = { viewModel.remove(profile.id) }) { Text(stringResource(R.string.common_remove)) }
-                        }
+                        TextButton(
+                            onClick = { confirmRemoval = profile },
+                            enabled = profiles.size > 1,
+                        ) { Text(stringResource(R.string.common_remove)) }
                     }
                 }
             }
