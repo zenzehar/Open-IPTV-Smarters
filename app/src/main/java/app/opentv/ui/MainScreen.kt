@@ -11,6 +11,7 @@ import androidx.activity.compose.BackHandler
 import android.os.SystemClock
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.foundation.background
@@ -231,7 +232,7 @@ fun MainScreen(
                             lastUpAt = 0L
                             if (doublePress) {
                                 lastDownAt = 0L
-                                runCatching { bottomJumpFocus.requestFocus() }.getOrDefault(false)
+                                runCatching { bottomJumpFocus.requestFocus(); true }.getOrDefault(false)
                             } else false
                         }
                         Key.DirectionUp -> {
@@ -240,7 +241,7 @@ fun MainScreen(
                             lastDownAt = 0L
                             if (doublePress && (tab == DashboardTab.MOVIES || tab == DashboardTab.SERIES)) {
                                 lastUpAt = 0L
-                                runCatching { categoryJumpFocus.requestFocus() }.getOrDefault(false)
+                                runCatching { categoryJumpFocus.requestFocus(); true }.getOrDefault(false)
                             } else false
                         }
                         else -> { lastDownAt = 0L; lastUpAt = 0L; false }
