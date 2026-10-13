@@ -94,15 +94,15 @@ fun SettingsHubScreen(
     if (resetStage > 0) {
         AlertDialog(
             onDismissRequest = { resetStage = 0 },
-            title = { Text(if (resetStage == 1) "Factory reset MyIPTV?" else "Final confirmation") },
+            title = { Text(if (resetStage == 1) "Factory reset Koky TV?" else "Final confirmation") },
             text = {
                 Text(if (resetStage == 1)
-                    "This will permanently erase ALL MyIPTV app data on this device: " +
+                    "This will permanently erase ALL Koky TV app data on this device: " +
                         "provider logins, playlists, favourites, viewing profiles, playback history, " +
                         "preferences, and locally stored recordings. External NAS/USB files are " +
                         "not intentionally erased. This cannot be undone."
                 else
-                    "Erase everything and return MyIPTV to first-run setup? " +
+                    "Erase everything and return Koky TV to first-run setup? " +
                         "Make sure you have backed up anything you need.")
             },
             confirmButton = {
@@ -130,7 +130,7 @@ fun SettingsHubScreen(
             onDismissRequest = { resetFailed = false },
             title = { Text("Reset unavailable") },
             text = { Text("Android could not clear the app data. " +
-                "Use Android Settings → Apps → MyIPTV → Storage → Clear data instead.") },
+                "Use Android Settings → Apps → Koky TV → Storage → Clear data instead.") },
             confirmButton = {
                 TextButton(onClick = { resetFailed = false }) { Text("OK") }
             },
@@ -147,7 +147,7 @@ fun SettingsHubScreen(
         HubEntry(Icons.Filled.Lock, stringResource(R.string.settings_parental_title), stringResource(R.string.settings_parental_subtitle), onOpenParental),
         HubEntry(Icons.Filled.Sync, stringResource(R.string.settings_sync_title), stringResource(R.string.settings_sync_subtitle), onOpenSync),
         HubEntry(Icons.Filled.Info, stringResource(R.string.settings_about_title), stringResource(R.string.settings_about_subtitle), onOpenAbout),
-        HubEntry(Icons.Filled.DeleteForever, "Factory reset", "Erase MyIPTV app data and settings", { resetStage = 1 }),
+        HubEntry(Icons.Filled.DeleteForever, "Factory reset", "Erase Koky TV app data and settings", { resetStage = 1 }),
     )
 
     Column(

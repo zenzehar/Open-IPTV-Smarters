@@ -253,7 +253,7 @@ fun AddSourceScreen(
                     // Large graphic wordmark, intentionally independent of Smarters assets.
                     Icon(Icons.Filled.Tv, contentDescription = null,
                         modifier = Modifier.padding(16.dp), tint = Color.White)
-                    Text("MyIPTV", style = MaterialTheme.typography.displayLarge,
+                    Text("Koky TV", style = MaterialTheme.typography.displayLarge,
                         color = Color.White, fontWeight = FontWeight.Light,
                         maxLines = 1)
                     Text("SMART TV PLAYER", style = MaterialTheme.typography.titleLarge,
@@ -270,7 +270,7 @@ fun AddSourceScreen(
                 verticalArrangement = Arrangement.spacedBy(if (wide) 12.dp else 10.dp),
             ) {
                 if (!wide) {
-                    Text("MyIPTV", color = Color.White,
+                    Text("Koky TV", color = Color.White,
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.SemiBold)
                 }
