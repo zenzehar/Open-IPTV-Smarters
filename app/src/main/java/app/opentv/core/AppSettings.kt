@@ -473,6 +473,9 @@ class AppSettings private constructor(context: Context) {
     fun setNasAutoSync(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_NAS_AUTO_SYNC, enabled).apply()
         _nasAutoSync.value = enabled
+        // This is distinct from the LAN "Share/Receive" and manually triggered NAS sync.
+        // WorkManager persists scheduled peer-file exchanges across process death and reboots.
+        app.opentv.data.work.NasAutoSyncWorker.schedule(context, enabled)
     }
 
     // ---- Catalogue freshness & TMDB ----------------------------------------------------------

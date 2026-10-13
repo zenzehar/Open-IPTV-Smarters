@@ -60,6 +60,7 @@ class OpenTvApp : Application(), ImageLoaderFactory {
         super.onCreate()
         val graph = ServiceLocator.get(this)
         SyncWorker.schedule(this)
+        app.opentv.data.work.NasAutoSyncWorker.schedule(this, graph.settings.nasAutoSync.value)
 
         // When the normaliser has moved on since the catalogue was last processed, re-clean
         // the stored channels and re-run the guide matcher — locally, no re-download. This
