@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.12.12 — TV remote playback, clean login focus and stable exit
+
+- TV login now shows remote-focusable, clearly bordered, inert field tiles. Actual Android TextFields are created only after pressing OK; this prevents provider TV keyboards from flashing open while moving between login fields. Phone input remains native.
+- Playback: D-pad Up/Down reveals the transport overlay. Left/Right reveals the overlay and seeks by 10 seconds when playback background has focus or controls are hidden. When visible, focus is moved onto the Pause/Play button so directional navigation can select all transport chips; embedded VLC gets matching arrow handling and its own focusable Play/Pause.
+- Player Back consistently exits when no track picker is open rather than consuming a press merely to hide the bar. Back at the top left also remains visible while playback is paused.
+- Player return removes the media surface and navigates after a short frame, with deferred Media3 release on its required main looper, and VLC native stop/release performed away from Compose teardown. Saved position persists on exit; the same stream format fallback and autoplay behaviour remain.
+- Title pages show a restrained gradient instead of stretching or cropping inconsistent provider backdrop art. Poster remains separately fitted, 144×214dp with rounded clipping.
+- No Room or credentials migration, no package/signature change introduced intentionally. TV and codec-specific crashes must still be validated on hardware.
+
+
 ## 0.12.11 — Koky TV, TV stability and contextual search
 
 - Display name and launcher label changed to **Koky TV** across device locales using an unlocalized launcher label. Retain Android application IDs for safe updates, Room data, favourites and history.
