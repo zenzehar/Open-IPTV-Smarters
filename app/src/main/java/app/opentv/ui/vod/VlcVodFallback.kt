@@ -343,9 +343,6 @@ fun VlcVodFallback(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
-                    }
                     Text(title, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                     Text("VLC", color = Color(0xFF68D6CD))

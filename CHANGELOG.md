@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.12.9 — TV login, player resilience, VOD navigation and visual polish
+
+- TV provider fields use a cyan focused outline against muted idle borders. Submitting a login or Test Connection clears text focus and dismisses the Android keyboard.
+- New installs default next-episode autoplay ON; existing saved preferences still take priority.
+- Multi-season series detail has a top-centred season selector and displays episodes for the selected season.
+- Title detail hero and poster use Fit instead of cropping provider artwork.
+- Movies and Series open into Recently Added. Searching in a selected category filters only titles in that category, without leaving for global search. Empty grids display a useful empty result.
+- Settings > Display offers Small/Medium/Large movie and series poster sizes, defaulting to smaller Medium. Resizing also changes whole-category grid density.
+- Show cached movie and series catalogue entries while a background refresh proceeds, avoiding a second blocking load when selecting a section.
+- Start an initial Live catalogue sync on a first run with no cached Live content; show per-provider completion progress in the appropriate Home tile. These are completed provider counts, not invented byte download percentages.
+- For VOD startup that stays in Media3 Buffering for 25 seconds without ever Playing, switch to embedded VLC. Avoid switching after normal playback has started. The VLC timeline displays no greater than its known duration.
+- In TV Movies/Series, two quick Down presses jump to bottom navigation and two quick Up presses return to the selected category tile.
+- No credential or database migration; real-TV stream compatibility and remote-focus navigation still require testing.
+
+
 ## 0.12.8 — remote-focus reliability for compact Home and Settings
 
 - Fix the missing initial D-pad focus on the Home dashboard when TV/remote layout is selected on a portrait or narrow screen. Choose the first available tile (Live TV, Movies, Series, or Recordings) consistently in both compact and wide Home layouts.
