@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -49,6 +50,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -323,7 +325,10 @@ fun SeriesDetailScreen(
 
     // Group episodes by season (seasons ascending, episodes ordered within each) — the classic
     // "episode-by-season" list.
-    var selectedSeason by remember(seriesId) { mutableStateOf<Int?>(null) }
+    var selectedSeason by rememberSaveable(seriesId) { mutableStateOf<Int?>(null) }
+    var lastPlayedEpisodeId by rememberSaveable(seriesId) { mutableStateOf<Long?>(null) }
+    val lastEpisodeFocus = remember(seriesId) { FocusRequester() }
+    val episodesScrollState = rememberLazyListState()
     val seasons = remember(episodes) {
         episodes.groupBy { it.season }
             .mapValues { (_, eps) -> eps.sortedBy { it.episodeNumber } }
@@ -331,6 +336,16 @@ fun SeriesDetailScreen(
     }
 
     val activeSeason = selectedSeason?.takeIf { it in seasons } ?: seasons.keys.firstOrNull()
+    LaunchedEffect(lastPlayedEpisodeId, activeSeason, episodes) {
+        val id = lastPlayedEpisodeId ?: return@LaunchedEffect
+        val active = seasons[activeSeason] ?: return@LaunchedEffect
+        val index = active.indexOfFirst { it.id == id }
+        if (index < 0) return@LaunchedEffect
+        // Header and info take two rows, then the current season heading.
+        episodesScrollState.scrollToItem(index + 3)
+        delay(120L)
+        runCatching { lastEpisodeFocus.requestFocus() }
+    }
     Column(Modifier.fillMaxSize()) {
         DetailBackBar(onBack = onBack, label = "Back to series")
         if (seasons.size > 1) {
@@ -351,7 +366,7 @@ fun SeriesDetailScreen(
                 }
             }
         }
-        LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
+        LazyColumn(Modifier.fillMaxWidth().weight(1f), state = episodesScrollState) {
         item(key = "header") {
             DetailBackdrop(title = s.displayTitle, backdropUrl = s.backdropUrl, posterUrl = s.posterUrl, meta = seriesMeta(s)) {
                 DetailButton(
@@ -394,7 +409,16 @@ fun SeriesDetailScreen(
                     SectionHeader(stringResource(R.string.vod_season, season))
                 }
                 items(eps, key = { it.id }) { ep ->
-                    EpisodeRow(ep, onPlayEpisode)
+                    EpisodeRow(
+                        ep = ep,
+                        onPlay = { key, url, title ->
+                            selectedSeason = ep.season
+                            lastPlayedEpisodeId = ep.id
+                            onPlayEpisode(key, url, title)
+                        },
+                        modifier = if (lastPlayedEpisodeId == ep.id) Modifier.focusRequester(lastEpisodeFocus)
+                            else Modifier,
+                    )
                 }
             }
         }
@@ -779,10 +803,14 @@ private fun DetailButton(
 
 /** One episode row: season/episode marker, title, and a focus highlight; plays on click. */
 @Composable
-private fun EpisodeRow(ep: Episode, onPlay: (mediaKey: String, url: String, title: String) -> Unit) {
+private fun EpisodeRow(
+    ep: Episode,
+    onPlay: (mediaKey: String, url: String, title: String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     var focused by remember { mutableStateOf(false) }
     Row(
-        Modifier
+        modifier
             .fillMaxWidth()
             .padding(horizontal = 24.dp, vertical = 3.dp)
             .onFocusChanged { focused = it.isFocused }
