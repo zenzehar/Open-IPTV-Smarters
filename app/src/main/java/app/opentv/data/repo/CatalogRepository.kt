@@ -636,13 +636,15 @@ class CatalogRepository(
     }
 
     /** Live channels only — the fast path so the guide can show before VOD and the guide load. */
-    suspend fun syncLive(source: Source, nowUtcMillis: Long): SyncResult = providerRequestLock.withLock {
+    suspend fun syncLive(source: Source, nowUtcMillis: Long,
+        onProgress: (Float) -> Unit = {}): SyncResult = providerRequestLock.withLock {
         withContext(Dispatchers.IO) {
         try {
+            onProgress(0.04f)
             when (source.kind) {
-                SourceKind.XTREAM -> syncXtreamLive(source, nowUtcMillis)
-                SourceKind.M3U -> syncM3u(source, nowUtcMillis)
-                SourceKind.STALKER -> syncStalkerLive(source, nowUtcMillis)
+                SourceKind.XTREAM -> syncXtreamLive(source, nowUtcMillis, onProgress)
+                SourceKind.M3U -> syncM3u(source, nowUtcMillis, onProgress)
+                SourceKind.STALKER -> syncStalkerLive(source, nowUtcMillis, onProgress)
             }
         } catch (e: CancellationException) {
             throw e
@@ -667,12 +669,14 @@ class CatalogRepository(
         nowUtcMillis: Long,
         includeMovies: Boolean = true,
         includeSeries: Boolean = true,
+        onProgress: (Float) -> Unit = {},
     ): VodSyncResult =
         providerRequestLock.withLock {
             withContext(Dispatchers.IO) {
                 if (source.kind != SourceKind.XTREAM) return@withContext VodSyncResult()
                 try {
-                    syncXtreamVod(source, nowUtcMillis, includeMovies, includeSeries)
+                    onProgress(0.05f)
+                    syncXtreamVod(source, nowUtcMillis, includeMovies, includeSeries, onProgress)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -686,13 +690,16 @@ class CatalogRepository(
             }
         }
 
-    private suspend fun syncXtreamLive(source: Source, nowUtcMillis: Long): SyncResult {
+    private suspend fun syncXtreamLive(source: Source, nowUtcMillis: Long,
+        onProgress: (Float) -> Unit): SyncResult {
         // Authenticate first so a wrong password produces a clear message rather than
         // four separate confusing failures further down.
         api.authenticate(source)
-
+        onProgress(0.20f)
         val liveCategories = api.liveCategories(source)
+        onProgress(0.38f)
         val channels = api.liveStreams(source)
+        onProgress(0.75f)
         if (channels.isEmpty()) {
             return SyncResult.Failed(
                 "The server returned no channels. The account may have no package assigned.",
@@ -701,8 +708,10 @@ class CatalogRepository(
         }
 
         categoryDao.upsertAll(liveCategories)
+        onProgress(0.83f)
         val categoryNames = liveCategories.associate { it.id to it.name }
         channelDao.replaceCatalogue(source.id, normalized(channels, categoryNames), nowUtcMillis)
+        onProgress(0.96f)
         sourceDao.markCatalogSynced(source.id, nowUtcMillis)
         return SyncResult.Success(channels.size, 0, 0)
     }
@@ -713,9 +722,12 @@ class CatalogRepository(
      * play time. The handshake happens inside [StalkerApi] on first call; a bad MAC or URL throws
      * here with a clear message, caught by [syncLive].
      */
-    private suspend fun syncStalkerLive(source: Source, nowUtcMillis: Long): SyncResult {
+    private suspend fun syncStalkerLive(source: Source, nowUtcMillis: Long,
+        onProgress: (Float) -> Unit): SyncResult {
         val liveCategories = stalkerApi.liveCategories(source)
+        onProgress(0.38f)
         val channels = stalkerApi.liveChannels(source)
+        onProgress(0.75f)
         if (channels.isEmpty()) {
             return SyncResult.Failed(
                 "The portal returned no channels. The MAC may not be authorised, or its package is empty.",
@@ -723,8 +735,10 @@ class CatalogRepository(
             )
         }
         categoryDao.upsertAll(liveCategories)
+        onProgress(0.83f)
         val categoryNames = liveCategories.associate { it.id to it.name }
         channelDao.replaceCatalogue(source.id, normalized(channels, categoryNames), nowUtcMillis)
+        onProgress(0.96f)
         sourceDao.markCatalogSynced(source.id, nowUtcMillis)
         return SyncResult.Success(channels.size, 0, 0)
     }
@@ -760,6 +774,7 @@ class CatalogRepository(
         nowUtcMillis: Long,
         includeMovies: Boolean = true,
         includeSeries: Boolean = true,
+        onProgress: (Float) -> Unit = {},
     ): VodSyncResult {
         val moviesOn = settings.moviesEnabled.value && includeMovies
         val seriesOn = settings.seriesEnabled.value && includeSeries
@@ -776,22 +791,28 @@ class CatalogRepository(
 
         val movieCategories = if (moviesOn) fetch { api.movieCategories(source) }
             else Result.success(emptyList())
+        onProgress(0.24f)
         val movies = if (moviesOn) fetch { api.movies(source) }
             else Result.success(emptyList())
+        onProgress(0.55f)
         val seriesCategories = if (seriesOn) fetch { api.seriesCategories(source) }
             else Result.success(emptyList())
+        onProgress(0.68f)
         val series = if (seriesOn) fetch { api.series(source) }
             else Result.success(emptyList())
+        onProgress(0.82f)
 
         // A failure in one service must not block the other one; keep existing Room
         // catalogue rows intact if a request fails or returns an empty response.
         val categoriesToSave = movieCategories.getOrNull().orEmpty() +
             seriesCategories.getOrNull().orEmpty()
         if (categoriesToSave.isNotEmpty()) categoryDao.upsertAll(categoriesToSave)
+        onProgress(0.88f)
         val downloadedMovies = movies.getOrNull().orEmpty()
         val downloadedSeries = series.getOrNull().orEmpty()
         if (downloadedMovies.isNotEmpty()) movieDao.upsertAll(downloadedMovies)
         if (downloadedSeries.isNotEmpty()) seriesDao.upsertAll(downloadedSeries)
+        onProgress(0.97f)
 
         return VodSyncResult(
             movieError = if (moviesOn) (movies.exceptionOrNull() ?: movieCategories.exceptionOrNull())
@@ -801,7 +822,8 @@ class CatalogRepository(
         )
     }
 
-    private suspend fun syncM3u(source: Source, nowUtcMillis: Long): SyncResult {
+    private suspend fun syncM3u(source: Source, nowUtcMillis: Long,
+        onProgress: (Float) -> Unit): SyncResult {
         val request = Request.Builder()
             .url(source.url)
             .header("User-Agent", source.userAgent)
@@ -813,9 +835,11 @@ class CatalogRepository(
             }
             val stream = response.body?.byteStream()
                 ?: return SyncResult.Failed("The playlist was empty.", null)
+            onProgress(0.20f)
             M3uParser.parse(stream, source.id)
         }
 
+        onProgress(0.72f)
         if (parsed.channels.isEmpty()) {
             return SyncResult.Failed(
                 "No channels found in that playlist. Check the URL points at an M3U file.",
@@ -839,8 +863,10 @@ class CatalogRepository(
             }
 
         categoryDao.upsertAll(categories)
+        onProgress(0.84f)
         val categoryNames = categories.associate { it.id to it.name }
         channelDao.replaceCatalogue(source.id, normalized(parsed.channels, categoryNames), nowUtcMillis)
+        onProgress(0.96f)
 
         // If the playlist declared its own guide URL and the user did not set one, adopt it.
         if (source.epgUrl.isNullOrBlank() && !parsed.declaredEpgUrl.isNullOrBlank()) {
