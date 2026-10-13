@@ -31,8 +31,15 @@ internal fun safeRefreshFailure(raw: String?): String {
         "unknownhost" in description || "unable to resolve host" in description ||
             "no address associated with hostname" in description ->
             "Server hostname cannot be resolved. Check the address and network."
+        "unable to parse tls packet header" in description ||
+            "unrecognized ssl message" in description ||
+            "wrong version number" in description ||
+            "not an ssl/tls record" in description ||
+            "plaintext connection" in description ->
+            "HTTPS negotiation failed. This port may only support HTTP. " +
+                "Check the provider's required protocol and port."
         "ssl" in description || "certificate" in description || "handshake" in description ->
-            "Secure connection failed. Check the server and device clock."
+            "Secure connection failed. Verify HTTPS support, certificate and device clock."
         "username or password" in description || "account is" in description ||
             "not authorised" in description || "not authorized" in description ->
             "Provider rejected the account. Verify login and subscription."
