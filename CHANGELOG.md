@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.12.7 — system orientation, TV remote navigation and title Back
+
+- Stop forcing the Home screen into landscape. Phones and tablets follow Android's current orientation; Home rearranges responsively without deliberate scrollbars.
+- Remove the obsolete Landscape Home toggle. TV/remote mode remains selectable under Settings > Device layout; Automatic remains the default.
+- TV D-pad users land on a selectable Home tile, and the selected bottom TV navigation tab can take focus. Add clear white focus outlines for Home tiles, navigation and shortcuts; remote arrows move through Compose's standard focus tree and OK activates the selected control.
+- Provide a fixed, focusable Back button on movie, series and cast-person detail screens. Android/TV remote Back invokes the same navigation; buttons remain visible while the detail content is loading or scrolling.
+- Preserve video playback behaviour, saved logins, favourites, progress and the existing separate QA Android package. No database schema change.
+
+
 ## 0.12.6 — fixed Home, expiry and account management
 
 - The dashboard no longer scrolls: Live TV, Movies, Series, shortcuts and the playlist/expiry footer are all sized to the screen’s available height.
