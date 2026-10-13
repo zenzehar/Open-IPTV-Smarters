@@ -185,6 +185,8 @@ fun MoviesScreen(
                     browseCategory == FAVOURITES_CATEGORY -> MovieCategoryGrid(scopedMovies.filter {
                         it.favourite && it.displayTitle.contains(titleFilter.trim(), ignoreCase = true) },
                         viewModel, onOpenMovie)
+                    titleFilter.isNotBlank() && browseCategory == RECENTLY_ADDED_CATEGORY ->
+                        PagedMovieCategoryGrid(null, selectedSource, titleFilter, viewModel, onOpenMovie)
                     browseCategory == RECENTLY_ADDED_CATEGORY -> MovieCategoryGrid(recentlyAdded.filter {
                         (selectedSource == null || it.sourceId == selectedSource) &&
                             it.displayTitle.contains(titleFilter.trim(), ignoreCase = true)
@@ -196,6 +198,8 @@ fun MoviesScreen(
                         viewModel = viewModel,
                         onOpenMovie = onOpenMovie,
                     )
+                    titleFilter.isNotBlank() && browseCategory == null ->
+                        PagedMovieCategoryGrid(null, selectedSource, titleFilter, viewModel, onOpenMovie)
                     !hasContent -> when {
                         loadState.phase == VodLoadPhase.LOADING || isSyncing -> LoadingVod(stringResource(R.string.vod_loading_movies))
                         scopedMovies.isNotEmpty() -> MovieCategoryGrid(scopedMovies, viewModel, onOpenMovie)
@@ -325,14 +329,16 @@ fun SeriesScreen(
                         it.title.contains(titleFilter.trim(), ignoreCase = true) }, onResume, isTelevision)
                     browseCategory == FAVOURITES_CATEGORY -> SeriesCategoryGrid(scopedSeries.filter {
                         it.favourite && it.displayTitle.contains(titleFilter.trim(), ignoreCase = true) }, onOpenSeries)
+                    titleFilter.isNotBlank() && browseCategory == RECENTLY_ADDED_CATEGORY ->
+                        PagedSeriesCategoryGrid(null, selectedSource, titleFilter, onOpenSeries, viewModel)
                     browseCategory == RECENTLY_ADDED_CATEGORY -> SeriesCategoryGrid(recentlyAdded.filter {
                         (selectedSource == null || it.sourceId == selectedSource) &&
                             it.displayTitle.contains(titleFilter.trim(), ignoreCase = true)
                     }, onOpenSeries)
-                    browseCategory != null -> SeriesCategoryGrid(categorySeries.filter {
-                        (selectedSource == null || it.sourceId == selectedSource) &&
-                            it.displayTitle.contains(titleFilter.trim(), ignoreCase = true)
-                    }, onOpenSeries)
+                    browseCategory != null -> PagedSeriesCategoryGrid(
+                        browseCategory, selectedSource, titleFilter, onOpenSeries, viewModel)
+                    titleFilter.isNotBlank() && browseCategory == null ->
+                        PagedSeriesCategoryGrid(null, selectedSource, titleFilter, onOpenSeries, viewModel)
                     !hasContent -> when {
                         loadState.phase == VodLoadPhase.LOADING || isSyncing -> LoadingVod(stringResource(R.string.vod_loading_shows))
                         scopedSeries.isNotEmpty() -> SeriesCategoryGrid(scopedSeries, onOpenSeries)
@@ -711,9 +717,31 @@ private fun MovieCategoryGrid(
     }
 }
 
+/** Search and browse the complete cached series category, not just recent titles. */
+@Composable
+private fun PagedSeriesCategoryGrid(
+    categoryId: String?,
+    sourceId: Long?,
+    filter: String,
+    onOpenSeries: (Series) -> Unit,
+    viewModel: VodViewModel,
+) {
+    var limit by remember(categoryId, sourceId, filter) { androidx.compose.runtime.mutableIntStateOf(160) }
+    val pageFlow = remember(categoryId, sourceId, filter, limit) {
+        viewModel.seriesCategoryPage(categoryId, sourceId, filter.trim(), limit + 1)
+    }
+    val page by pageFlow.collectAsState(initial = emptyList())
+    SeriesCategoryGrid(page.take(limit), onOpenSeries, page.size > limit) {
+        limit = (limit + 160).coerceAtMost(2_000)
+    }
+}
+
 /** One category's shows as a poster grid. */
 @Composable
-private fun SeriesCategoryGrid(series: List<Series>, onOpenSeries: (Series) -> Unit) {
+private fun SeriesCategoryGrid(
+    series: List<Series>, onOpenSeries: (Series) -> Unit,
+    hasMore: Boolean = false, onLoadMore: () -> Unit = {},
+) {
     val posterSize by AppSettings.get(LocalContext.current).posterSize.collectAsState()
     if (series.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -736,6 +764,13 @@ private fun SeriesCategoryGrid(series: List<Series>, onOpenSeries: (Series) -> U
                 rating = item.rating,
                 onClick = { onOpenSeries(item) },
             )
+        }
+        if (hasMore) {
+            item(key = "load-more-series") {
+                androidx.compose.material3.OutlinedButton(onClick = onLoadMore) {
+                    Text("Load 160 more")
+                }
+            }
         }
     }
 }
