@@ -68,7 +68,6 @@ fun AppSettingsScreen(onBack: () -> Unit) {
     var confirmEpisodeReset by remember { mutableStateOf(false) }
     val themeMode by settings.themeMode.collectAsState()
     val deviceMode by settings.deviceMode.collectAsState()
-    val landscapeHome by settings.landscapeHome.collectAsState()
     val channelLayout by settings.channelLayout.collectAsState()
     val previewVideo by settings.guidePreviewVideo.collectAsState()
     val previewSound by settings.guidePreviewSound.collectAsState()
@@ -116,11 +115,10 @@ fun AppSettingsScreen(onBack: () -> Unit) {
             ThemeOption("Phone / tablet touch", deviceMode == AppSettings.DeviceMode.MOBILE) {
                 settings.setDeviceMode(AppSettings.DeviceMode.MOBILE)
             }
-            ToggleRow(
-                title = "Landscape Home dashboard",
-                subtitle = "Use the Smarters-style wide Home layout on phones. Other screens retain device rotation.",
-                checked = landscapeHome,
-                onToggle = settings::setLandscapeHome,
+            Text(
+                "Home follows the device's orientation and adapts to phone, tablet or TV size.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         Spacer(Modifier.height(16.dp))
