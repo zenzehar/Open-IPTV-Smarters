@@ -144,11 +144,6 @@ fun MainScreen(
     LaunchedEffect(isSyncing, refreshedStages, failedRefreshStages) {
         if (!isSyncing) vodViewModel.reconcileManualRefresh(refreshedStages, failedRefreshStages)
     }
-    val catalogueLoading = hasSources && (
-        (moviesEnabled && movieLoad.phase in listOf(VodLoadPhase.PENDING, VodLoadPhase.LOADING)) ||
-        (seriesEnabled && seriesLoad.phase in listOf(VodLoadPhase.PENDING, VodLoadPhase.LOADING))
-    )
-    val blockNavigation = catalogueLoading || isSyncing
     fun tileState(key: String): String = when {
         key in failedRefreshStages -> "FAILED"
         isSyncing && refreshStage == key -> "UPDATING"
@@ -240,11 +235,11 @@ fun MainScreen(
                         moviesEnabled = moviesEnabled,
                         seriesEnabled = seriesEnabled,
                         profile = activeProfileName,
-                        onLive = { if (!blockNavigation) tab = DashboardTab.LIVE },
-                        onMovies = { if (!blockNavigation && movieLoad.phase in listOf(VodLoadPhase.READY, VodLoadPhase.EMPTY)) tab = DashboardTab.MOVIES },
-                        onSeries = { if (!blockNavigation && seriesLoad.phase in listOf(VodLoadPhase.READY, VodLoadPhase.EMPTY)) tab = DashboardTab.SERIES },
-                        onGuide = { if (!blockNavigation) tab = DashboardTab.LIVE },
-                        onRecordings = { if (!blockNavigation) tab = DashboardTab.RECORDINGS },
+                        onLive = { tab = DashboardTab.LIVE },
+                        onMovies = { tab = DashboardTab.MOVIES },
+                        onSeries = { tab = DashboardTab.SERIES },
+                        onGuide = { tab = DashboardTab.LIVE },
+                        onRecordings = { tab = DashboardTab.RECORDINGS },
                         onSearch = onOpenSearch,
                         onSettings = onOpenSettings,
                         onAddSource = onAddSource,
@@ -294,11 +289,7 @@ fun MainScreen(
                     tabs = choices.filter { it != DashboardTab.RECORDINGS },
                     selected = tab,
                     onSelect = { chosen ->
-                        if (!blockNavigation && when (chosen) {
-                            DashboardTab.MOVIES -> movieLoad.phase in listOf(VodLoadPhase.READY, VodLoadPhase.EMPTY)
-                            DashboardTab.SERIES -> seriesLoad.phase in listOf(VodLoadPhase.READY, VodLoadPhase.EMPTY)
-                            else -> true
-                        }) tab = chosen
+                        tab = chosen
                     },
                     onSettings = onOpenSettings,
                 )
@@ -307,49 +298,12 @@ fun MainScreen(
                     tabs = choices,
                     selected = tab,
                     onSelect = { chosen ->
-                        if (!blockNavigation && when (chosen) {
-                            DashboardTab.MOVIES -> movieLoad.phase in listOf(VodLoadPhase.READY, VodLoadPhase.EMPTY)
-                            DashboardTab.SERIES -> seriesLoad.phase in listOf(VodLoadPhase.READY, VodLoadPhase.EMPTY)
-                            else -> true
-                        }) tab = chosen
+                        tab = chosen
                     },
                 )
             }
         }
-        // Dim the dashboard and intercept input until all enabled catalogue
-        // sections have finished. A failed fetch shows Retry instead of a fake
-        // empty library, and does not trap the user behind an endless spinner.
-        if (blockNavigation && tab != DashboardTab.HOME) {
-            Box(
-                Modifier.fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.48f))
-                    .clickable { },
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    CircularProgressIndicator(color = Color.White)
-                    Text(
-                        if (isSyncing) (refreshStage?.let {
-                            "Updating ${it.replaceFirstChar { c -> c.uppercase() }}…"
-                        } ?: "Refreshing catalogues…") else "Loading movies & series…",
-                        color = Color.White, style = MaterialTheme.typography.titleLarge,
-                    )
-                    if (isSyncing && refreshMessage != null) Text(
-                        refreshMessage, color = Color(0xFFD0D8E7),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    if (!isSyncing) Text(
-                        listOfNotNull(
-                            if (moviesEnabled) movieLoad.message.takeIf { it.isNotEmpty() } else null,
-                            if (seriesEnabled) seriesLoad.message.takeIf { it.isNotEmpty() } else null,
-                        ).joinToString("  ·  "),
-                        color = Color(0xFFD0D8E7),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-            }
-        }
+
     }
 }
 
@@ -613,7 +567,7 @@ private fun DashboardTile(
             .height(height)
             .alpha(when (status) {
                 "WAITING" -> 0.38f
-                "FAILED" -> 0.58f
+                "FAILED" -> 1f
                 else -> 1f
             })
             .clip(RoundedCornerShape(if (compactTile) 12.dp else 16.dp))
