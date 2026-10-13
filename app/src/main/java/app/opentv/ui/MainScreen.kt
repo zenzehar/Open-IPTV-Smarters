@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -222,6 +223,7 @@ fun MainScreen(
                 when (tab) {
                     DashboardTab.HOME -> DashboardHome(
                         compact = compact,
+                        isTelevision = isTelevision,
                         liveState = tileState("live"),
                         liveLastUpdated = liveUpdated,
                         moviesLastUpdated = moviesUpdated.takeIf { it > 0L } ?: settings.vodSyncedAtMillis,
@@ -408,6 +410,7 @@ private fun HeaderAction(icon: ImageVector, label: String, onClick: () -> Unit) 
 @Composable
 private fun DashboardHome(
     compact: Boolean,
+    isTelevision: Boolean,
     liveState: String,
     liveLastUpdated: Long,
     moviesLastUpdated: Long,
@@ -429,7 +432,10 @@ private fun DashboardHome(
     onAddSource: () -> Unit,
     onRefresh: () -> Unit,
 ) {
-    val pad = if (compact) 16.dp else 36.dp
+    val landscapePhone = !compact && !isTelevision
+    val pad = if (compact || landscapePhone) 14.dp else 36.dp
+    val liveHeight = if (landscapePhone) 244.dp else 310.dp
+    val vodHeight = if (landscapePhone) 157.dp else 210.dp
     LazyColumn(
         Modifier.fillMaxSize().background(Color(0xFF0A1023)),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
@@ -455,14 +461,17 @@ private fun DashboardHome(
         if (compact) {
             if (liveEnabled) item(key = "live") {
                 DashboardTile("LIVE TV", "Browse channels and guide", Icons.Filled.LiveTv,
-                    listOf(Color(0xFF126EB7), Color(0xFF4935BC)), 148.dp, Modifier.fillMaxWidth(), onLive, liveState)
+                    listOf(Color(0xFF126EB7), Color(0xFF4935BC)), 148.dp, Modifier.fillMaxWidth(), onLive, liveState,
+                    liveLastUpdated, { onRefreshStage("live") })
             }
             if (moviesEnabled || seriesEnabled) item(key = "vod") {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                     if (moviesEnabled) DashboardTile("MOVIES", "On demand", Icons.Filled.Movie,
-                        listOf(Color(0xFFF65457), Color(0xFFFF9729)), 155.dp, Modifier.weight(1f), onMovies, movieState)
+                        listOf(Color(0xFFF65457), Color(0xFFFF9729)), 155.dp, Modifier.weight(1f), onMovies, movieState,
+                        moviesLastUpdated, { onRefreshStage("movies") })
                     if (seriesEnabled) DashboardTile("SERIES", "Seasons & episodes", Icons.Filled.Tv,
-                        listOf(Color(0xFF9631B8), Color(0xFF168DD8)), 155.dp, Modifier.weight(1f), onSeries, seriesState)
+                        listOf(Color(0xFF9631B8), Color(0xFF168DD8)), 155.dp, Modifier.weight(1f), onSeries, seriesState,
+                        seriesLastUpdated, { onRefreshStage("series") })
                 }
             }
             item(key = "quick-title") {
@@ -491,8 +500,9 @@ private fun DashboardHome(
                 ) {
                     if (liveEnabled) DashboardTile(
                         "LIVE TV", "Live channels & guide", Icons.Filled.LiveTv,
-                        listOf(Color(0xFF135F67), Color(0xFF29378C)),
-                        310.dp, Modifier.weight(1.05f), onLive, liveState,
+                        listOf(Color(0xFF29CAA0), Color(0xFF355CDE)),
+                        liveHeight, Modifier.weight(1.05f), onLive, liveState,
+                        liveLastUpdated, { onRefreshStage("live") },
                     )
                     Column(
                         modifier = Modifier.weight(1.95f),
@@ -504,13 +514,15 @@ private fun DashboardHome(
                         ) {
                             if (moviesEnabled) DashboardTile(
                                 "MOVIES", "Films on demand", Icons.Filled.Movie,
-                                listOf(Color(0xFF67252D), Color(0xFFAC682A)),
-                                210.dp, Modifier.weight(1f), onMovies, movieState,
+                                listOf(Color(0xFFEA365A), Color(0xFFF89A38)),
+                                vodHeight, Modifier.weight(1f), onMovies, movieState,
+                                moviesLastUpdated, { onRefreshStage("movies") },
                             )
                             if (seriesEnabled) DashboardTile(
                                 "SERIES", "Seasons & episodes", Icons.Filled.Tv,
-                                listOf(Color(0xFF572E73), Color(0xFF124F68)),
-                                210.dp, Modifier.weight(1f), onSeries, seriesState,
+                                listOf(Color(0xFF963AAE), Color(0xFF3995DB)),
+                                vodHeight, Modifier.weight(1f), onSeries, seriesState,
+                                seriesLastUpdated, { onRefreshStage("series") },
                             )
                         }
                         Row(
