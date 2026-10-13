@@ -129,7 +129,7 @@ fun MoviesScreen(
                 RECENTLY_ADDED_CATEGORY to recentlyAdded.size,
             )
     }
-    val entries = vodSections() + categories.map { it.id to it.name }
+    val entries = (vodSections() + categories.map { it.id to it.name }).distinctBy { it.first }
     Column(Modifier.fillMaxSize()) {
         if (!isTelevision) SearchAffordance(onOpenSearch)
         if (sources.size > 1) ProviderChips(
@@ -227,7 +227,7 @@ fun SeriesScreen(
                 RECENTLY_ADDED_CATEGORY to recentlyAdded.size,
             )
     }
-    val entries = vodSections() + categories.map { it.id to it.name }
+    val entries = (vodSections() + categories.map { it.id to it.name }).distinctBy { it.first }
     Column(Modifier.fillMaxSize()) {
         if (!isTelevision) SearchAffordance(onOpenSearch)
         if (sources.size > 1) ProviderChips(
