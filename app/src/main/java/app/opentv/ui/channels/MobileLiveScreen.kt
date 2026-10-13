@@ -65,6 +65,8 @@ fun MobileLiveScreen(
     onPlayChannel: (Channel) -> Unit,
     onAddSource: () -> Unit,
     onRefresh: () -> Unit,
+    search: String = "",
+    onSearchChange: (String) -> Unit = {},
     viewModel: ChannelsViewModel = viewModel(),
 ) {
     val groups by viewModel.visibleCategoryGroups.collectAsState()
@@ -72,7 +74,6 @@ fun MobileLiveScreen(
     val selected by viewModel.selectedCategory.collectAsState()
     val favOnly by viewModel.favouritesOnly.collectAsState()
     val channelsPresent by viewModel.channelsPresent.collectAsState()
-    var search by remember { mutableStateOf("") }
 
     Column(Modifier.fillMaxSize().background(Color(0xFF0A1023))) {
         Row(
@@ -85,13 +86,6 @@ fun MobileLiveScreen(
                 Icon(Icons.Filled.Refresh, contentDescription = "Refresh channels", tint = Color.White)
             }
         }
-        OutlinedTextField(
-            value = search,
-            onValueChange = { search = it; viewModel.search(it) },
-            label = { Text("Search channels") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        )
         Spacer(Modifier.height(8.dp))
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),

@@ -91,6 +91,7 @@ import app.opentv.data.model.Channel
 import app.opentv.data.model.Movie
 import app.opentv.data.model.Recording
 import app.opentv.data.model.Series
+import app.opentv.ui.ChannelsViewModel
 import app.opentv.ui.channels.HomeScreen
 import app.opentv.ui.channels.MobileLiveScreen
 import app.opentv.ui.recordings.RecordingsScreen
@@ -197,7 +198,13 @@ fun MainScreen(
     }
     // Returning from a movie/series detail restores its library tab instead of Home.
     var tab by rememberSaveable { mutableStateOf(DashboardTab.HOME) }
+    var liveFilter by rememberSaveable { mutableStateOf("") }
     var movieFilter by rememberSaveable { mutableStateOf("") }
+    val liveSearchVm: ChannelsViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    LaunchedEffect(tab, liveFilter) {
+        liveSearchVm.search(if (tab == DashboardTab.LIVE) liveFilter else "")
+    }
+    val headerSearchFocus = remember { FocusRequester() }
     var seriesFilter by rememberSaveable { mutableStateOf("") }
     if (tab !in choices) tab = DashboardTab.HOME
     var exitBackCount by remember { androidx.compose.runtime.mutableIntStateOf(0) }
@@ -265,21 +272,24 @@ fun MainScreen(
             else !isTelevision || maxWidth < 700.dp
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             DashboardHeader(
-                title = if (tab == DashboardTab.HOME) "MyIPTV" else tab.text,
+                title = if (tab == DashboardTab.HOME) "Koky TV" else tab.text,
                 isHome = tab == DashboardTab.HOME,
                 onHome = { tab = DashboardTab.HOME },
                 onSearch = onOpenSearch,
+                headerSearchFocus = headerSearchFocus,
                 onSettings = onOpenSettings,
                 onProfiles = onOpenProfiles,
                 profile = activeProfileName,
                 compact = compact,
                 categoryTitleFilter = when (tab) {
+                    DashboardTab.LIVE -> liveFilter
                     DashboardTab.MOVIES -> movieFilter
                     DashboardTab.SERIES -> seriesFilter
                     else -> null
                 },
                 onCategoryTitleFilterChange = { value ->
                     when (tab) {
+                        DashboardTab.LIVE -> liveFilter = value
                         DashboardTab.MOVIES -> movieFilter = value
                         DashboardTab.SERIES -> seriesFilter = value
                         else -> Unit
@@ -323,6 +333,8 @@ fun MainScreen(
                     )
                     DashboardTab.LIVE -> {
                         if (compact) MobileLiveScreen(
+                            search = liveFilter,
+                            onSearchChange = { liveFilter = it },
                             hasSources = hasSources,
                             isSyncing = isSyncing,
                             onPlayChannel = onPlayChannel,
@@ -396,6 +408,7 @@ private fun DashboardHeader(
     isHome: Boolean,
     onHome: () -> Unit,
     onSearch: () -> Unit,
+    headerSearchFocus: FocusRequester,
     onSettings: () -> Unit,
     onProfiles: () -> Unit,
     profile: String,
@@ -423,7 +436,7 @@ private fun DashboardHeader(
                 placeholder = { Text("Filter $title category", maxLines = 1) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
-                modifier = Modifier.weight(1f).explicitImeActivation(),
+                modifier = Modifier.weight(1f).focusRequester(headerSearchFocus).explicitImeActivation(),
             )
         } else {
             Text(
@@ -441,7 +454,10 @@ private fun DashboardHeader(
                 style = MaterialTheme.typography.bodyMedium, maxLines = 1,
                 overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 108.dp))
         }
-        HeaderAction(Icons.Filled.Search, "Search", onSearch)
+        HeaderAction(Icons.Filled.Search, "Search",
+            if (categoryTitleFilter != null) {
+                { runCatching { headerSearchFocus.requestFocus() } }
+            } else onSearch)
         HeaderAction(Icons.Filled.Person, "Profiles", onProfiles)
         HeaderAction(Icons.Filled.Settings, "Settings", onSettings)
     }
