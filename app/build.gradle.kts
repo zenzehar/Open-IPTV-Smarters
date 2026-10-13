@@ -57,6 +57,13 @@ android {
                 signingConfig = signingConfigs.getByName("upload")
             }
         }
+        // A data-safe smoke-test install: never replaces the user's existing .debug app.
+        // Temporary QA keys are acceptable because no existing app data is migrated.
+        create("qa") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".qa"
+            matchingFallbacks += listOf("debug")
+        }
     }
 
     compileOptions {
