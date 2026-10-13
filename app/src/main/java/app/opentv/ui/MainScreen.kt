@@ -232,7 +232,7 @@ fun MainScreen(
                     val now = SystemClock.uptimeMillis()
                     when (event.key) {
                         Key.DirectionDown -> {
-                            val doublePress = now - lastDownAt in 80L..650L
+                            val doublePress = now - lastDownAt in 2_000L..7_000L
                             lastDownAt = now
                             lastUpAt = 0L
                             if (doublePress) {
@@ -241,7 +241,7 @@ fun MainScreen(
                             } else false
                         }
                         Key.DirectionUp -> {
-                            val doublePress = now - lastUpAt in 80L..650L
+                            val doublePress = now - lastUpAt in 2_000L..7_000L
                             lastUpAt = now
                             lastDownAt = 0L
                             if (doublePress && (tab == DashboardTab.MOVIES || tab == DashboardTab.SERIES)) {

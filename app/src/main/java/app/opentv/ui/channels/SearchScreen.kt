@@ -60,6 +60,7 @@ import app.opentv.data.model.Series
 import app.opentv.data.model.shownName
 import app.opentv.data.parser.displayTitle
 import app.opentv.ui.ChannelsViewModel
+import app.opentv.ui.explicitImeActivation
 import app.opentv.ui.VodViewModel
 import coil.compose.AsyncImage
 import java.text.SimpleDateFormat
@@ -99,7 +100,6 @@ fun SearchScreen(
     LaunchedEffect(Unit) {
         delay(100)
         runCatching { fieldFocus.requestFocus() }
-        keyboard?.show()
     }
 
     Column(
@@ -118,9 +118,9 @@ fun SearchScreen(
             onValueChange = { if (it.length <= 100) query = it },
             label = { Text(stringResource(R.string.search_type_name)) },
             singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search, showKeyboardOnFocus = false),
             keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
-            modifier = Modifier.fillMaxWidth().focusRequester(fieldFocus),
+            modifier = Modifier.fillMaxWidth().focusRequester(fieldFocus).explicitImeActivation(),
         )
         Spacer(Modifier.height(12.dp))
         Box(Modifier.weight(1f).fillMaxWidth()) {
