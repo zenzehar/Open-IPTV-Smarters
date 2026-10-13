@@ -161,7 +161,6 @@ fun VlcVodFallback(
     var movingSlider by remember { mutableStateOf(false) }
     var pendingSeekMs by remember(mediaKey) { mutableStateOf<Long?>(null) }
     var pendingSeekStartedAt by remember(mediaKey) { mutableLongStateOf(0L) }
-    var fractionRetryDone by remember(mediaKey) { mutableStateOf(false) }
     var seekFailure by remember(mediaKey) { mutableStateOf(false) }
     val controlsTimeoutSeconds by graph.settings.controlsTimeoutSeconds.collectAsState()
     var controlsInteraction by remember { androidx.compose.runtime.mutableIntStateOf(0) }
@@ -238,7 +237,6 @@ fun VlcVodFallback(
         pendingSeekMs = target
         pendingSeekStartedAt = android.os.SystemClock.uptimeMillis()
         seekFailure = false
-        fractionRetryDone = false
         positionMs = target
         runCatching { player.setTime(target) }
     }
@@ -282,7 +280,10 @@ fun VlcVodFallback(
             initialized = true
             errorText = null
             var resumeApplied = false
-            val initialPosition = initialSeekMs ?: resumeFrom
+            val initialPosition = VodSeekTimeline.clampTarget(
+                initialSeekMs ?: resumeFrom,
+                VodSeekTimeline.durationMillis(0L, catalogueDurationMs, savedDurationMs),
+            )
             player.setEventListener { event ->
                 if (!shuttingDown.get()) scope.launch {
                     if (shuttingDown.get()) return@launch
@@ -367,13 +368,6 @@ fun VlcVodFallback(
             if (pending != null && VodSeekTimeline.reachedTarget(actual, pending)) {
                 pendingSeekMs = null
                 seekFailure = false
-            } else if (pending != null &&
-                android.os.SystemClock.uptimeMillis() - pendingSeekStartedAt > 1_500L &&
-                !fractionRetryDone && durationMs > 0L) {
-                // Some VLC demuxers only honour a fractional seek when getLength was
-                // unavailable at the time of the original setTime.
-                fractionRetryDone = true
-                runCatching { player.setPosition((pending.toFloat() / durationMs).coerceIn(0f, 1f)) }
             } else if (pending != null &&
                 android.os.SystemClock.uptimeMillis() - pendingSeekStartedAt > 15_000L) {
                 pendingSeekMs = null

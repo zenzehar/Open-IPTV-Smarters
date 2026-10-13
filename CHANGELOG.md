@@ -4,6 +4,7 @@
 
 - Remove the 25-second forced Media3-to-LibVLC switch on slow startup buffering. Only known unsupported codecs/containers and explicit user choice activate VLC.
 - Add a visible manual VLC alternative when startup buffering is prolonged; don't interrupt a stream that may still recover.
+- Remove the v0.12.19 automatic LibVLC fractional-position retry: it could calculate the fraction from catalogue metadata while the native decoder still lacked a real duration. Use time seeks only; clamp initial resume seeks to known length.
 - Correct misleading LibVLC error text: a generic VLC error event does not prove unsupported video. Show a Retry VLC button and emit focused, credential-free playback diagnostic logs.
 - Log native VLC surface-detach/stop/release failures to help isolate intermittent returns to Android home; preserve native cleanup and single-exit navigation logic.
 - Add separate phone and Android TV emulator smoke jobs to GitHub Actions for the PR (cold launch, D-pad focus actions, force-stop and relaunch, process liveness, saved logcat diagnostics).
