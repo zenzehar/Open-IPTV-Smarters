@@ -65,6 +65,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
+import app.opentv.core.AppSettings
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.opentv.R
 import app.opentv.data.model.Movie
@@ -106,14 +108,17 @@ fun MoviesScreen(
         if (hasSources) viewModel.ensureVodLoaded()
         viewModel.loadHomeFeeds()
     }
-    var browseCategory by remember { mutableStateOf<String?>(null) }
+    var browseCategory by remember { mutableStateOf<String?>(RECENTLY_ADDED_CATEGORY) }
+    var titleFilter by remember { mutableStateOf("") }
     val hasContent = resume.isNotEmpty() || recommended.isNotEmpty() ||
         recentlyAdded.isNotEmpty() || genreRows.isNotEmpty()
     val onCategory: (String) -> Unit = { id ->
+        titleFilter = ""
         browseCategory = id
         viewModel.selectMovieCategory(if (isSpecialVodCategory(id)) null else id)
     }
     val onAll: () -> Unit = {
+        titleFilter = ""
         browseCategory = null
         viewModel.selectMovieCategory(null)
     }
@@ -136,8 +141,8 @@ fun MoviesScreen(
         if (sources.size > 1) ProviderChips(
             sources = sources,
             selected = selectedSource,
-            onSelectAll = { browseCategory = null; viewModel.selectVodSource(null) },
-            onSelectSource = { id -> browseCategory = null; viewModel.selectVodSource(id) },
+            onSelectAll = { browseCategory = RECENTLY_ADDED_CATEGORY; titleFilter = ""; viewModel.selectVodSource(null) },
+            onSelectSource = { id -> browseCategory = RECENTLY_ADDED_CATEGORY; titleFilter = ""; viewModel.selectVodSource(id) },
         )
         Box(Modifier.weight(1f).fillMaxWidth()) {
             VodBrowserFrame(
@@ -148,17 +153,28 @@ fun MoviesScreen(
                 onSelectHome = onAll,
                 onSelectCategory = onCategory,
             ) {
+                FilteredCategorySurface(titleFilter, { titleFilter = it }, isTelevision) {
                 when {
-                    loadState.phase == VodLoadPhase.PENDING || loadState.phase == VodLoadPhase.LOADING ->
+                    (loadState.phase == VodLoadPhase.PENDING || loadState.phase == VodLoadPhase.LOADING) &&
+                        allMovies.isEmpty() ->
                         LoadingVod(loadState.message.ifBlank { "Loading movies…" })
-                    loadState.phase == VodLoadPhase.FAILED ->
+                    loadState.phase == VodLoadPhase.FAILED && allMovies.isEmpty() ->
                         VodLoadFailure("Movies are unavailable", loadState.message, viewModel::refreshVod)
-                    loadState.phase == VodLoadPhase.READY && allMovies.isEmpty() ->
+                    loadState.phase == VodLoadPhase.READY && allMovies.isEmpty() && browseCategory == null ->
                         LoadingVod("Preparing movie catalogue…")
-                    browseCategory == CONTINUE_WATCHING_CATEGORY -> ContinueWatchingGrid(resume, onResume, isTelevision)
-                    browseCategory == FAVOURITES_CATEGORY -> MovieCategoryGrid(scopedMovies.filter { it.favourite }, viewModel, onOpenMovie)
-                    browseCategory == RECENTLY_ADDED_CATEGORY -> MovieCategoryGrid(recentlyAdded, viewModel, onOpenMovie)
-                    browseCategory != null -> MovieCategoryGrid(categoryMovies.filter { selectedSource == null || it.sourceId == selectedSource }, viewModel, onOpenMovie)
+                    browseCategory == CONTINUE_WATCHING_CATEGORY -> ContinueWatchingGrid(resume.filter {
+                        it.title.contains(titleFilter.trim(), ignoreCase = true) }, onResume, isTelevision)
+                    browseCategory == FAVOURITES_CATEGORY -> MovieCategoryGrid(scopedMovies.filter {
+                        it.favourite && it.displayTitle.contains(titleFilter.trim(), ignoreCase = true) },
+                        viewModel, onOpenMovie)
+                    browseCategory == RECENTLY_ADDED_CATEGORY -> MovieCategoryGrid(recentlyAdded.filter {
+                        (selectedSource == null || it.sourceId == selectedSource) &&
+                            it.displayTitle.contains(titleFilter.trim(), ignoreCase = true)
+                    }, viewModel, onOpenMovie)
+                    browseCategory != null -> MovieCategoryGrid(categoryMovies.filter {
+                        (selectedSource == null || it.sourceId == selectedSource) &&
+                            it.displayTitle.contains(titleFilter.trim(), ignoreCase = true)
+                    }, viewModel, onOpenMovie)
                     !hasContent -> when {
                         loadState.phase == VodLoadPhase.LOADING || isSyncing -> LoadingVod(stringResource(R.string.vod_loading_movies))
                         scopedMovies.isNotEmpty() -> MovieCategoryGrid(scopedMovies, viewModel, onOpenMovie)
@@ -181,6 +197,7 @@ fun MoviesScreen(
                             MoviePosterRow(group.genre, group.items, onOpenMovie)
                         }
                     }
+                }
                 }
             }
         }
@@ -212,13 +229,16 @@ fun SeriesScreen(
         if (hasSources) viewModel.ensureVodLoaded()
         viewModel.loadHomeFeeds()
     }
-    var browseCategory by remember { mutableStateOf<String?>(null) }
+    var browseCategory by remember { mutableStateOf<String?>(RECENTLY_ADDED_CATEGORY) }
+    var titleFilter by remember { mutableStateOf("") }
     val hasContent = resume.isNotEmpty() || recentlyAdded.isNotEmpty() || genreRows.isNotEmpty()
     val onCategory: (String) -> Unit = { id ->
+        titleFilter = ""
         browseCategory = id
         viewModel.selectSeriesCategory(if (isSpecialVodCategory(id)) null else id)
     }
     val onAll: () -> Unit = {
+        titleFilter = ""
         browseCategory = null
         viewModel.selectSeriesCategory(null)
     }
@@ -241,8 +261,8 @@ fun SeriesScreen(
         if (sources.size > 1) ProviderChips(
             sources = sources,
             selected = selectedSource,
-            onSelectAll = { browseCategory = null; viewModel.selectVodSource(null) },
-            onSelectSource = { id -> browseCategory = null; viewModel.selectVodSource(id) },
+            onSelectAll = { browseCategory = RECENTLY_ADDED_CATEGORY; titleFilter = ""; viewModel.selectVodSource(null) },
+            onSelectSource = { id -> browseCategory = RECENTLY_ADDED_CATEGORY; titleFilter = ""; viewModel.selectVodSource(id) },
         )
         Box(Modifier.weight(1f).fillMaxWidth()) {
             VodBrowserFrame(
@@ -253,17 +273,27 @@ fun SeriesScreen(
                 onSelectHome = onAll,
                 onSelectCategory = onCategory,
             ) {
+                FilteredCategorySurface(titleFilter, { titleFilter = it }, isTelevision) {
                 when {
-                    loadState.phase == VodLoadPhase.PENDING || loadState.phase == VodLoadPhase.LOADING ->
+                    (loadState.phase == VodLoadPhase.PENDING || loadState.phase == VodLoadPhase.LOADING) &&
+                        allSeries.isEmpty() ->
                         LoadingVod(loadState.message.ifBlank { "Loading series…" })
-                    loadState.phase == VodLoadPhase.FAILED ->
+                    loadState.phase == VodLoadPhase.FAILED && allSeries.isEmpty() ->
                         VodLoadFailure("Series are unavailable", loadState.message, viewModel::refreshVod)
-                    loadState.phase == VodLoadPhase.READY && allSeries.isEmpty() ->
+                    loadState.phase == VodLoadPhase.READY && allSeries.isEmpty() && browseCategory == null ->
                         LoadingVod("Preparing series catalogue…")
-                    browseCategory == CONTINUE_WATCHING_CATEGORY -> ContinueWatchingGrid(resume, onResume, isTelevision)
-                    browseCategory == FAVOURITES_CATEGORY -> SeriesCategoryGrid(scopedSeries.filter { it.favourite }, onOpenSeries)
-                    browseCategory == RECENTLY_ADDED_CATEGORY -> SeriesCategoryGrid(recentlyAdded, onOpenSeries)
-                    browseCategory != null -> SeriesCategoryGrid(categorySeries.filter { selectedSource == null || it.sourceId == selectedSource }, onOpenSeries)
+                    browseCategory == CONTINUE_WATCHING_CATEGORY -> ContinueWatchingGrid(resume.filter {
+                        it.title.contains(titleFilter.trim(), ignoreCase = true) }, onResume, isTelevision)
+                    browseCategory == FAVOURITES_CATEGORY -> SeriesCategoryGrid(scopedSeries.filter {
+                        it.favourite && it.displayTitle.contains(titleFilter.trim(), ignoreCase = true) }, onOpenSeries)
+                    browseCategory == RECENTLY_ADDED_CATEGORY -> SeriesCategoryGrid(recentlyAdded.filter {
+                        (selectedSource == null || it.sourceId == selectedSource) &&
+                            it.displayTitle.contains(titleFilter.trim(), ignoreCase = true)
+                    }, onOpenSeries)
+                    browseCategory != null -> SeriesCategoryGrid(categorySeries.filter {
+                        (selectedSource == null || it.sourceId == selectedSource) &&
+                            it.displayTitle.contains(titleFilter.trim(), ignoreCase = true)
+                    }, onOpenSeries)
                     !hasContent -> when {
                         loadState.phase == VodLoadPhase.LOADING || isSyncing -> LoadingVod(stringResource(R.string.vod_loading_shows))
                         scopedSeries.isNotEmpty() -> SeriesCategoryGrid(scopedSeries, onOpenSeries)
@@ -284,8 +314,32 @@ fun SeriesScreen(
                         }
                     }
                 }
+                }
             }
         }
+    }
+}
+
+/** Local title search preserves the active category and never starts a provider/API query. */
+@Composable
+private fun FilteredCategorySurface(
+    filter: String,
+    onChange: (String) -> Unit,
+    isTelevision: Boolean,
+    content: @Composable () -> Unit,
+) {
+    Column(Modifier.fillMaxSize()) {
+        OutlinedTextField(
+            value = filter,
+            onValueChange = onChange,
+            label = { Text("Filter titles in this category") },
+            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+                .padding(start = if (isTelevision) 12.dp else 54.dp,
+                    end = 12.dp, top = 4.dp, bottom = 4.dp),
+        )
+        Box(Modifier.weight(1f).fillMaxWidth()) { content() }
     }
 }
 
@@ -536,10 +590,16 @@ private fun VodCategoryRow(
 /** One category's films as a poster grid. Quality variants collapse to one card, badged. */
 @Composable
 private fun MovieCategoryGrid(movies: List<Movie>, viewModel: VodViewModel, onOpenMovie: (Movie) -> Unit) {
-    if (movies.isEmpty()) { LoadingVod(stringResource(R.string.vod_loading_movies)); return }
+    if (movies.isEmpty()) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("No matching movies in this category", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        return
+    }
+    val posterSize by AppSettings.get(LocalContext.current).posterSize.collectAsState()
     val groups = remember(movies) { viewModel.collapseVariants(movies) }
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 140.dp),
+        columns = GridCells.Adaptive(minSize = posterSize.gridMinDp.dp),
         contentPadding = PaddingValues(16.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -568,9 +628,15 @@ private fun MovieCategoryGrid(movies: List<Movie>, viewModel: VodViewModel, onOp
 /** One category's shows as a poster grid. */
 @Composable
 private fun SeriesCategoryGrid(series: List<Series>, onOpenSeries: (Series) -> Unit) {
-    if (series.isEmpty()) { LoadingVod(stringResource(R.string.vod_loading_shows)); return }
+    val posterSize by AppSettings.get(LocalContext.current).posterSize.collectAsState()
+    if (series.isEmpty()) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("No matching series in this category", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        return
+    }
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 140.dp),
+        columns = GridCells.Adaptive(minSize = posterSize.gridMinDp.dp),
         contentPadding = PaddingValues(16.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -665,10 +731,11 @@ internal fun PosterCard(
     progress: Float? = null,
 ) {
     var focused by remember { mutableStateOf(false) }
+    val posterSize by AppSettings.get(LocalContext.current).posterSize.collectAsState()
     val scale by animateFloatAsState(if (focused) 1.06f else 1f, label = "posterScale")
     Column(
         modifier
-            .width(POSTER_WIDTH)
+            .width(posterSize.cardDp.dp)
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .onFocusChanged { focused = it.isFocused }
             .clip(RoundedCornerShape(10.dp))
@@ -1006,7 +1073,7 @@ private fun VodLoadFailure(title: String, message: String, onRetry: () -> Unit) 
 }
 
 /** Poster shelf card width; the grid uses an adaptive min size close to this. */
-private val POSTER_WIDTH = 140.dp
+// Poster width is determined by the saved poster-size setting.
 
 /** Rating to one decimal place, locale-independent (the "★" is drawn beside it). */
 internal fun formatRating(rating: Double): String = String.format(java.util.Locale.US, "%.1f", rating)
