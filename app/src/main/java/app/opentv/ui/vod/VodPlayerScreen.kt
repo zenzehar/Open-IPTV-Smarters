@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -419,6 +420,23 @@ fun VodPlayerScreen(
             },
         )
 
+        AnimatedVisibility(
+            visible = controlsVisible,
+            enter = fadeIn(), exit = fadeOut(),
+            modifier = Modifier.align(Alignment.TopStart),
+        ) {
+            androidx.compose.material3.IconButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(
+                        WindowInsetsSides.Horizontal + WindowInsetsSides.Top))
+                    .padding(12.dp)
+                    .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(10.dp)),
+            ) {
+                Icon(Icons.Filled.ArrowBack, contentDescription = "Back to library", tint = Color.White)
+            }
+        }
+
         when (val current = state) {
             is PlayerController.State.Buffering ->
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -528,8 +546,8 @@ fun VodPlayerScreen(
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    VodChip(Icons.Filled.FastRewind, stringResource(R.string.player_rewind)) {
-                        if (growingRec) seekRelative(-15_000) else controller.seekBackward(); interaction++
+                    VodChip(Icons.Filled.FastRewind, "-10s") {
+                        seekRelative(-10_000L); interaction++
                     }
                     Spacer(Modifier.width(10.dp))
                     VodChip(
@@ -542,8 +560,8 @@ fun VodPlayerScreen(
                         interaction++
                     }
                     Spacer(Modifier.width(10.dp))
-                    VodChip(Icons.Filled.FastForward, stringResource(R.string.player_forward)) {
-                        if (growingRec) seekRelative(15_000) else controller.seekForward(); interaction++
+                    VodChip(Icons.Filled.FastForward, "+10s") {
+                        seekRelative(10_000L); interaction++
                     }
                     Spacer(Modifier.width(20.dp))
                     VodChip(Icons.Filled.ClosedCaption, stringResource(R.string.player_subtitles)) {
