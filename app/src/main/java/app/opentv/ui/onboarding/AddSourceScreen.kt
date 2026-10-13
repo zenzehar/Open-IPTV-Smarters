@@ -226,7 +226,7 @@ fun AddSourceScreen(
 
                 OutlinedTextField(
                     value = name,
-                    onValueChange = { name = it },
+                    onValueChange = { name = oneLine(it) },
                     placeholder = { Text("Playlist name") },
                     singleLine = true,
                     colors = fieldColors,
@@ -236,7 +236,7 @@ fun AddSourceScreen(
                 if (kind == SourceKind.XTREAM) {
                     OutlinedTextField(
                         value = username,
-                        onValueChange = { username = it },
+                        onValueChange = { username = oneLine(it) },
                         placeholder = { Text("Username") },
                         singleLine = true,
                         colors = fieldColors,
@@ -245,7 +245,7 @@ fun AddSourceScreen(
                     )
                     OutlinedTextField(
                         value = password,
-                        onValueChange = { password = it },
+                        onValueChange = { password = oneLine(it) },
                         placeholder = { Text("Password") },
                         singleLine = true,
                         visualTransformation = if (revealPassword) VisualTransformation.None
@@ -265,7 +265,7 @@ fun AddSourceScreen(
                 }
                 OutlinedTextField(
                     value = url,
-                    onValueChange = { url = it },
+                    onValueChange = { url = oneLine(it) },
                     placeholder = {
                         Text(if (kind == SourceKind.M3U) "M3U playlist URL"
                             else if (kind == SourceKind.STALKER) "Portal URL"
@@ -280,7 +280,7 @@ fun AddSourceScreen(
                 if (kind == SourceKind.STALKER) {
                     OutlinedTextField(
                         value = mac,
-                        onValueChange = { mac = it },
+                        onValueChange = { mac = oneLine(it) },
                         placeholder = { Text("MAC address") },
                         singleLine = true,
                         colors = fieldColors,
@@ -344,7 +344,7 @@ fun AddSourceScreen(
                 if (showAdvanced) {
                     OutlinedTextField(
                         value = epgUrl,
-                        onValueChange = { epgUrl = it },
+                        onValueChange = { epgUrl = oneLine(it) },
                         placeholder = { Text("Optional EPG URL") },
                         colors = fieldColors,
                         textStyle = TextStyle(color = ink),
@@ -353,7 +353,7 @@ fun AddSourceScreen(
                     )
                     OutlinedTextField(
                         value = userAgent,
-                        onValueChange = { userAgent = it },
+                        onValueChange = { userAgent = oneLine(it) },
                         placeholder = { Text("User-Agent") },
                         colors = fieldColors,
                         textStyle = TextStyle(color = ink),
@@ -402,3 +402,10 @@ private fun PasteButton(onPaste: (String) -> Unit) {
         Icon(Icons.Filled.ContentPaste, contentDescription = stringResource(R.string.kbd_paste))
     }
 }
+
+/** Accept at most one line from keyboard, paste or autofill (including Unicode separators).
+ * Never concatenate a pasted password and URL onto one credential value.
+ */
+internal fun oneLine(value: String): String =
+    value.take(4_096).substringBefore('\n').substringBefore('\r')
+        .substringBefore('\u2028').substringBefore('\u2029')
