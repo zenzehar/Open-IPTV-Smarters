@@ -366,6 +366,15 @@ private fun OpenTvApp(isTelevision: Boolean) {
                             Routes.vodPlayer(key, url, title, "OpenTV/0.1 (Android)"),
                         )
                     },
+                    onOpenResumeDetails = { item ->
+                        when {
+                            item.seriesDetailId != null ->
+                                navController.navigate(Routes.seriesDetail(item.seriesDetailId))
+                            item.movieDetailId != null ->
+                                navController.navigate(Routes.movieDetail(item.movieDetailId))
+                            else -> Unit
+                        }
+                    },
                     onAddSource = { navController.navigate(Routes.ADD_SOURCE) },
                     onRepairProvider = {
                         val source = sourcesUi.sources.firstOrNull { it.enabled }
