@@ -812,6 +812,16 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
         ) { raw, sourceId -> if (sourceId == null) raw else raw.filter { it.sourceId == sourceId } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    // Keep a complete provider-filterable catalogue for accurate category/favourite counts
+    // while the grid's selected category flow is narrowed.
+    val allMovies: StateFlow<List<Movie>> =
+        graph.catalogRepository.observeMovies(null)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val allSeries: StateFlow<List<Series>> =
+        graph.catalogRepository.observeSeries(null)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     @OptIn(ExperimentalCoroutinesApi::class)
     val movies: StateFlow<List<Movie>> = movieCategory
         .flatMapLatest { graph.catalogRepository.observeMovies(it) }
