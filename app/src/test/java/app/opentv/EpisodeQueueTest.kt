@@ -10,6 +10,8 @@ import app.opentv.ui.vod.findNextEpisode
 import app.opentv.ui.vod.canAutoplayAfterCompletion
 import app.opentv.ui.vod.mostRecentPerTitle
 import com.google.common.truth.Truth.assertThat
+import app.opentv.player.PlaybackErrors
+import androidx.media3.common.PlaybackException
 import org.junit.Test
 
 class EpisodeQueueTest {
@@ -83,6 +85,18 @@ class EpisodeQueueTest {
         )
         val latest = mostRecentPerTitle(history, { it.updatedAt }, { it.group })
         assertThat(latest.map { it.mediaKey }).containsExactly("movie:new", "movie:other").inOrder()
+    }
+
+    @Test fun unsupportedMedia3FormatsSkipPointlessRetriesBeforeVlc() {
+        assertThat(PlaybackErrors.requiresAlternativeDecoder(
+            PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
+        )).isTrue()
+        assertThat(PlaybackErrors.requiresAlternativeDecoder(
+            PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+        )).isTrue()
+        assertThat(PlaybackErrors.requiresAlternativeDecoder(
+            PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+        )).isFalse()
     }
 
 }
