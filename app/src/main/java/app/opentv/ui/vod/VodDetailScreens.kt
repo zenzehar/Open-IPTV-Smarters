@@ -231,7 +231,7 @@ private fun AddonStreamPicker(
                 )
                 else -> LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.height(360.dp),
+                    modifier = Modifier.height(310.dp),
                 ) {
                     items(streams, key = { it.url }) { stream -> AddonStreamRow(stream, onPick) }
                 }
@@ -488,20 +488,16 @@ private fun DetailBackdrop(
             .height(360.dp)
             .background(MaterialTheme.colorScheme.surfaceVariant),
     ) {
-        // Background: try the backdrop, fall back to the poster on load error, then to the gradient
-        // alone. Coil silently renders nothing on a failed load, so we drive the fallback from the
-        // error callback rather than trusting a non-null URL to actually resolve.
-        val bgCandidates = remember(backdropUrl, posterUrl) { listOfNotNull(backdropUrl, posterUrl).distinct() }
-        var bgIndex by remember(bgCandidates) { mutableStateOf(0) }
-        bgCandidates.getOrNull(bgIndex)?.let { model ->
-            AsyncImage(
-                model = model,
-                contentDescription = null,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.matchParentSize(),
-                onError = { if (bgIndex < bgCandidates.lastIndex) bgIndex++ },
-            )
-        }
+        // A provider's "backdrop" can actually be a tall poster. Never stretch or
+        // crop that art across an ultra-wide hero: retain the separate, fitted poster.
+        // A restrained gradient makes the title and remote-focusable buttons legible.
+        Box(
+            Modifier.matchParentSize().background(
+                Brush.horizontalGradient(
+                    listOf(Color(0xFF13192E), Color(0xFF27315A), Color(0xFF111725)),
+                ),
+            ),
+        )
         // Scrim: keeps text readable over any art, and — with no art at all — is itself the tasteful
         // gradient the hero falls back to.
         Box(
@@ -579,9 +575,10 @@ private fun HeroPosterCard(posterUrl: String?, title: String) {
     var posterFailed by remember(posterUrl) { mutableStateOf(false) }
     Box(
         Modifier
-            .width(128.dp)
-            .height(192.dp)
+            .width(144.dp)
+            .height(214.dp)
             .shadow(12.dp, RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center,
     ) {
