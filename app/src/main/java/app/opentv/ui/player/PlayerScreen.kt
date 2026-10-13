@@ -13,6 +13,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
@@ -44,6 +45,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.FastForward
@@ -57,6 +59,7 @@ import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -416,6 +419,26 @@ fun PlayerScreen(
             update = { it.resizeMode = resizeMode },
         )
 
+        AnimatedVisibility(
+            visible = controlsVisible && !inPip,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.TopStart),
+        ) {
+            IconButton(
+                onClick = { controller.stop(); onBack() },
+                modifier = Modifier
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(
+                        WindowInsetsSides.Horizontal + WindowInsetsSides.Top,
+                    ))
+                    .padding(12.dp)
+                    .background(Color.Black.copy(alpha = 0.62f), RoundedCornerShape(12.dp)),
+            ) {
+                Icon(Icons.Filled.ArrowBack, contentDescription = "Back to channels",
+                    tint = Color.White)
+            }
+        }
+
         // The channel number as you type it, top-right, until it resolves.
         if (numberEntry.isNotEmpty() && !inPip) {
             Box(
@@ -522,10 +545,14 @@ fun PlayerScreen(
                     Spacer(Modifier.height(12.dp))
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     if (controller.isSeekable) {
-                        BarChip(Icons.Filled.FastRewind, stringResource(R.string.player_rewind), false) {
-                            controller.seekBackward(); interaction++
+                        BarChip(Icons.Filled.FastRewind, "-10s", false) {
+                            controller.player.seekTo((controller.player.currentPosition - 10_000L).coerceAtLeast(0L))
+                            interaction++
                         }
                         Spacer(Modifier.width(10.dp))
                     }
@@ -541,8 +568,11 @@ fun PlayerScreen(
                     }
                     if (controller.isSeekable) {
                         Spacer(Modifier.width(10.dp))
-                        BarChip(Icons.Filled.FastForward, stringResource(R.string.player_forward), false) {
-                            controller.seekForward(); interaction++
+                        BarChip(Icons.Filled.FastForward, "+10s", false) {
+                            val target = controller.player.currentPosition + 10_000L
+                            val duration = controller.player.duration
+                            controller.player.seekTo(if (duration > 0) target.coerceAtMost(duration) else target)
+                            interaction++
                         }
                     }
 
@@ -894,7 +924,8 @@ private fun BarChip(
     ) {
         Icon(icon, contentDescription = label, tint = if (focused) content else (iconTint ?: content))
         Spacer(Modifier.width(6.dp))
-        Text(label, style = MaterialTheme.typography.labelLarge, color = content)
+        Text(label, style = MaterialTheme.typography.labelLarge, color = content, maxLines = 1,
+            softWrap = false, overflow = TextOverflow.Ellipsis)
     }
 }
 
