@@ -301,20 +301,52 @@ private fun ContinueWatchingGrid(
         }
         return
     }
+    var focusedResume by remember(items) { mutableStateOf(items.first().mediaKey) }
+    val highlighted = items.firstOrNull { it.mediaKey == focusedResume } ?: items.first()
     Column(Modifier.fillMaxSize().background(Brush.verticalGradient(
         listOf(Color(0xFF1D2C43), Color(0xFF070D18)),
     ))) {
         Text("CONTINUE WATCHING", color = Color.White,
             style = MaterialTheme.typography.headlineSmall,
             modifier = Modifier.padding(start = 20.dp, top = 14.dp, bottom = 6.dp))
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = if (isTelevision) 160.dp else 130.dp),
-            contentPadding = PaddingValues(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            gridItems(items, key = { it.historyGroupKey }) { item ->
-                ResumeCard(item) { onResume(item.mediaKey, item.streamUrl, item.title) }
+        Row(Modifier.fillMaxSize()) {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = if (isTelevision) 160.dp else 130.dp),
+                contentPadding = PaddingValues(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = if (isTelevision) Modifier.weight(1.5f).fillMaxHeight() else Modifier.fillMaxSize(),
+            ) {
+                gridItems(items, key = { it.historyGroupKey }) { item ->
+                    ResumeCard(item, onClick = {
+                        onResume(item.mediaKey, item.streamUrl, item.title)
+                    }, onFocus = { focusedResume = item.mediaKey })
+                }
+            }
+            if (isTelevision) {
+                // A lightweight title preview (not a second active IPTV stream).
+                Column(Modifier.weight(1f).fillMaxHeight().padding(20.dp),
+                    verticalArrangement = Arrangement.Center) {
+                    Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF101A2B))) {
+                        AsyncImage(model = highlighted.posterUrl,
+                            contentDescription = highlighted.title,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize())
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    Text(highlighted.title, color = Color.White,
+                        style = MaterialTheme.typography.titleLarge, maxLines = 2,
+                        overflow = TextOverflow.Ellipsis)
+                    highlighted.episodeLabel?.let {
+                        Text(it, color = Color(0xFF62D8DF),
+                            style = MaterialTheme.typography.bodyMedium)
+                    }
+                    Text("Select the poster to resume playback",
+                        color = Color.White.copy(alpha = 0.7f),
+                        style = MaterialTheme.typography.bodySmall)
+                }
             }
         }
     }
@@ -706,14 +738,21 @@ internal fun ContinueWatchingRow(
 
 /** Portrait series/movie art, with a clear episode identifier and persisted progress. */
 @Composable
-private fun ResumeCard(item: VodViewModel.ResumeItem, onClick: () -> Unit) {
+private fun ResumeCard(
+    item: VodViewModel.ResumeItem,
+    onClick: () -> Unit,
+    onFocus: () -> Unit = {},
+) {
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (focused) 1.04f else 1f, label = "resumeScale")
     Column(
         Modifier
             .width(154.dp)
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .onFocusChanged { focused = it.isFocused }
+            .onFocusChanged {
+                focused = it.isFocused
+                if (it.isFocused) onFocus()
+            }
             .clip(RoundedCornerShape(7.dp))
             .clickable(onClick = onClick)
             .padding(3.dp),
