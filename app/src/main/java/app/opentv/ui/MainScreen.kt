@@ -22,6 +22,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -42,6 +45,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -106,12 +110,23 @@ fun MainScreen(
     onPlayRecording: (Recording) -> Unit,
     onPlayCatchup: (mediaKey: String, url: String, title: String, ua: String) -> Unit,
     activeProfileName: String,
+    vodViewModel: VodViewModel,
 ) {
     val context = LocalContext.current
     val settings = remember { AppSettings.get(context) }
     val liveEnabled by settings.liveEnabled.collectAsState()
     val moviesEnabled by settings.moviesEnabled.collectAsState()
     val seriesEnabled by settings.seriesEnabled.collectAsState()
+    val movieLoad by vodViewModel.movieStatus.collectAsState()
+    val seriesLoad by vodViewModel.seriesStatus.collectAsState()
+    LaunchedEffect(hasSources, moviesEnabled, seriesEnabled) {
+        if (hasSources && (moviesEnabled || seriesEnabled)) vodViewModel.ensureVodLoaded()
+    }
+    val catalogueLoading = hasSources && (
+        (moviesEnabled && movieLoad.phase in listOf(VodLoadPhase.PENDING, VodLoadPhase.LOADING)) ||
+        (seriesEnabled && seriesLoad.phase in listOf(VodLoadPhase.PENDING, VodLoadPhase.LOADING))
+    )
+    val blockNavigation = catalogueLoading || isSyncing
     val choices = remember(liveEnabled, moviesEnabled, seriesEnabled) {
         buildList {
             add(DashboardTab.HOME)
@@ -145,9 +160,9 @@ fun MainScreen(
         )
     }
 
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+    BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFF080D1C))) {
         val compact = !isTelevision || maxWidth < 700.dp
-        Column(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             DashboardHeader(
                 title = if (tab == DashboardTab.HOME) "MyIPTV" else tab.text,
                 isHome = tab == DashboardTab.HOME,
@@ -166,11 +181,11 @@ fun MainScreen(
                         moviesEnabled = moviesEnabled,
                         seriesEnabled = seriesEnabled,
                         profile = activeProfileName,
-                        onLive = { tab = DashboardTab.LIVE },
-                        onMovies = { tab = DashboardTab.MOVIES },
-                        onSeries = { tab = DashboardTab.SERIES },
-                        onGuide = { tab = DashboardTab.LIVE },
-                        onRecordings = { tab = DashboardTab.RECORDINGS },
+                        onLive = { if (!blockNavigation) tab = DashboardTab.LIVE },
+                        onMovies = { if (!blockNavigation && movieLoad.phase in listOf(VodLoadPhase.READY, VodLoadPhase.EMPTY)) tab = DashboardTab.MOVIES },
+                        onSeries = { if (!blockNavigation && seriesLoad.phase in listOf(VodLoadPhase.READY, VodLoadPhase.EMPTY)) tab = DashboardTab.SERIES },
+                        onGuide = { if (!blockNavigation) tab = DashboardTab.LIVE },
+                        onRecordings = { if (!blockNavigation) tab = DashboardTab.RECORDINGS },
                         onSearch = onOpenSearch,
                         onSettings = onOpenSettings,
                         onAddSource = onAddSource,
@@ -193,6 +208,7 @@ fun MainScreen(
                         )
                     }
                     DashboardTab.MOVIES -> MoviesScreen(
+                        viewModel = vodViewModel,
                         isTelevision = !compact,
                         onOpenMovie = onOpenMovie,
                         onResume = onResume,
@@ -201,6 +217,7 @@ fun MainScreen(
                         isSyncing = isSyncing,
                     )
                     DashboardTab.SERIES -> SeriesScreen(
+                        viewModel = vodViewModel,
                         isTelevision = !compact,
                         onOpenSeries = onOpenSeries,
                         onResume = onResume,
@@ -216,15 +233,67 @@ fun MainScreen(
                 MobileBottomNav(
                     tabs = choices.filter { it != DashboardTab.RECORDINGS },
                     selected = tab,
-                    onSelect = { tab = it },
+                    onSelect = { chosen ->
+                        if (!blockNavigation && when (chosen) {
+                            DashboardTab.MOVIES -> movieLoad.phase in listOf(VodLoadPhase.READY, VodLoadPhase.EMPTY)
+                            DashboardTab.SERIES -> seriesLoad.phase in listOf(VodLoadPhase.READY, VodLoadPhase.EMPTY)
+                            else -> true
+                        }) tab = chosen
+                    },
                     onSettings = onOpenSettings,
                 )
             } else if (tab != DashboardTab.HOME) {
                 TvNavigation(
                     tabs = choices,
                     selected = tab,
-                    onSelect = { tab = it },
+                    onSelect = { chosen ->
+                        if (!blockNavigation && when (chosen) {
+                            DashboardTab.MOVIES -> movieLoad.phase in listOf(VodLoadPhase.READY, VodLoadPhase.EMPTY)
+                            DashboardTab.SERIES -> seriesLoad.phase in listOf(VodLoadPhase.READY, VodLoadPhase.EMPTY)
+                            else -> true
+                        }) tab = chosen
+                    },
                 )
+            }
+        }
+        // Dim the dashboard and intercept input until all enabled catalogue
+        // sections have finished. A failed fetch shows Retry instead of a fake
+        // empty library, and does not trap the user behind an endless spinner.
+        if (blockNavigation) {
+            Box(
+                Modifier.fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.78f))
+                    .clickable { },
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    CircularProgressIndicator(color = Color.White)
+                    Text(
+                        if (isSyncing) "Updating live channels…" else "Loading movies & series…",
+                        color = Color.White, style = MaterialTheme.typography.titleLarge,
+                    )
+                    if (!isSyncing) Text(
+                        listOfNotNull(
+                            if (moviesEnabled) movieLoad.message.takeIf { it.isNotEmpty() } else null,
+                            if (seriesEnabled) seriesLoad.message.takeIf { it.isNotEmpty() } else null,
+                        ).joinToString("  ·  "),
+                        color = Color(0xFFD0D8E7),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+        } else if (tab == DashboardTab.HOME &&
+            (movieLoad.phase == VodLoadPhase.FAILED || seriesLoad.phase == VodLoadPhase.FAILED)
+        ) {
+            Column(Modifier.align(Alignment.BottomCenter).padding(bottom = 100.dp)
+                .background(Color(0xFF2A2030), RoundedCornerShape(12.dp))
+                .padding(12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Some catalogues could not load", color = Color.White)
+                androidx.compose.material3.TextButton(onClick = vodViewModel::refreshVod) {
+                    Text("Retry loading", color = Color(0xFF9DE7EF))
+                }
             }
         }
     }
@@ -256,6 +325,7 @@ private fun DashboardHeader(
         }
         Text(
             title,
+            color = Color.White,
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold,
             maxLines = 1,
