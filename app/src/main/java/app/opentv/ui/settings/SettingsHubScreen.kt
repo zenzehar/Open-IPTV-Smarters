@@ -5,6 +5,8 @@
  */
 package app.opentv.ui.settings
 
+import android.app.ActivityManager
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -27,6 +29,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.GridView
@@ -38,6 +41,8 @@ import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -47,6 +52,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
@@ -76,6 +82,54 @@ fun SettingsHubScreen(
     onOpenAbout: () -> Unit,
     onBack: () -> Unit,
 ) {
+    val context = LocalContext.current
+    var resetStage by remember { mutableStateOf(0) }
+    var resetFailed by remember { mutableStateOf(false) }
+    if (resetStage > 0) {
+        AlertDialog(
+            onDismissRequest = { resetStage = 0 },
+            title = { Text(if (resetStage == 1) "Factory reset MyIPTV?" else "Final confirmation") },
+            text = {
+                Text(if (resetStage == 1)
+                    "This will permanently erase ALL MyIPTV app data on this device: " +
+                        "provider logins, playlists, favourites, viewing profiles, playback history, " +
+                        "preferences, and locally stored recordings. External NAS/USB files are " +
+                        "not intentionally erased. This cannot be undone."
+                else
+                    "Erase everything and return MyIPTV to first-run setup? " +
+                        "Make sure you have backed up anything you need.")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (resetStage == 1) resetStage = 2
+                    else {
+                        resetStage = 0
+                        val manager = context.getSystemService(Context.ACTIVITY_SERVICE)
+                            as? ActivityManager
+                        resetFailed = try { manager?.clearApplicationUserData() != true }
+                            catch (_: SecurityException) { true }
+                    }
+                }) {
+                    Text(if (resetStage == 1) "Continue" else "Erase all app data",
+                        color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { resetStage = 0 }) { Text("Cancel") }
+            },
+        )
+    }
+    if (resetFailed) {
+        AlertDialog(
+            onDismissRequest = { resetFailed = false },
+            title = { Text("Reset unavailable") },
+            text = { Text("Android could not clear the app data. " +
+                "Use Android Settings → Apps → MyIPTV → Storage → Clear data instead.") },
+            confirmButton = {
+                TextButton(onClick = { resetFailed = false }) { Text("OK") }
+            },
+        )
+    }
     val entries = listOf(
         HubEntry(Icons.Filled.Dns, stringResource(R.string.settings_providers_title), stringResource(R.string.settings_providers_subtitle), onOpenProviders),
         HubEntry(Icons.Filled.Extension, stringResource(R.string.settings_addons_title), stringResource(R.string.settings_addons_subtitle), onOpenAddons),
@@ -87,6 +141,7 @@ fun SettingsHubScreen(
         HubEntry(Icons.Filled.Lock, stringResource(R.string.settings_parental_title), stringResource(R.string.settings_parental_subtitle), onOpenParental),
         HubEntry(Icons.Filled.Sync, stringResource(R.string.settings_sync_title), stringResource(R.string.settings_sync_subtitle), onOpenSync),
         HubEntry(Icons.Filled.Info, stringResource(R.string.settings_about_title), stringResource(R.string.settings_about_subtitle), onOpenAbout),
+        HubEntry(Icons.Filled.DeleteForever, "Factory reset", "Erase MyIPTV app data and settings", { resetStage = 1 }),
     )
 
     Column(
