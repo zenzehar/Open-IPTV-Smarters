@@ -97,11 +97,17 @@ class MainActivity : ComponentActivity() {
         // Dark translucent status bar ensures readable white system icons over navy and gradient screens.
         enableEdgeToEdge(statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT))
         handlePlayIntent(intent)
-        val isTelevision = isRunningOnTelevision(this)
+        val detectedTv = isRunningOnTelevision(this)
 
         setContent {
             val settings = remember { ServiceLocator.get(this).settings }
             val themeMode by settings.themeMode.collectAsState()
+            val deviceMode by settings.deviceMode.collectAsState()
+            val isTelevision = when (deviceMode) {
+                AppSettings.DeviceMode.TV -> true
+                AppSettings.DeviceMode.MOBILE -> false
+                AppSettings.DeviceMode.AUTO -> detectedTv
+            }
             val darkTheme = when (themeMode) {
                 AppSettings.ThemeMode.DARK -> true
                 AppSettings.ThemeMode.LIGHT -> false
