@@ -140,7 +140,9 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
         if (_ui.value.syncing || _ui.value.testing) return
         viewModelScope.launch {
             _ui.value = _ui.value.copy(syncing = true, testResult = null,
-                testError = null, syncError = null, syncMessage = "Checking connection…")
+                testError = null, syncError = null, syncMessage = "Checking connection…",
+                failedStages = emptySet(), completedStages = emptySet(),
+                failureMessages = emptyMap(), refreshStage = null)
             try {
                 val verification = graph.sourceRepository.test(draft)
                 if (verification.isFailure) {
