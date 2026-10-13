@@ -115,6 +115,7 @@ fun MainScreen(
     onOpenSeries: (Series) -> Unit,
     onResume: (mediaKey: String, url: String, title: String) -> Unit,
     onAddSource: () -> Unit,
+    onRepairProvider: () -> Unit,
     onRefresh: () -> Unit,
     onRefreshStage: (String) -> Unit,
     onOpenSearch: () -> Unit,
@@ -243,6 +244,7 @@ fun MainScreen(
                         onSearch = onOpenSearch,
                         onSettings = onOpenSettings,
                         onAddSource = onAddSource,
+                        onRepairProvider = onRepairProvider,
                         onRefresh = onRefresh,
                     )
                     DashboardTab.LIVE -> {
@@ -394,12 +396,19 @@ private fun DashboardHome(
     onSearch: () -> Unit,
     onSettings: () -> Unit,
     onAddSource: () -> Unit,
+    onRepairProvider: () -> Unit,
     onRefresh: () -> Unit,
 ) {
     val landscapePhone = !compact && !isTelevision
     val pad = if (compact || landscapePhone) 14.dp else 36.dp
     val liveHeight = if (landscapePhone) 244.dp else 310.dp
     val vodHeight = if (landscapePhone) 157.dp else 210.dp
+    val failure = when {
+        liveState == "FAILED" -> liveFailure ?: "Live TV could not update."
+        movieState == "FAILED" -> movieFailure ?: "Movies could not update."
+        seriesState == "FAILED" -> seriesFailure ?: "Series could not update."
+        else -> null
+    }
     LazyColumn(
         Modifier.fillMaxSize().background(Color(0xFF0A1023)),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
@@ -407,6 +416,27 @@ private fun DashboardHome(
         ),
         verticalArrangement = Arrangement.spacedBy(if (compact) 16.dp else 26.dp),
     ) {
+        if (failure != null) item(key = "provider-repair") {
+            Row(
+                Modifier.fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0xFF3C2647))
+                    .padding(horizontal = 12.dp, vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("Provider issue: $failure", color = Color.White,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f))
+                TextButton(onClick = onRepairProvider) {
+                    Text("Edit login", color = Color.White, maxLines = 1)
+                }
+                TextButton(onClick = onRefresh) {
+                    Text("Retry", color = Color.White, maxLines = 1)
+                }
+            }
+        }
         if (compact) item(key = "welcome") {
             Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text(
