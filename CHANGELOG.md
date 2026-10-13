@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.12.11 — Koky TV, TV stability and contextual search
+
+- Display name and launcher label changed to **Koky TV** across device locales using an unlocalized launcher label. Retain Android application IDs for safe updates, Room data, favourites and history.
+- Android TV Back behaviour: no blocking exit dialog. Back from a section returns Home; the second Back warns with a toast, and the third exits. The Home-only first Back primes the sequence, with a five-second timeout.
+- Movies category crash mitigation: query one bounded 160-title page from Room instead of subscribing to the entire selected category; more titles via a Load More button. Perform quality-variant grouping off the main thread as before.
+- Media3 video Back path now unmounts the Android player view before its native decoder is released. Embedded VLC suppresses late native callbacks during shutdown to reduce device-dependent hangs.
+- VOD starts after about 1 second of media is buffered instead of 2.5 seconds; 15–60-second target reservoir and 5-second rebuffer threshold remain unchanged. Live/recording buffer profiles untouched.
+- Stronger Android TV keyboard suppression: on mere D-pad focus, hide the platform IME repeatedly; pressing OK/Enter or tapping a text field deliberately enables it.
+- Double Down/Up jumps now require 1–7 seconds between the presses, so rapid sequential category navigation does not jump unexpectedly.
+- The Live TV top search field now scopes channels to the currently selected category/provider and preserves the existing EPG or channel-list layout. Movies and Series search icon focuses the local filter in their existing poster layouts instead of opening global Search. The Home tab retains global Search.
+- No destructive database migration or credential deletion. Real TV testing and stack traces are still required to confirm crash causes and hardware-specific playback issues.
+
+
 ## 0.12.10 — TV keyboard, Movies responsiveness, catalogue progress and screen density
 
 - Android TV keyboard: moving focus over login fields, category search or global search no longer opens the software keyboard. Explicit OK/Enter or pointer selection opens the current Android keyboard. Login submission still dismisses it.
