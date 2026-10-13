@@ -145,7 +145,6 @@ fun MoviesScreen(
     }
     val entries = (vodSections() + categories.map { it.id to it.name }).distinctBy { it.first }
     Column(Modifier.fillMaxSize().background(Color(0xFF0C1526))) {
-        if (!isTelevision) SearchAffordance(onOpenSearch)
         if (sources.size > 1) ProviderChips(
             sources = sources,
             selected = selectedSource,
@@ -268,7 +267,6 @@ fun SeriesScreen(
     }
     val entries = (vodSections() + categories.map { it.id to it.name }).distinctBy { it.first }
     Column(Modifier.fillMaxSize().background(Color(0xFF0C1526))) {
-        if (!isTelevision) SearchAffordance(onOpenSearch)
         if (sources.size > 1) ProviderChips(
             sources = sources,
             selected = selectedSource,
@@ -603,6 +601,12 @@ private fun MovieCategoryGrid(movies: List<Movie>, viewModel: VodViewModel, onOp
     ) {
         value = emptyList()
         value = withContext(Dispatchers.Default) { viewModel.collapseVariants(movies) }
+    }
+    if (groups.isEmpty()) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+        return
     }
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = posterSize.gridMinDp.dp),
