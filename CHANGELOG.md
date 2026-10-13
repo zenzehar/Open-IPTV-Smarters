@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.12.18 — Restore consistent movie and series seek semantics
+
+- Remove the new Media3 seekability-flag shortcut that forced movie seeks into VLC; always issue a normal time seek for movies and episodes, even while seekability metadata is initialising.
+- Fix automatic playback restarts after a seek losing the requested VOD time and returning to the originally saved position. The active playback request now retains the latest seek for recovery and manual retries.
+- Prevent automatic retries from resetting their own failure limit. Successful playback or deliberate playback selection still clears the counter.
+- Don't forcibly swap decoders on an arbitrary seek timeout. After an extended unsuccessful seek, display an accurate status and provide an explicit VLC alternative with the requested time.
+- Leave TV Back logic, history, credentials and package IDs unchanged. Device verification remains necessary.
+
+
 ## 0.12.17 — Seek reliability, VLC Back, remote OK hold and startup status
 
 - Keep the movie seek thumb at the requested position until Media3 confirms the seek; retry ignored or unsupported seek operations through embedded VLC with the target position.

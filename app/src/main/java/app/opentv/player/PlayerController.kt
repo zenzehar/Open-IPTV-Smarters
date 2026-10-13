@@ -255,7 +255,7 @@ class PlayerController(
                     if (!unsupported && consecutiveFailures < MAX_AUTO_RESTARTS && request != null) {
                         scope.launch {
                             delay(AUTO_RESTART_DELAY_MILLIS)
-                            if (current == request) play(request, debounce = false)
+                            if (current == request) play(request, debounce = false, automaticRetry = true)
                         }
                     }
                 }
@@ -268,7 +268,7 @@ class PlayerController(
      * @param debounce when true (the default for channel surfing) the switch waits briefly so
      * that rapid presses collapse into a single tune. Pass false for a deliberate selection.
      */
-    fun play(request: Request, debounce: Boolean = true) {
+    fun play(request: Request, debounce: Boolean = true, automaticRetry: Boolean = false) {
         // Cancelling here is what makes fast channel-changing safe: the previous switch never
         // reaches the player, so we never stack prepares.
         switchJob?.cancel()
@@ -277,7 +277,8 @@ class PlayerController(
         switchJob = scope.launch {
             if (debounce) delay(switchDebounceMillis)
 
-            consecutiveFailures = 0
+            // Automatic retries must not reset their own failure count.
+            if (!automaticRetry) consecutiveFailures = 0
             httpFactory.setDefaultRequestProperties(mapOf("User-Agent" to request.userAgent))
             _state.value = State.Buffering(request.title)
 
@@ -307,6 +308,25 @@ class PlayerController(
                 prepare()
             }
         }
+    }
+
+    /**
+     * A VOD seek changes the next retry position as well as the active player position.
+     * Without this, a recoverable HTTP error after a seek restarted movies at the
+     * original bookmark (or zero), even though the seek was correctly issued.
+     */
+    fun seekToVod(positionMillis: Long) {
+        val target = positionMillis.coerceAtLeast(0L)
+        current?.let { request ->
+            if (!request.isLive) {
+                current = request.copy(
+                    startPositionMillis = VodSeekRecovery.retryStart(
+                        request.startPositionMillis, target, isLive = false,
+                    ),
+                )
+            }
+        }
+        player.seekTo(target)
     }
 
     fun retry() {

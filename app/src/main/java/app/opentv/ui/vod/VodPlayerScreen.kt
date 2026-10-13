@@ -194,15 +194,13 @@ fun VodPlayerScreen(
         val ceiling = if (growingRec) p.bufferedPosition.coerceAtLeast(0L)
             else (p.duration.takeIf { it > 0L } ?: Long.MAX_VALUE)
         val target = requested.coerceIn(0L, ceiling)
-        if (!growingRec && !p.isCurrentMediaItemSeekable) {
-            vlcInitialSeekMs = target
-            p.stop()
-            useVlc = true
-        } else {
-            pendingSeek = target
-            pendingSeekStartedAt = android.os.SystemClock.uptimeMillis()
-            p.seekTo(target)
-        }
+        // A briefly unavailable Media3 seekability flag is not a verdict on the
+        // provider's VOD content. Movies and episodes both get a normal seek.
+        pendingSeek = target
+        pendingSeekStartedAt = android.os.SystemClock.uptimeMillis()
+        vlcInitialSeekMs = target // Remember this if user manually chooses VLC.
+        seekFailure = false
+        controller.seekToVod(target)
     }
     fun seekRelative(deltaMs: Long) {
         seekToMs((pendingSeek ?: controller.player.currentPosition) + deltaMs)
@@ -218,7 +216,7 @@ fun VodPlayerScreen(
         if (!useVlc && !beganPlayback && state is PlayerController.State.Buffering) {
             delay(25_000L)
             if (!useVlc && !beganPlayback && controller.state.value is PlayerController.State.Buffering) {
-                controller.player.stop()
+                controller.stop()
                 useVlc = true
             }
         }
@@ -230,7 +228,7 @@ fun VodPlayerScreen(
             error.message.contains("DECODING_FAILED", ignoreCase = true)
         ) {
             // Do not retry forever with the same demuxer that has rejected the container.
-            controller.player.stop()
+            controller.stop()
             useVlc = true
         }
     }
@@ -411,13 +409,11 @@ fun VodPlayerScreen(
                     pendingSeek = null
                     seekFailure = false
                 } else if (target != null &&
-                    android.os.SystemClock.uptimeMillis() - pendingSeekStartedAt > 8_000L) {
+                    android.os.SystemClock.uptimeMillis() - pendingSeekStartedAt > 15_000L) {
+                    // Do not switch to another decoder on an arbitrary timer. Leave
+                    // VLC as an explicit option when playback genuinely fails to seek.
                     pendingSeek = null
-                    if (!growingRec && !useVlc) {
-                        vlcInitialSeekMs = target
-                        controller.player.stop()
-                        useVlc = true
-                    } else seekFailure = true
+                    seekFailure = true
                 }
                 positionMs = (pendingSeek ?: actual).coerceAtLeast(0L)
                 // A growing recording has no fixed length; the recorded-so-far extent (how far you
@@ -600,7 +596,12 @@ fun VodPlayerScreen(
                         Spacer(Modifier.height(24.dp))
                         Button(onClick = { controller.retry() }) { Text(stringResource(R.string.common_try_again)) }
                         Spacer(Modifier.height(12.dp))
-                        Button(onClick = { controller.player.stop(); useVlc = true }) {
+                        Button(onClick = {
+                            vlcInitialSeekMs = pendingSeek ?: vlcInitialSeekMs ?:
+                                controller.player.currentPosition.coerceAtLeast(0L)
+                            controller.stop()
+                            useVlc = true
+                        }) {
                             Text("Try VLC decoder")
                         }
                     }
@@ -684,8 +685,12 @@ fun VodPlayerScreen(
                 }
 
                 if (seekFailure) {
-                    Text("Seeking is not supported by this stream", color = Color(0xFFFFD89E),
+                    Text("Seek did not finish. Retry, or try VLC.", color = Color(0xFFFFD89E),
                         style = MaterialTheme.typography.bodySmall)
+                    Button(onClick = {
+                        controller.stop()
+                        useVlc = true
+                    }) { Text("Try VLC seeking") }
                 }
                 Spacer(Modifier.height(10.dp))
 
