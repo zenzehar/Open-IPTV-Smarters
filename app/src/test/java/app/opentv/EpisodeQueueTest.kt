@@ -9,6 +9,7 @@ import app.opentv.data.model.Episode
 import app.opentv.ui.vod.findNextEpisode
 import app.opentv.ui.vod.canAutoplayAfterCompletion
 import app.opentv.ui.vod.mostRecentPerTitle
+import app.opentv.ui.onboarding.oneLine
 import com.google.common.truth.Truth.assertThat
 import app.opentv.player.PlaybackErrors
 import androidx.media3.common.PlaybackException
@@ -97,6 +98,13 @@ class EpisodeQueueTest {
         assertThat(PlaybackErrors.requiresAlternativeDecoder(
             PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
         )).isFalse()
+    }
+
+    @Test fun pastedMultilineCredentialsNeverBecomeOneInput() {
+        assertThat(oneLine("username\\npassword")).isEqualTo("username")
+        assertThat(oneLine("url\\r\\nextra")).isEqualTo("url")
+        assertThat(oneLine("playlist name")).isEqualTo("playlist name")
+        assertThat(oneLine("abc\\u2028def")).isEqualTo("abc")
     }
 
 }
