@@ -682,6 +682,10 @@ interface ProfileDao {
     /** Removing a profile takes its watch history with it. */
     @Query("DELETE FROM playback_positions WHERE profileId = :id")
     suspend fun deletePositions(id: Long)
+
+    /** Keep past and scheduled recordings when their viewing profile is deleted. */
+    @Query("UPDATE recordings SET profileId = NULL WHERE profileId = :id")
+    suspend fun detachRecordings(id: Long)
 }
 
 @Dao
