@@ -7,6 +7,7 @@ package app.opentv.ui.onboarding
 
 import app.opentv.data.model.SourceKind
 import app.opentv.data.repo.SourceRepository
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 /** A common Xtream mistake: HTTPS on port 80 when the provider serves HTTP there.
  * Merely offer an explicit correction; NEVER downgrade or transmit credentials automatically.
@@ -18,7 +19,7 @@ internal fun httpPort80Alternative(url: String, kind: SourceKind, failure: Strin
             .any { it in lower }) return null
     val normalized = SourceRepository.normaliseUrl(url, kind)
     if (!normalized.startsWith("https://", ignoreCase = true)) return null
-    val parsed = okhttp3.HttpUrl.Companion.toHttpUrlOrNull(normalized) ?: return null
+    val parsed = normalized.toHttpUrlOrNull() ?: return null
     if (parsed.port != 80) return null
     return parsed.newBuilder().scheme("http").build().toString().trimEnd('/')
 }
