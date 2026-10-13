@@ -194,7 +194,15 @@ fun VlcVodFallback(
         }
     }
 
-    BackHandler { onBack() }
+    BackHandler {
+        // Back is non-destructive while controls are visible; the next Back exits.
+        if (controlsVisible) {
+            controlsVisible = false
+            controlsInteraction++
+        } else {
+            onBack()
+        }
+    }
 
     fun seekBy(delta: Long) {
         val now = runCatching { player.time }.getOrDefault(0L)

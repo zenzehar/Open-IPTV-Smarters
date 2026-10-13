@@ -418,8 +418,14 @@ fun VodPlayerScreen(
     }
 
     BackHandler(enabled = !useVlc && !leavingPlayer) {
-        if (vodPanel != VodPanel.NONE) vodPanel = VodPanel.NONE
-        else requestPlayerExit()
+        when {
+            vodPanel != VodPanel.NONE -> vodPanel = VodPanel.NONE
+            controlsVisible -> {
+                controlsVisible = false
+                interaction++
+            }
+            else -> requestPlayerExit()
+        }
     }
 
     Box(
