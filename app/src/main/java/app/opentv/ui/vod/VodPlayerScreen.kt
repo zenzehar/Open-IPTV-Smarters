@@ -100,6 +100,7 @@ import app.opentv.data.model.Episode
 import app.opentv.core.SleepTimer
 import app.opentv.core.findActivity
 import app.opentv.player.PlayerController
+import app.opentv.player.VodSeekTimeline
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -131,6 +132,28 @@ fun VodPlayerScreen(
     val view = LocalView.current
     val graph = remember { ServiceLocator.get(context) }
     val settings = remember { graph.settings }
+    var catalogueDurationMs by remember(mediaKey) { mutableLongStateOf(0L) }
+    var savedDurationMs by remember(mediaKey) { mutableLongStateOf(0L) }
+    LaunchedEffect(mediaKey, streamUrl) {
+        val profileId = settings.activeProfileId.value
+        savedDurationMs = graph.playbackPositions.get(profileId, mediaKey)
+            ?.durationMillis?.coerceAtLeast(0L) ?: 0L
+        catalogueDurationMs = when {
+            mediaKey.startsWith("movie:") -> {
+                val id = mediaKey.substringAfter("movie:").toLongOrNull()
+                val movie = id?.let { graph.catalogRepository.movie(it) }
+                // get_vod_info may contain duration_secs even when the list did not.
+                val detailed = if (movie?.durationSeconds == null && id != null)
+                    graph.catalogRepository.movieDetail(id) else movie
+                VodSeekTimeline.catalogueMillis(detailed?.durationSeconds)
+            }
+            mediaKey.startsWith("ep:") ->
+                VodSeekTimeline.catalogueMillis(
+                    mediaKey.substringAfter("ep:").toLongOrNull()
+                        ?.let { graph.catalogRepository.episode(it) }?.durationSeconds)
+            else -> 0L
+        }
+    }
     var leavingPlayer by remember { mutableStateOf(false) }
     var vlcInitialSeekMs by remember(mediaKey) { mutableStateOf<Long?>(null) }
     fun requestPlayerExit() {
@@ -191,9 +214,9 @@ fun VodPlayerScreen(
     // at the requested position while the decoder/buffer catches up.
     fun seekToMs(requested: Long) {
         val p = controller.player
-        val ceiling = if (growingRec) p.bufferedPosition.coerceAtLeast(0L)
-            else (p.duration.takeIf { it > 0L } ?: Long.MAX_VALUE)
-        val target = requested.coerceIn(0L, ceiling)
+        val maximum = if (growingRec) p.bufferedPosition.coerceAtLeast(0L)
+            else VodSeekTimeline.durationMillis(p.duration, catalogueDurationMs, savedDurationMs)
+        val target = VodSeekTimeline.clampTarget(requested, maximum)
         // A briefly unavailable Media3 seekability flag is not a verdict on the
         // provider's VOD content. Movies and episodes both get a normal seek.
         pendingSeek = target
@@ -405,7 +428,7 @@ fun VodPlayerScreen(
             if (!scrubbing) {
                 val actual = controller.player.currentPosition.coerceAtLeast(0L)
                 val target = pendingSeek
-                if (target != null && kotlin.math.abs(actual - target) <= 4_000L) {
+                if (target != null && VodSeekTimeline.reachedTarget(actual, target)) {
                     pendingSeek = null
                     seekFailure = false
                 } else if (target != null &&
@@ -418,8 +441,9 @@ fun VodPlayerScreen(
                 positionMs = (pendingSeek ?: actual).coerceAtLeast(0L)
                 // A growing recording has no fixed length; the recorded-so-far extent (how far you
                 // can skip ahead) is what's been read into the buffer.
-                durationMs = if (growingRec) controller.player.bufferedPosition.coerceAtLeast(0)
-                else controller.player.duration.takeIf { it > 0 } ?: 0
+                durationMs = if (growingRec) controller.player.bufferedPosition.coerceAtLeast(0L)
+                else VodSeekTimeline.durationMillis(
+                    controller.player.duration, catalogueDurationMs, savedDurationMs)
             }
             delay(500)
         }
@@ -663,9 +687,12 @@ fun VodPlayerScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(formatDuration(if (scrubbing) scrubValue.toLong() else positionMs), color = Color.White)
                     Spacer(Modifier.width(12.dp))
+                    val sliderMaximum = VodSeekTimeline.seekBarMaxMillis(
+                        durationMs, positionMs, maxOf(pendingSeek ?: 0L, scrubValue.toLong()))
                     Slider(
-                        value = if (scrubbing) scrubValue else positionMs.toFloat(),
-                        valueRange = 0f..(durationMs.takeIf { it > 0 }?.toFloat() ?: 1f),
+                        value = (if (scrubbing) scrubValue else positionMs.toFloat())
+                            .coerceIn(0f, sliderMaximum.toFloat()),
+                        valueRange = 0f..sliderMaximum.toFloat(),
                         onValueChange = { scrubbing = true; scrubValue = it; interaction++ },
                         onValueChangeFinished = {
                             seekToMs(scrubValue.toLong())
@@ -681,7 +708,7 @@ fun VodPlayerScreen(
                                 RoundedCornerShape(7.dp)) else Modifier),
                     )
                     Spacer(Modifier.width(12.dp))
-                    Text(formatDuration(durationMs), color = Color.White)
+                    Text(if (durationMs > 0L) formatDuration(durationMs) else "–:–", color = Color.White)
                 }
 
                 if (seekFailure) {

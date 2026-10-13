@@ -78,6 +78,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import app.opentv.core.ServiceLocator
 import app.opentv.data.model.PlaybackPosition
 import app.opentv.data.model.Episode
+import app.opentv.player.VodSeekTimeline
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -113,6 +114,26 @@ fun VlcVodFallback(
     val graph = remember { ServiceLocator.get(context) }
     val profileId by graph.settings.activeProfileId.collectAsState()
     val scope = rememberCoroutineScope()
+    var catalogueDurationMs by remember(mediaKey) { mutableLongStateOf(0L) }
+    var savedDurationMs by remember(mediaKey) { mutableLongStateOf(0L) }
+    LaunchedEffect(mediaKey, streamUrl, profileId) {
+        savedDurationMs = graph.playbackPositions.get(profileId, mediaKey)
+            ?.durationMillis?.coerceAtLeast(0L) ?: 0L
+        catalogueDurationMs = when {
+            mediaKey.startsWith("movie:") -> {
+                val id = mediaKey.substringAfter("movie:").toLongOrNull()
+                val movie = id?.let { graph.catalogRepository.movie(it) }
+                val detailed = if (movie?.durationSeconds == null && id != null)
+                    graph.catalogRepository.movieDetail(id) else movie
+                VodSeekTimeline.catalogueMillis(detailed?.durationSeconds)
+            }
+            mediaKey.startsWith("ep:") ->
+                VodSeekTimeline.catalogueMillis(
+                    mediaKey.substringAfter("ep:").toLongOrNull()
+                        ?.let { graph.catalogRepository.episode(it) }?.durationSeconds)
+            else -> 0L
+        }
+    }
     var layout by remember { mutableStateOf<VLCVideoLayout?>(null) }
     var attachedLayout by remember { mutableStateOf<VLCVideoLayout?>(null) }
     var positionMs by remember { mutableLongStateOf(0L) }
@@ -137,6 +158,10 @@ fun VlcVodFallback(
         }
     }
     var movingSlider by remember { mutableStateOf(false) }
+    var pendingSeekMs by remember(mediaKey) { mutableStateOf<Long?>(null) }
+    var pendingSeekStartedAt by remember(mediaKey) { mutableLongStateOf(0L) }
+    var fractionRetryDone by remember(mediaKey) { mutableStateOf(false) }
+    var seekFailure by remember(mediaKey) { mutableStateOf(false) }
     val controlsTimeoutSeconds by graph.settings.controlsTimeoutSeconds.collectAsState()
     var controlsInteraction by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     LaunchedEffect(controlsVisible, controlsInteraction, playing, controlsTimeoutSeconds,
@@ -206,10 +231,19 @@ fun VlcVodFallback(
         }
     }
 
+    fun seekToMs(requested: Long) {
+        val target = VodSeekTimeline.clampTarget(requested, durationMs)
+        pendingSeekMs = target
+        pendingSeekStartedAt = android.os.SystemClock.uptimeMillis()
+        seekFailure = false
+        fractionRetryDone = false
+        positionMs = target
+        runCatching { player.setTime(target) }
+    }
+
     fun seekBy(delta: Long) {
-        val now = runCatching { player.time }.getOrDefault(0L)
-        val ceiling = durationMs.takeIf { it > 0L } ?: Long.MAX_VALUE
-        runCatching { player.setTime((now + delta).coerceIn(0L, ceiling)) }
+        val now = pendingSeekMs ?: runCatching { player.time }.getOrDefault(0L)
+        seekToMs(now + delta)
     }
 
     LaunchedEffect(mediaKey, streamUrl) {
@@ -317,8 +351,25 @@ fun VlcVodFallback(
             delay(1_000L)
             val p = runCatching { player.time }.getOrDefault(0L)
             val d = runCatching { player.length }.getOrDefault(0L)
-            durationMs = d.coerceAtLeast(0L)
-            positionMs = if (durationMs > 0L) p.coerceIn(0L, durationMs) else p.coerceAtLeast(0L)
+            durationMs = VodSeekTimeline.durationMillis(d, catalogueDurationMs, savedDurationMs)
+            val actual = if (durationMs > 0L) p.coerceIn(0L, durationMs) else p.coerceAtLeast(0L)
+            val pending = pendingSeekMs
+            if (pending != null && VodSeekTimeline.reachedTarget(actual, pending)) {
+                pendingSeekMs = null
+                seekFailure = false
+            } else if (pending != null &&
+                android.os.SystemClock.uptimeMillis() - pendingSeekStartedAt > 1_500L &&
+                !fractionRetryDone && durationMs > 0L) {
+                // Some VLC demuxers only honour a fractional seek when getLength was
+                // unavailable at the time of the original setTime.
+                fractionRetryDone = true
+                runCatching { player.setPosition((pending.toFloat() / durationMs).coerceIn(0f, 1f)) }
+            } else if (pending != null &&
+                android.os.SystemClock.uptimeMillis() - pendingSeekStartedAt > 15_000L) {
+                pendingSeekMs = null
+                seekFailure = true
+            }
+            positionMs = pendingSeekMs ?: actual
         }
     }
     LaunchedEffect(mediaKey) {
@@ -466,16 +517,19 @@ fun VlcVodFallback(
                     Text("VLC", color = Color(0xFF68D6CD))
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(displayTime(positionMs), color = Color.White)
+                    Text(displayTime(if (movingSlider) sliderValue.toLong() else positionMs), color = Color.White)
                     Spacer(Modifier.width(10.dp))
+                    val sliderMaximum = VodSeekTimeline.seekBarMaxMillis(
+                        durationMs, positionMs, maxOf(pendingSeekMs ?: 0L, sliderValue.toLong()))
                     Slider(
-                        value = if (movingSlider) sliderValue else positionMs.toFloat(),
-                        onValueChange = { sliderValue = it; movingSlider = true },
+                        value = (if (movingSlider) sliderValue else positionMs.toFloat())
+                            .coerceIn(0f, sliderMaximum.toFloat()),
+                        onValueChange = { sliderValue = it; movingSlider = true; controlsInteraction++ },
                         onValueChangeFinished = {
-                            runCatching { player.setTime(sliderValue.toLong()) }
+                            seekToMs(sliderValue.toLong())
                             movingSlider = false
                         },
-                        valueRange = 0f..durationMs.coerceAtLeast(1L).toFloat(),
+                        valueRange = 0f..sliderMaximum.toFloat(),
                         modifier = Modifier.weight(1f)
                             .focusRequester(seekBarFocus)
                             .onFocusChanged { seekBarFocused = it.isFocused }
@@ -484,16 +538,19 @@ fun VlcVodFallback(
                                 RoundedCornerShape(7.dp)) else Modifier),
                     )
                     Spacer(Modifier.width(10.dp))
-                    Text(displayTime(durationMs), color = Color.White)
+                    Text(if (durationMs > 0L) displayTime(durationMs) else "–:–", color = Color.White)
+                }
+                if (seekFailure) {
+                    Text("Seek did not finish; try the timeline or another playback source",
+                        color = Color(0xFFFFD89E),
+                        style = MaterialTheme.typography.bodySmall)
                 }
                 Row(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    IconButton(onClick = {
-                        runCatching { player.setTime((player.time - 10_000L).coerceAtLeast(0L)) }
-                    }) {
+                    IconButton(onClick = { seekBy(-10_000L) }) {
                         Icon(Icons.Filled.FastRewind, contentDescription = "Back 10 seconds", tint = Color.White)
                     }
                     IconButton(
@@ -503,9 +560,7 @@ fun VlcVodFallback(
                         Icon(if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                             contentDescription = if (playing) "Pause" else "Play", tint = Color.White)
                     }
-                    IconButton(onClick = {
-                        runCatching { player.setTime((player.time + 10_000L).coerceAtMost(durationMs.coerceAtLeast(0L))) }
-                    }) {
+                    IconButton(onClick = { seekBy(10_000L) }) {
                         Icon(Icons.Filled.FastForward, contentDescription = "Forward 10 seconds", tint = Color.White)
                     }
                     if (nextEpisode != null) {

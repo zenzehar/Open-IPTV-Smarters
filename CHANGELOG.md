@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.12.19 — Restore usable movie seeking on Media3 and LibVLC
+
+- Fix movie timebars freezing at zero: both Media3 and LibVLC previously fell back to an unusable 0..1 millisecond Slider when the decoder did not yet expose a duration. Use the same shared timeline policy for movies and episodes and restore provider movie duration, watch-history duration and actual decoder duration in order.
+- If no duration has arrived, keep the actual duration unknown (display –:–) and provide a rolling 30-minute seek window instead of a 1 ms slider. Progress controls remain responsive while runtime metadata loads.
+- LibVLC now keeps a requested seek position visible while it is being processed, retries by fractional position when time seeking is ignored before getLength arrives, and shares the time-seek behaviour with Media3. D-pad left/right and ±10 seconds use the same VLC seek function.
+- Include regression tests for movie duration fallback, unknown-duration seek window, clamping, history fallback and seek acknowledgement. Preserve existing credentials, version identity and watch positions.
+- Device-level validation remains necessary, especially on movie sources requiring native VLC fallback and where provider runtime duration data is absent.
+
+
 ## 0.12.18 — Restore consistent movie and series seek semantics
 
 - Remove the new Media3 seekability-flag shortcut that forced movie seeks into VLC; always issue a normal time seek for movies and episodes, even while seekability metadata is initialising.
