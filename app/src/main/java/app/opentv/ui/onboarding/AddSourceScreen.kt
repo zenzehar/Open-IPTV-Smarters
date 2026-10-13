@@ -8,6 +8,15 @@ package app.opentv.ui.onboarding
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.Tv
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -129,14 +138,41 @@ fun AddSourceScreen(
         SourceKind.STALKER -> mac.isNotBlank()
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+    // Native MyIPTV branding, with the familiar split-screen IPTV login layout on
+    // wide TVs. Keep the same functional form and system keyboard on narrow devices.
+    BoxWithConstraints(
+        Modifier.fillMaxSize().background(
+            Brush.linearGradient(listOf(Color(0xFF4C2BC9), Color(0xFFAF4EAA), Color(0xFFF27F86))),
+        ),
     ) {
-        Column(Modifier.widthIn(max = 640.dp)) {
+        val wide = isTelevision && maxWidth >= 800.dp
+        Row(Modifier.fillMaxSize()) {
+            if (wide) {
+                Column(
+                    Modifier.weight(0.42f).fillMaxHeight().padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Icon(Icons.Filled.Tv, contentDescription = null,
+                        modifier = Modifier.padding(12.dp), tint = Color.White)
+                    Text("MyIPTV", style = MaterialTheme.typography.displayLarge,
+                        color = Color.White, fontWeight = FontWeight.Bold)
+                    Text("Your channels. Your screen.", style = MaterialTheme.typography.titleMedium,
+                        color = Color.White.copy(alpha = 0.88f))
+                }
+            }
+            Column(
+                modifier = Modifier.weight(if (wide) 0.58f else 1f)
+                    .fillMaxHeight()
+                    .verticalScroll(rememberScrollState())
+                    .padding(if (wide) 24.dp else 16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Column(
+                    Modifier.widthIn(max = 640.dp)
+                        .background(Color.Black.copy(alpha = 0.14f), RoundedCornerShape(16.dp))
+                        .padding(20.dp),
+                ) {
             Text(
                 stringResource(
                     if (existing != null) R.string.settings_edit_provider_title
@@ -333,6 +369,8 @@ fun AddSourceScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+                }
+            }
         }
     }
 }
