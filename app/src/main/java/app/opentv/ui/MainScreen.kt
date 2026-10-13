@@ -312,7 +312,7 @@ private fun DashboardHome(
         ),
         verticalArrangement = Arrangement.spacedBy(if (compact) 16.dp else 26.dp),
     ) {
-        item(key = "welcome") {
+        if (compact) item(key = "welcome") {
             Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text(
                     if (compact) "Welcome back" else "Your entertainment, your way",
@@ -356,25 +356,55 @@ private fun DashboardHome(
                 }
             }
         } else {
-            item(key = "tv-tiles") {
+            // On televisions the large Live tile anchors the left, with Movies/Series
+            // above three quick actions on the right, matching familiar IPTV layouts.
+            item(key = "tv-showcase") {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(18.dp),
                 ) {
-                    if (liveEnabled) DashboardTile("LIVE TV", "Live channels & EPG", Icons.Filled.LiveTv,
-                        listOf(Color(0xFF0879C7), Color(0xFF553AC4)), 220.dp, Modifier.weight(1f), onLive)
-                    if (moviesEnabled) DashboardTile("MOVIES", "Films on demand", Icons.Filled.Movie,
-                        listOf(Color(0xFFEA355E), Color(0xFFFC8C2B)), 220.dp, Modifier.weight(1f), onMovies)
-                    if (seriesEnabled) DashboardTile("SERIES", "Watch every episode", Icons.Filled.Tv,
-                        listOf(Color(0xFF9A2FAE), Color(0xFF149ED6)), 220.dp, Modifier.weight(1f), onSeries)
-                }
-            }
-            item(key = "tv-quick") {
-                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    if (liveEnabled) ShortcutTile("LIVE WITH EPG", Icons.Filled.LiveTv, Modifier.weight(1f), onGuide)
-                    ShortcutTile("RECORDINGS", Icons.Filled.FiberManualRecord, Modifier.weight(1f), onRecordings)
-                    ShortcutTile("SEARCH", Icons.Filled.Search, Modifier.weight(1f), onSearch)
-                    ShortcutTile("SETTINGS", Icons.Filled.Settings, Modifier.weight(1f), onSettings)
+                    if (liveEnabled) DashboardTile(
+                        "LIVE TV", "Live channels & guide", Icons.Filled.LiveTv,
+                        listOf(Color(0xFF135F67), Color(0xFF29378C)),
+                        310.dp, Modifier.weight(1.05f), onLive,
+                    )
+                    Column(
+                        modifier = Modifier.weight(1.95f),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        ) {
+                            if (moviesEnabled) DashboardTile(
+                                "MOVIES", "Films on demand", Icons.Filled.Movie,
+                                listOf(Color(0xFF67252D), Color(0xFFAC682A)),
+                                210.dp, Modifier.weight(1f), onMovies,
+                            )
+                            if (seriesEnabled) DashboardTile(
+                                "SERIES", "Seasons & episodes", Icons.Filled.Tv,
+                                listOf(Color(0xFF572E73), Color(0xFF124F68)),
+                                210.dp, Modifier.weight(1f), onSeries,
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        ) {
+                            if (liveEnabled) ShortcutTile(
+                                "LIVE WITH EPG", Icons.Filled.LiveTv,
+                                Modifier.weight(1f), onGuide,
+                            )
+                            ShortcutTile(
+                                "RECORDINGS", Icons.Filled.FiberManualRecord,
+                                Modifier.weight(1f), onRecordings,
+                            )
+                            ShortcutTile(
+                                "SEARCH", Icons.Filled.Search,
+                                Modifier.weight(1f), onSearch,
+                            )
+                        }
+                    }
                 }
             }
         }
