@@ -41,6 +41,24 @@ class AppSettings private constructor(context: Context) {
         _landscapeHome.value = enabled
     }
 
+    // Account expiry is provider metadata, not a Room schema change. Keep it by source ID
+    // in private preferences and expose a revision Flow so Compose updates immediately.
+    private val _providerExpiryRevision = MutableStateFlow(0L)
+    val providerExpiryRevision: StateFlow<Long> = _providerExpiryRevision.asStateFlow()
+    fun providerExpiryFor(sourceId: Long): Long? =
+        prefs.getLong("expiry_for_$sourceId", 0L).takeIf { it > 0L }
+
+    fun expiryLastChecked(sourceId: Long): Long =
+        prefs.getLong("expiry_checked_$sourceId", 0L)
+
+    fun recordProviderExpiry(sourceId: Long, expiryMillis: Long?) {
+        prefs.edit()
+            .putLong("expiry_for_$sourceId", expiryMillis?.takeIf { it > 0L } ?: 0L)
+            .putLong("expiry_checked_$sourceId", System.currentTimeMillis())
+            .apply()
+        _providerExpiryRevision.value++
+    }
+
     private fun timestampFlow(key: String) = MutableStateFlow(prefs.getLong(key, 0L))
     private val _liveUpdated = timestampFlow("live_catalogue_updated")
     val liveUpdated: StateFlow<Long> = _liveUpdated.asStateFlow()
