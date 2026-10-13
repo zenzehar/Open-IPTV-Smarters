@@ -9,6 +9,9 @@ package app.opentv.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.activity.compose.LocalActivity
+import android.content.pm.ActivityInfo
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -110,6 +113,7 @@ fun MainScreen(
     onResume: (mediaKey: String, url: String, title: String) -> Unit,
     onAddSource: () -> Unit,
     onRefresh: () -> Unit,
+    onRefreshStage: (String) -> Unit,
     onOpenSearch: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenProfiles: () -> Unit,
@@ -123,10 +127,19 @@ fun MainScreen(
     val liveEnabled by settings.liveEnabled.collectAsState()
     val moviesEnabled by settings.moviesEnabled.collectAsState()
     val seriesEnabled by settings.seriesEnabled.collectAsState()
+    val landscapeHome by settings.landscapeHome.collectAsState()
+    val liveUpdated by settings.liveUpdated.collectAsState()
+    val moviesUpdated by settings.moviesUpdated.collectAsState()
+    val seriesUpdated by settings.seriesUpdated.collectAsState()
     val movieLoad by vodViewModel.movieStatus.collectAsState()
     val seriesLoad by vodViewModel.seriesStatus.collectAsState()
-    LaunchedEffect(hasSources, moviesEnabled, seriesEnabled) {
-        if (hasSources && (moviesEnabled || seriesEnabled)) vodViewModel.ensureVodLoaded()
+    // Do not launch simultaneous VOD downloads while manual refresh is running.
+    LaunchedEffect(hasSources, moviesEnabled, seriesEnabled, isSyncing) {
+        if (hasSources && !isSyncing && (moviesEnabled || seriesEnabled))
+            vodViewModel.ensureVodLoaded()
+    }
+    LaunchedEffect(isSyncing, refreshedStages, failedRefreshStages) {
+        if (!isSyncing) vodViewModel.reconcileManualRefresh(refreshedStages, failedRefreshStages)
     }
     val catalogueLoading = hasSources && (
         (moviesEnabled && movieLoad.phase in listOf(VodLoadPhase.PENDING, VodLoadPhase.LOADING)) ||
@@ -156,6 +169,16 @@ fun MainScreen(
         }
     }
     var tab by remember { mutableStateOf(DashboardTab.HOME) }
+    val activity = LocalActivity.current
+    DisposableEffect(activity, tab, isTelevision, landscapeHome) {
+        val before = activity?.requestedOrientation
+        if (activity != null && !isTelevision) {
+            activity.requestedOrientation = if (tab == DashboardTab.HOME && landscapeHome)
+                ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            else ActivityInfo.SCREEN_ORIENTATION_FULL_USER
+        }
+        onDispose { if (before != null) activity?.requestedOrientation = before }
+    }
     if (tab !in choices) tab = DashboardTab.HOME
     var showExit by remember { mutableStateOf(false) }
 
@@ -180,7 +203,10 @@ fun MainScreen(
     }
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFF080D1C))) {
-        val compact = !isTelevision || maxWidth < 700.dp
+        // Home deliberately uses the widescreen Smarters-style dashboard on phones.
+        // Other sections remain mobile-optimised even when the Home was landscape.
+        val compact = if (tab == DashboardTab.HOME) maxWidth < 700.dp
+            else !isTelevision || maxWidth < 700.dp
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             DashboardHeader(
                 title = if (tab == DashboardTab.HOME) "MyIPTV" else tab.text,
@@ -197,6 +223,10 @@ fun MainScreen(
                     DashboardTab.HOME -> DashboardHome(
                         compact = compact,
                         liveState = tileState("live"),
+                        liveLastUpdated = liveUpdated,
+                        moviesLastUpdated = moviesUpdated.takeIf { it > 0L } ?: settings.vodSyncedAtMillis,
+                        seriesLastUpdated = seriesUpdated.takeIf { it > 0L } ?: settings.vodSyncedAtMillis,
+                        onRefreshStage = onRefreshStage,
                         movieState = tileState("movies"),
                         seriesState = tileState("series"),
                         liveEnabled = liveEnabled,
@@ -252,7 +282,7 @@ fun MainScreen(
                 }
             }
             StatusBar()
-            if (compact) {
+            if (compact && tab != DashboardTab.HOME) {
                 MobileBottomNav(
                     tabs = choices.filter { it != DashboardTab.RECORDINGS },
                     selected = tab,
@@ -282,10 +312,10 @@ fun MainScreen(
         // Dim the dashboard and intercept input until all enabled catalogue
         // sections have finished. A failed fetch shows Retry instead of a fake
         // empty library, and does not trap the user behind an endless spinner.
-        if (blockNavigation) {
+        if (blockNavigation && tab != DashboardTab.HOME) {
             Box(
                 Modifier.fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.62f))
+                    .background(Color.Black.copy(alpha = 0.48f))
                     .clickable { },
                 contentAlignment = Alignment.Center,
             ) {
@@ -310,18 +340,6 @@ fun MainScreen(
                         color = Color(0xFFD0D8E7),
                         style = MaterialTheme.typography.bodyMedium,
                     )
-                }
-            }
-        } else if (tab == DashboardTab.HOME &&
-            (movieLoad.phase == VodLoadPhase.FAILED || seriesLoad.phase == VodLoadPhase.FAILED)
-        ) {
-            Column(Modifier.align(Alignment.BottomCenter).padding(bottom = 100.dp)
-                .background(Color(0xFF2A2030), RoundedCornerShape(12.dp))
-                .padding(12.dp),
-                horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Some catalogues could not load", color = Color.White)
-                androidx.compose.material3.TextButton(onClick = vodViewModel::refreshVod) {
-                    Text("Retry loading", color = Color(0xFF9DE7EF))
                 }
             }
         }
@@ -391,6 +409,10 @@ private fun HeaderAction(icon: ImageVector, label: String, onClick: () -> Unit) 
 private fun DashboardHome(
     compact: Boolean,
     liveState: String,
+    liveLastUpdated: Long,
+    moviesLastUpdated: Long,
+    seriesLastUpdated: Long,
+    onRefreshStage: (String) -> Unit,
     movieState: String,
     seriesState: String,
     liveEnabled: Boolean,
