@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.4 — catalogue failure diagnostics
+
+- Home refresh now reports safe per-category failure reasons. Tap the Failed footer for details and Retry; no IPTV account credentials are shown.
+- Serialize Live, Movies and Series provider requests across manual, automatic and periodic catalogue refreshes to reduce provider rate limiting and request collisions.
+- Constrain oversized header profile names so Search, Profiles and Settings remain visible on small landscape screens.
+- Keep existing saved catalogue rows, favourites, playback history and credentials on failed network refreshes.
+- Signing compatibility still depends on one permanent certificate; this development APK must be verified on a device before merging.
+
 ## 0.11.8
 
 - **Edit a saved provider.** Settings → Providers now has an **Edit** button on each provider, so you
