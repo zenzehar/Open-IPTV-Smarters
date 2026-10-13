@@ -90,6 +90,7 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
         val refreshStage: String? = null,
         val completedStages: Set<String> = emptySet(),
         val failedStages: Set<String> = emptySet(),
+        val failureMessages: Map<String, String> = emptyMap(),
     )
 
     private val _ui = MutableStateFlow(UiState())
@@ -199,15 +200,19 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
         if (_ui.value.syncing) return
         _ui.value = _ui.value.copy(syncing = true,
             refreshStage = onlyStage ?: "live", syncMessage = "Preparing catalogue update…",
-            completedStages = emptySet(), failedStages = emptySet())
+            completedStages = emptySet(), failedStages = emptySet(),
+            failureMessages = emptyMap())
         viewModelScope.launch {
             val failed = mutableSetOf<String>()
+            val errors = mutableMapOf<String, String>()
             val completed = mutableSetOf<String>()
             val now = System.currentTimeMillis()
             try {
                 val enabled = graph.sourceRepository.enabled()
                 if (enabled.isEmpty()) {
-                    failed += onlyStage ?: "live"
+                    val stage = onlyStage ?: "live"
+                    failed += stage
+                    errors[stage] = "No enabled IPTV source. Check Providers in Settings."
                     return@launch
                 }
                 val stages = listOf(
@@ -227,15 +232,19 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
                         )
                         when (stage) {
                             "live" -> {
-                                if (graph.catalogRepository.syncLive(source, now)
-                                    is CatalogRepository.SyncResult.Failed) failed += stage
+                                val result = graph.catalogRepository.syncLive(source, now)
+                                if (result is CatalogRepository.SyncResult.Failed) {
+                                    failed += stage
+                                    errors.putIfAbsent(stage, safeRefreshFailure(result.reason))
+                                }
                             }
                             "movies" -> {
                                 val result = graph.catalogRepository.syncVod(source, now,
                                     includeMovies = true, includeSeries = false)
                                 if (result.movieError != null) {
                                     failed += stage
-                                    Log.w("OpenTV", "Movie refresh: ${result.movieError}")
+                                    errors.putIfAbsent(stage, safeRefreshFailure(result.movieError))
+                                    Log.w("OpenTV", "Movie refresh failed for source ${source.id}")
                                 }
                             }
                             "series" -> {
@@ -243,7 +252,8 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
                                     includeMovies = false, includeSeries = true)
                                 if (result.seriesError != null) {
                                     failed += stage
-                                    Log.w("OpenTV", "Series refresh: ${result.seriesError}")
+                                    errors.putIfAbsent(stage, safeRefreshFailure(result.seriesError))
+                                    Log.w("OpenTV", "Series refresh failed for source ${source.id}")
                                 }
                             }
                         }
@@ -256,6 +266,7 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
                     }
                     _ui.value = _ui.value.copy(
                         completedStages = completed.toSet(), failedStages = failed.toSet(),
+                        failureMessages = errors.toMap(),
                     )
                 }
                 // Guide loading runs separately; do not delay the three on-tile refresh outcomes.
@@ -268,11 +279,15 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
                 throw e
             } catch (e: Exception) {
                 Log.w("OpenTV", "Staged refresh failed", e)
-                _ui.value.refreshStage?.let { failed += it }
+                _ui.value.refreshStage?.let { stage ->
+                    failed += stage
+                    errors[stage] = safeRefreshFailure(e.message)
+                }
             } finally {
                 _ui.value = _ui.value.copy(
                     syncing = false, refreshStage = null,
                     failedStages = failed.toSet(), completedStages = completed.toSet(),
+                    failureMessages = errors.toMap(),
                     syncMessage = if (failed.isEmpty()) "Update completed"
                         else "Update failed for: ${failed.joinToString()}. Tap the retry icon.",
                 )
