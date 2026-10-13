@@ -132,11 +132,15 @@ fun VodPlayerScreen(
     val graph = remember { ServiceLocator.get(context) }
     val settings = remember { graph.settings }
     var leavingPlayer by remember { mutableStateOf(false) }
-    fun requestPlayerExit() { leavingPlayer = true }
+    fun requestPlayerExit() {
+        if (!leavingPlayer) {
+            leavingPlayer = true
+        }
+    }
     LaunchedEffect(leavingPlayer) {
         if (leavingPlayer) {
             // Detach the native video surface before route disposal destroys the codec.
-            delay(180L)
+            delay(48L)
             onBack()
         }
     }
@@ -267,11 +271,20 @@ fun VodPlayerScreen(
     }
 
     var controlsVisible by remember { mutableStateOf(true) }
+    var rootHasFocus by remember { mutableStateOf(false) }
     var interaction by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     val barFocus = remember { FocusRequester() }
     val rootFocus = remember { FocusRequester() }
 
     fun reveal() { controlsVisible = true; interaction++ }
+    // Root owns arrows only while the controls are hidden or the background has focus.
+    // Once a chip has focus, native D-pad traversal reaches the actual buttons.
+    fun revealAndSeek(key: Key): Boolean = when (key) {
+        Key.DirectionLeft -> { reveal(); seekRelative(-10_000L); true }
+        Key.DirectionRight -> { reveal(); seekRelative(10_000L); true }
+        Key.DirectionUp, Key.DirectionDown -> { reveal(); true }
+        else -> false
+    }
 
     suspend fun savePosition() {
         if (media3Ended) return
@@ -320,8 +333,14 @@ fun VodPlayerScreen(
                     graph.playbackPositions.upsert(snapshot)
                 }
             }
-            controller.release()
+            // Decoder release must happen on its creating (main) looper. Do not block
+            // Compose navigation teardown while Android reattaches the detail screen.
+            // Keep the old controller isolated until the delayed release completes.
             scope.cancel()
+            val oldController = controller
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                runCatching { oldController.release() }
+            }, 160L)
         }
     }
 
@@ -351,7 +370,7 @@ fun VodPlayerScreen(
         val wait = d - System.currentTimeMillis()
         if (wait > 0) delay(wait)
         SleepTimer.clear()
-        onBack()
+        requestPlayerExit()
     }
 
     // Poll position/duration for the seek bar while the film plays.
@@ -383,21 +402,19 @@ fun VodPlayerScreen(
 
     LaunchedEffect(controlsVisible, vodPanel) {
         if (controlsVisible) {
-            delay(40)
-            runCatching { if (vodPanel != VodPanel.NONE) panelFocus.requestFocus() else barFocus.requestFocus() }
+            delay(110L)
+            runCatching {
+                if (vodPanel != VodPanel.NONE) panelFocus.requestFocus()
+                else barFocus.requestFocus()
+            }
         } else {
             runCatching { rootFocus.requestFocus() }
         }
     }
 
-    BackHandler(enabled = !useVlc) {
-        val activelyPlaying = state is PlayerController.State.Playing ||
-            (growingRec && state is PlayerController.State.Buffering)
-        when {
-            vodPanel != VodPanel.NONE -> vodPanel = VodPanel.NONE
-            controlsVisible && activelyPlaying && !paused -> controlsVisible = false
-            else -> requestPlayerExit()
-        }
+    BackHandler(enabled = !useVlc && !leavingPlayer) {
+        if (vodPanel != VodPanel.NONE) vodPanel = VodPanel.NONE
+        else requestPlayerExit()
     }
 
     Box(
@@ -406,13 +423,15 @@ fun VodPlayerScreen(
             .background(Color.Black)
             .onPreviewKeyEvent { event ->
                 when {
+                    event.type != KeyEventType.KeyDown -> false
                     event.key == Key.Back || event.key == Key.Escape -> false
-                    event.type == KeyEventType.KeyDown && !controlsVisible -> { reveal(); true }
-                    event.type == KeyEventType.KeyDown -> { interaction++; false }
-                    else -> false
+                    !useVlc && (!controlsVisible || rootHasFocus) &&
+                        revealAndSeek(event.key) -> true
+                    else -> { interaction++; false }
                 }
             }
             .focusRequester(rootFocus)
+            .onFocusChanged { rootHasFocus = it.isFocused }
             .focusable()
             .pointerInput(Unit) {
                 detectTapGestures { if (controlsVisible) controlsVisible = false else reveal() }
@@ -451,7 +470,7 @@ fun VodPlayerScreen(
         )
 
         AnimatedVisibility(
-            visible = controlsVisible,
+            visible = controlsVisible || paused,
             enter = fadeIn(), exit = fadeOut(),
             modifier = Modifier.align(Alignment.TopStart),
         ) {
