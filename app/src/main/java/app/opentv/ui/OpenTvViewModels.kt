@@ -1029,11 +1029,11 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
     fun selectMovieCategory(id: String?) { movieCategory.value = id }
 
     /** Stream one capped page at a time, instead of loading an entire huge category in Room. */
-    fun movieCategoryPage(categoryId: String?, sourceId: Long?, filter: String, limit: Int) =
-        graph.catalogRepository.observeMoviesPage(categoryId, sourceId, filter, limit)
+    fun movieCategoryPage(categoryId: String?, sourceId: Long?, filter: String, limit: Int, offset: Int) =
+        graph.catalogRepository.observeMoviesPage(categoryId, sourceId, filter, limit, offset)
 
-    fun seriesCategoryPage(categoryId: String?, sourceId: Long?, filter: String, limit: Int) =
-        graph.catalogRepository.observeSeriesPage(categoryId, sourceId, filter, limit)
+    fun seriesCategoryPage(categoryId: String?, sourceId: Long?, filter: String, limit: Int, offset: Int) =
+        graph.catalogRepository.observeSeriesPage(categoryId, sourceId, filter, limit, offset)
 
     fun selectSeriesCategory(id: String?) { seriesCategory.value = id }
 

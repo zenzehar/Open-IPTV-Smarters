@@ -464,9 +464,9 @@ interface MovieDao {
           AND (:sourceId IS NULL OR sourceId = :sourceId)
           AND (:filter = '' OR name LIKE '%' || :filter || '%')
         ORDER BY addedMillis DESC, id DESC
-        LIMIT :limit
+        LIMIT :limit OFFSET :offset
     """)
-    fun observePage(categoryId: String?, sourceId: Long?, filter: String, limit: Int): Flow<List<Movie>>
+    fun observePage(categoryId: String?, sourceId: Long?, filter: String, limit: Int, offset: Int): Flow<List<Movie>>
 
     @Query("SELECT * FROM movies WHERE favourite = 1 ORDER BY name")
     fun observeFavourites(): Flow<List<Movie>>
@@ -577,9 +577,9 @@ interface SeriesDao {
         AND (:sourceId IS NULL OR sourceId = :sourceId)
         AND (:filter = '' OR name LIKE '%' || :filter || '%')
         ORDER BY addedMillis DESC, id DESC
-        LIMIT :limit
+        LIMIT :limit OFFSET :offset
     """)
-    fun observePage(categoryId: String?, sourceId: Long?, filter: String, limit: Int): Flow<List<Series>>
+    fun observePage(categoryId: String?, sourceId: Long?, filter: String, limit: Int, offset: Int): Flow<List<Series>>
 
     @Query("SELECT * FROM series WHERE name LIKE '%' || :query || '%' ORDER BY name LIMIT :limit")
     fun search(query: String, limit: Int = 200): Flow<List<Series>>

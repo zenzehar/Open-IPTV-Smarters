@@ -60,6 +60,7 @@ import androidx.compose.ui.focus.focusRequester
 import app.opentv.ui.explicitImeActivation
 import androidx.compose.runtime.produceState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
@@ -643,18 +644,37 @@ private fun PagedMovieCategoryGrid(
     viewModel: VodViewModel,
     onOpenMovie: (Movie) -> Unit,
 ) {
-    var limit by remember(categoryId, sourceId, filter) { androidx.compose.runtime.mutableIntStateOf(160) }
-    val pagedFlow = remember(categoryId, sourceId, filter, limit) {
-        viewModel.movieCategoryPage(categoryId, sourceId, filter.trim(), limit + 1)
+    // Fetch 160 rows per query. The former growing LIMIT silently stopped at 2,000.
+    val pageSize = 160
+    var pageIndex by remember(categoryId, sourceId, filter) {
+        androidx.compose.runtime.mutableIntStateOf(0)
     }
-    val page by pagedFlow.collectAsState(initial = emptyList())
-    val hasMore = page.size > limit
+    var loaded by remember(categoryId, sourceId, filter) { mutableStateOf(emptyList<Movie>()) }
+    var hasMore by remember(categoryId, sourceId, filter) { mutableStateOf(false) }
+    var loading by remember(categoryId, sourceId, filter) { mutableStateOf(true) }
+    val offset = pageIndex * pageSize
+    val pageFlow = remember(categoryId, sourceId, filter, offset) {
+        viewModel.movieCategoryPage(categoryId, sourceId, filter.trim(), pageSize + 1, offset)
+    }
+    LaunchedEffect(pageFlow) {
+        loading = true
+        pageFlow.collect { slice ->
+            // Retain previous cards and remove duplicates if catalogue updates move page boundaries.
+            loaded = ((if (offset == 0) emptyList() else loaded.take(offset)) +
+                slice.take(pageSize)).distinctBy { it.id }
+            hasMore = slice.size > pageSize
+            loading = false
+        }
+    }
     MovieCategoryGrid(
-        movies = page.take(limit),
-        viewModel = viewModel,
-        onOpenMovie = onOpenMovie,
-        hasMore = hasMore,
-        onLoadMore = { limit = (limit + 160).coerceAtMost(2_000) },
+        movies = loaded, viewModel = viewModel, onOpenMovie = onOpenMovie,
+        hasMore = hasMore, loadingMore = loading,
+        onLoadMore = {
+            if (hasMore && !loading) {
+                loading = true
+                pageIndex++
+            }
+        },
     )
 }
 
@@ -665,8 +685,15 @@ private fun MovieCategoryGrid(
     viewModel: VodViewModel,
     onOpenMovie: (Movie) -> Unit,
     hasMore: Boolean = false,
+    loadingMore: Boolean = false,
     onLoadMore: () -> Unit = {},
 ) {
+    if (movies.isEmpty() && loadingMore) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+        return
+    }
     if (movies.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("No matching movies in this category", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -715,8 +742,10 @@ private fun MovieCategoryGrid(
         }
         if (hasMore) {
             item(key = "load-more") {
-                androidx.compose.material3.OutlinedButton(onClick = onLoadMore) {
-                    Text("Load 160 more")
+                androidx.compose.material3.OutlinedButton(
+                    onClick = onLoadMore, enabled = !loadingMore,
+                ) {
+                    Text(if (loadingMore) "Loading…" else "Load 160 more")
                 }
             }
         }
@@ -732,13 +761,31 @@ private fun PagedSeriesCategoryGrid(
     onOpenSeries: (Series) -> Unit,
     viewModel: VodViewModel,
 ) {
-    var limit by remember(categoryId, sourceId, filter) { androidx.compose.runtime.mutableIntStateOf(160) }
-    val pageFlow = remember(categoryId, sourceId, filter, limit) {
-        viewModel.seriesCategoryPage(categoryId, sourceId, filter.trim(), limit + 1)
+    val pageSize = 160
+    var pageIndex by remember(categoryId, sourceId, filter) {
+        androidx.compose.runtime.mutableIntStateOf(0)
     }
-    val page by pageFlow.collectAsState(initial = emptyList())
-    SeriesCategoryGrid(page.take(limit), onOpenSeries, page.size > limit) {
-        limit = (limit + 160).coerceAtMost(2_000)
+    var loaded by remember(categoryId, sourceId, filter) { mutableStateOf(emptyList<Series>()) }
+    var hasMore by remember(categoryId, sourceId, filter) { mutableStateOf(false) }
+    var loading by remember(categoryId, sourceId, filter) { mutableStateOf(true) }
+    val offset = pageIndex * pageSize
+    val pageFlow = remember(categoryId, sourceId, filter, offset) {
+        viewModel.seriesCategoryPage(categoryId, sourceId, filter.trim(), pageSize + 1, offset)
+    }
+    LaunchedEffect(pageFlow) {
+        loading = true
+        pageFlow.collect { slice ->
+            loaded = ((if (offset == 0) emptyList() else loaded.take(offset)) +
+                slice.take(pageSize)).distinctBy { it.id }
+            hasMore = slice.size > pageSize
+            loading = false
+        }
+    }
+    SeriesCategoryGrid(loaded, onOpenSeries, hasMore, loading) {
+        if (hasMore && !loading) {
+            loading = true
+            pageIndex++
+        }
     }
 }
 
@@ -746,12 +793,14 @@ private fun PagedSeriesCategoryGrid(
 @Composable
 private fun SeriesCategoryGrid(
     series: List<Series>, onOpenSeries: (Series) -> Unit,
-    hasMore: Boolean = false, onLoadMore: () -> Unit = {},
+    hasMore: Boolean = false, loadingMore: Boolean = false,
+    onLoadMore: () -> Unit = {},
 ) {
     val posterSize by AppSettings.get(LocalContext.current).posterSize.collectAsState()
     if (series.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("No matching series in this category", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (loadingMore) CircularProgressIndicator()
+            else Text("No matching series in this category", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         return
     }
@@ -773,8 +822,10 @@ private fun SeriesCategoryGrid(
         }
         if (hasMore) {
             item(key = "load-more-series") {
-                androidx.compose.material3.OutlinedButton(onClick = onLoadMore) {
-                    Text("Load 160 more")
+                androidx.compose.material3.OutlinedButton(
+                    onClick = onLoadMore, enabled = !loadingMore,
+                ) {
+                    Text(if (loadingMore) "Loading…" else "Load 160 more")
                 }
             }
         }

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.12.15 — Large-catalogue paging beyond 2,000 titles
+
+- Movie and Series category searches and browse grids now use incremental 160-row SQLite LIMIT/OFFSET slices instead of an expanding 2,001-row limit, removing the prior ceiling and the no-op Load More button.
+- Previously loaded posters remain visible while the next 160 are fetched. The Load More button is disabled during loading and hidden at the end of the query results. Category, provider and search changes reset pagination.
+- No changes to app IDs, signing setup, credentials, Room schema or watch history. Real-device QA remains necessary for very large categories and playback.
+
+
 ## 0.12.14 — Continue Watching, season focus, accelerated seek, refreshed icon and automatic NAS sync
 
 - First Back while VOD player controls are showing hides the controls and keeps playback running; the next Back returns to the detail screen. An open Media3 track chooser still dismisses before hiding playback controls.
