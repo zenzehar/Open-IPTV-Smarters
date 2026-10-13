@@ -60,6 +60,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -111,6 +120,15 @@ fun VlcVodFallback(
     var showStartupSpinner by remember(mediaKey, streamUrl) { mutableStateOf(false) }
     var errorText by remember { mutableStateOf<String?>(null) }
     var controlsVisible by remember { mutableStateOf(true) }
+    var backgroundFocused by remember { mutableStateOf(false) }
+    val videoFocus = remember { FocusRequester() }
+    val playButtonFocus = remember { FocusRequester() }
+    LaunchedEffect(controlsVisible) {
+        delay(100L)
+        runCatching {
+            if (controlsVisible) playButtonFocus.requestFocus() else videoFocus.requestFocus()
+        }
+    }
     var movingSlider by remember { mutableStateOf(false) }
     val controlsTimeoutSeconds by graph.settings.controlsTimeoutSeconds.collectAsState()
     var controlsInteraction by remember { androidx.compose.runtime.mutableIntStateOf(0) }
@@ -172,6 +190,12 @@ fun VlcVodFallback(
     }
 
     BackHandler { onBack() }
+
+    fun seekBy(delta: Long) {
+        val now = runCatching { player.time }.getOrDefault(0L)
+        val ceiling = durationMs.takeIf { it > 0L } ?: Long.MAX_VALUE
+        runCatching { player.setTime((now + delta).coerceIn(0L, ceiling)) }
+    }
 
     LaunchedEffect(mediaKey, streamUrl) {
         delay(700L)
@@ -302,15 +326,40 @@ fun VlcVodFallback(
                     ))
                 }
             }
-            runCatching { player.stop() }
+            // Detach the native video output before freeing native VLC resources.
+            // Stop/release may block on decoder threads, so perform that native cleanup
+            // off the main Compose navigation path.
             runCatching { player.detachViews() }
             attachedLayout = null
-            runCatching { player.release() }
-            runCatching { libVlc.release() }
+            CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+                runCatching { player.stop() }
+                runCatching { player.release() }
+                runCatching { libVlc.release() }
+            }
         }
     }
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    Box(
+        Modifier.fillMaxSize().background(Color.Black)
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown || event.key == Key.Back) {
+                    false
+                } else if (!controlsVisible || backgroundFocused) {
+                    when (event.key) {
+                        Key.DirectionLeft -> { controlsVisible = true; controlsInteraction++; seekBy(-10_000L); true }
+                        Key.DirectionRight -> { controlsVisible = true; controlsInteraction++; seekBy(10_000L); true }
+                        Key.DirectionUp, Key.DirectionDown -> { controlsVisible = true; controlsInteraction++; true }
+                        else -> false
+                    }
+                } else {
+                    controlsInteraction++
+                    false
+                }
+            }
+            .focusRequester(videoFocus)
+            .onFocusChanged { backgroundFocused = it.isFocused }
+            .focusable()
+    ) {
         AndroidView(
             modifier = Modifier.fillMaxSize().clickable {
                 controlsVisible = !controlsVisible
@@ -343,7 +392,7 @@ fun VlcVodFallback(
                 Button(onClick = ::openExternal) { Text("Open in another player", maxLines = 1) }
             }
         }
-        if (controlsVisible) {
+        if (controlsVisible || !playing) {
             IconButton(
                 onClick = onBack,
                 modifier = Modifier.align(Alignment.TopStart)
@@ -391,7 +440,10 @@ fun VlcVodFallback(
                     }) {
                         Icon(Icons.Filled.FastRewind, contentDescription = "Back 10 seconds", tint = Color.White)
                     }
-                    IconButton(onClick = { if (playing) player.pause() else player.play() }) {
+                    IconButton(
+                        onClick = { if (playing) player.pause() else player.play(); controlsInteraction++ },
+                        modifier = Modifier.focusRequester(playButtonFocus),
+                    ) {
                         Icon(if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                             contentDescription = if (playing) "Pause" else "Play", tint = Color.White)
                     }
