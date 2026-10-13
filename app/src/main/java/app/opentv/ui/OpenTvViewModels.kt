@@ -163,7 +163,7 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
             _ui.value = _ui.value.copy(syncing = true, testResult = null,
                 testError = null, syncError = null, syncMessage = "Checking connection…",
                 failedStages = emptySet(), completedStages = emptySet(),
-                failureMessages = emptyMap(), refreshStage = null)
+                failureMessages = emptyMap(), refreshStage = "live", stageProgress = 0f)
             try {
                 val verification = graph.sourceRepository.testDetailed(draft)
                 if (verification.isFailure) {
@@ -186,7 +186,9 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
 
                 _ui.value = _ui.value.copy(syncMessage = "Loading Live TV channels…")
                 val now = System.currentTimeMillis()
-                when (val result = graph.catalogRepository.syncLive(saved, now)) {
+                when (val result = graph.catalogRepository.syncLive(saved, now) { fraction ->
+                    _ui.value = _ui.value.copy(refreshStage = "live", stageProgress = fraction)
+                }) {
                     is CatalogRepository.SyncResult.Failed -> {
                         // An unsuccessful import must not create a phantom login or
                         // replace a previously working provider configuration.
@@ -205,6 +207,7 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
                     is CatalogRepository.SyncResult.Success -> {
                         settings.recordProviderExpiry(id, verification.getOrNull()?.expiryMillis)
                         _ui.value = _ui.value.copy(syncing = false, syncError = null,
+                            refreshStage = null, completedStages = setOf("live"), stageProgress = 1f,
                             syncMessage = "Loaded ${result.channelCount} channels. " +
                                 "Guide and on-demand sections can update in the background.")
                         onDone(true)
@@ -295,9 +298,15 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
                             stageProgress = index.toFloat() / enabled.size,
                             syncMessage = "Updating $stage · provider ${index + 1}/${enabled.size}",
                         )
+                        val progressUpdate: (Float) -> Unit = { fraction ->
+                            _ui.value = _ui.value.copy(
+                                stageProgress = ((index + fraction.coerceIn(0f, 1f)) /
+                                    enabled.size).coerceIn(0f, 1f)
+                            )
+                        }
                         when (stage) {
                             "live" -> {
-                                val result = graph.catalogRepository.syncLive(source, now)
+                                val result = graph.catalogRepository.syncLive(source, now, progressUpdate)
                                 if (result is CatalogRepository.SyncResult.Failed) {
                                     failed += stage
                                     errors.putIfAbsent(stage, safeRefreshFailure(result.reason))
@@ -305,7 +314,8 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
                             }
                             "movies" -> {
                                 val result = graph.catalogRepository.syncVod(source, now,
-                                    includeMovies = true, includeSeries = false)
+                                    includeMovies = true, includeSeries = false,
+                                    onProgress = progressUpdate)
                                 if (result.movieError != null) {
                                     failed += stage
                                     errors.putIfAbsent(stage, safeRefreshFailure(result.movieError))
@@ -314,7 +324,8 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
                             }
                             "series" -> {
                                 val result = graph.catalogRepository.syncVod(source, now,
-                                    includeMovies = false, includeSeries = true)
+                                    includeMovies = false, includeSeries = true,
+                                    onProgress = progressUpdate)
                                 if (result.seriesError != null) {
                                     failed += stage
                                     errors.putIfAbsent(stage, safeRefreshFailure(result.seriesError))
@@ -865,6 +876,7 @@ data class VodSectionStatus(
     val phase: VodLoadPhase = VodLoadPhase.PENDING,
     val message: String = "",
     val count: Int = 0,
+    val progress: Float? = null,
 )
 
 class VodViewModel(app: Application) : AndroidViewModel(app) {
@@ -1216,9 +1228,14 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
                 StatusBus.during("Updating movies…") {
                     enabled.forEachIndexed { index, source ->
                         _movieStatus.value = VodSectionStatus(VodLoadPhase.LOADING,
-                            "Movies · provider ${index + 1}/${enabled.size}")
+                            "Movies · provider ${index + 1}/${enabled.size}",
+                            progress = index.toFloat() / enabled.size)
                         val result = graph.catalogRepository.syncVod(source, now,
-                            includeMovies = true, includeSeries = false)
+                            includeMovies = true, includeSeries = false,
+                            onProgress = { fraction ->
+                                _movieStatus.value = _movieStatus.value.copy(
+                                    progress = (index + fraction.coerceIn(0f, 1f)) / enabled.size)
+                            })
                         movieFailure = movieFailure || result.movieError != null
                         movieError = movieError ?: result.movieError
                     }
@@ -1232,9 +1249,14 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
                 StatusBus.during("Updating series…") {
                     enabled.forEachIndexed { index, source ->
                         _seriesStatus.value = VodSectionStatus(VodLoadPhase.LOADING,
-                            "Series · provider ${index + 1}/${enabled.size}")
+                            "Series · provider ${index + 1}/${enabled.size}",
+                            progress = index.toFloat() / enabled.size)
                         val result = graph.catalogRepository.syncVod(source, now,
-                            includeMovies = false, includeSeries = true)
+                            includeMovies = false, includeSeries = true,
+                            onProgress = { fraction ->
+                                _seriesStatus.value = _seriesStatus.value.copy(
+                                    progress = (index + fraction.coerceIn(0f, 1f)) / enabled.size)
+                            })
                         seriesFailure = seriesFailure || result.seriesError != null
                         seriesError = seriesError ?: result.seriesError
                     }
