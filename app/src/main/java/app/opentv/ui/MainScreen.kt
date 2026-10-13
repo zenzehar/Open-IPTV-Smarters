@@ -439,7 +439,12 @@ private fun DashboardHeader(
         if (!isHome) {
             HeaderAction(Icons.Filled.ArrowBack, "Dashboard", onHome)
         } else {
-            Icon(Icons.Filled.Tv, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(27.dp))
+            Icon(
+                painter = androidx.compose.ui.res.painterResource(R.drawable.ic_launcher_foreground),
+                contentDescription = "Koky TV",
+                tint = Color.Unspecified,
+                modifier = Modifier.size(if (compact) 34.dp else 42.dp),
+            )
         }
         if (categoryTitleFilter != null) {
             OutlinedTextField(
