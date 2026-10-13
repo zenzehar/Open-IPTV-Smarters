@@ -655,11 +655,16 @@ class CatalogRepository(
         val seriesError: String? = null,
     )
 
-    suspend fun syncVod(source: Source, nowUtcMillis: Long): VodSyncResult =
+    suspend fun syncVod(
+        source: Source,
+        nowUtcMillis: Long,
+        includeMovies: Boolean = true,
+        includeSeries: Boolean = true,
+    ): VodSyncResult =
         withContext(Dispatchers.IO) {
             if (source.kind != SourceKind.XTREAM) return@withContext VodSyncResult()
             try {
-                syncXtreamVod(source, nowUtcMillis)
+                syncXtreamVod(source, nowUtcMillis, includeMovies, includeSeries)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -723,9 +728,14 @@ class CatalogRepository(
         return runCatching { stalkerApi.createLink(source, cmd) }.getOrNull() ?: channel.streamUrl
     }
 
-    private suspend fun syncXtreamVod(source: Source, nowUtcMillis: Long): VodSyncResult {
-        val moviesOn = settings.moviesEnabled.value
-        val seriesOn = settings.seriesEnabled.value
+    private suspend fun syncXtreamVod(
+        source: Source,
+        nowUtcMillis: Long,
+        includeMovies: Boolean = true,
+        includeSeries: Boolean = true,
+    ): VodSyncResult {
+        val moviesOn = settings.moviesEnabled.value && includeMovies
+        val seriesOn = settings.seriesEnabled.value && includeSeries
         if (!moviesOn && !seriesOn) return VodSyncResult()
 
         suspend fun <T> fetch(block: suspend () -> T): Result<T> = try {
