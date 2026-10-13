@@ -8,6 +8,7 @@ package app.opentv
 import app.opentv.data.model.Episode
 import app.opentv.ui.vod.findNextEpisode
 import app.opentv.ui.vod.canAutoplayAfterCompletion
+import app.opentv.ui.vod.mostRecentPerTitle
 import com.google.common.truth.Truth.assertThat
 import org.junit.Test
 
@@ -51,6 +52,37 @@ class EpisodeQueueTest {
     @Test fun disablingAutoplayOrEndingSeriesBlocksAutomaticNext() {
         assertThat(canAutoplayAfterCompletion(true, true, false, episode(20, 1, 2))).isFalse()
         assertThat(canAutoplayAfterCompletion(true, true, true, null)).isFalse()
+    }
+
+    private data class HistoryCard(val group: String, val mediaKey: String, val updatedAt: Long)
+
+    @Test fun oneSeriesCardAlwaysPointsToLatestStoppedEpisode() {
+        val history = listOf(
+            HistoryCard("series:4:show-a", "ep:1", 100L),
+            HistoryCard("series:4:show-b", "ep:3", 130L),
+            HistoryCard("series:4:show-a", "ep:2", 200L),
+        )
+        val latest = mostRecentPerTitle(history, { it.updatedAt }, { it.group })
+        assertThat(latest.map { it.mediaKey }).containsExactly("ep:2", "ep:3").inOrder()
+    }
+
+    @Test fun similarlyNamedSeriesFromDifferentProvidersRemainSeparate() {
+        val history = listOf(
+            HistoryCard("series:4:show-a", "ep:1", 100L),
+            HistoryCard("series:5:show-a", "ep:2", 200L),
+        )
+        val latest = mostRecentPerTitle(history, { it.updatedAt }, { it.group })
+        assertThat(latest).hasSize(2)
+    }
+
+    @Test fun duplicateMovieQualitiesKeepMostRecentlyWatchedOne() {
+        val history = listOf(
+            HistoryCard("movie:arrival:2016", "movie:old", 100L),
+            HistoryCard("movie:arrival:2016", "movie:new", 210L),
+            HistoryCard("movie:arrival:2023", "movie:other", 190L),
+        )
+        val latest = mostRecentPerTitle(history, { it.updatedAt }, { it.group })
+        assertThat(latest.map { it.mediaKey }).containsExactly("movie:new", "movie:other").inOrder()
     }
 
 }
