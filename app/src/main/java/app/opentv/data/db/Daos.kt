@@ -520,6 +520,9 @@ interface MovieDao {
 
 @Dao
 interface SeriesDao {
+    @Query("SELECT * FROM series WHERE sourceId = :sourceId AND seriesId = :seriesId LIMIT 1")
+    suspend fun byProviderKey(sourceId: Long, seriesId: String): Series?
+
     @Query(
         """
         SELECT * FROM series
