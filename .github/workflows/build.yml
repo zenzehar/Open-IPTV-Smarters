@@ -53,8 +53,8 @@ jobs:
       - name: Unit tests
         run: ./gradlew test --stacktrace
 
-      - name: Assemble debug APK
-        run: ./gradlew assembleDebug --stacktrace
+      - name: Assemble debug and side-by-side QA APKs
+        run: ./gradlew assembleDebug assembleQa --stacktrace
 
       # Publish the actual APK signer fingerprint for comparison across subsequent builds.
       # A SHA-256 certificate digest is public information; the private key remains secret.
@@ -70,6 +70,7 @@ jobs:
           name: opentv-debug-apk
           path: |
             app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/qa/*.apk
             signing-fingerprint.txt
           if-no-files-found: error
 
