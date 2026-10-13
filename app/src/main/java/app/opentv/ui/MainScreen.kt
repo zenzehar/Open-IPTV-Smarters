@@ -541,7 +541,12 @@ private fun DashboardTile(
     Column(
         modifier
             .height(height)
-            .alpha(if (status == "WAITING") 0.42f else if (status == "UPDATED") 0.78f else 1f)
+            .alpha(when (status) {
+                "WAITING" -> 0.42f
+                "FAILED" -> 0.58f
+                "UPDATED" -> 0.78f
+                else -> 1f
+            })
             .clip(RoundedCornerShape(17.dp))
             .background(Brush.linearGradient(gradient))
             .onFocusChanged { focused = it.isFocused }
