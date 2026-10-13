@@ -713,22 +713,40 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
         val posterUrl: String?,
         val streamUrl: String,
         val progress: Float,
+        val historyGroupKey: String = mediaKey,
+        val episodeLabel: String? = null,
+        val updatedAtMillis: Long = 0,
     )
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val continueWatching: StateFlow<List<ResumeItem>> =
         settings.activeProfileId
-            .flatMapLatest { pid -> graph.playbackPositions.observeRecent(pid) }
-            .mapLatest { positions -> positions.filter { it.positionMillis > 0 && !it.isFinished }.mapNotNull { resolveResume(it) } }
+            .flatMapLatest { pid -> graph.playbackPositions.observeRecent(pid, limit = 150) }
+            .mapLatest { positions ->
+                positions.filter { it.positionMillis > 0 && !it.isFinished }
+                    .mapNotNull { resolveResume(it) }
+            }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Independent history shelves; a movie must never appear under Series, or vice versa. */
     val continueWatchingMovies: StateFlow<List<ResumeItem>> =
-        continueWatching.map { items -> items.filter { it.mediaKey.startsWith("movie:") } }
+        continueWatching.map { items ->
+            app.opentv.ui.vod.mostRecentPerTitle(
+                items.filter { it.mediaKey.startsWith("movie:") },
+                { it.updatedAtMillis },
+                { it.historyGroupKey },
+            )
+        }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val continueWatchingSeries: StateFlow<List<ResumeItem>> =
-        continueWatching.map { items -> items.filter { it.mediaKey.startsWith("ep:") } }
+        continueWatching.map { items ->
+            app.opentv.ui.vod.mostRecentPerTitle(
+                items.filter { it.mediaKey.startsWith("ep:") },
+                { it.updatedAtMillis },
+                { it.historyGroupKey },
+            )
+        }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private suspend fun resolveResume(pos: PlaybackPosition): ResumeItem? {
@@ -739,15 +757,27 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
             if (pos.durationMillis > 0) (pos.positionMillis.toFloat() / pos.durationMillis).coerceIn(0f, 1f) else 0f
         return when (parts[0]) {
             "movie" -> graph.catalogRepository.movie(id)?.let {
-                ResumeItem(pos.mediaKey, it.displayTitle, it.posterUrl, it.streamUrl, progress)
-            }
-            "ep" -> graph.catalogRepository.episode(id)?.let {
                 ResumeItem(
-                    pos.mediaKey,
-                    it.title.ifBlank { "S${it.season} E${it.episodeNumber}" },
-                    it.stillUrl,
-                    it.streamUrl,
-                    progress,
+                    mediaKey = pos.mediaKey,
+                    title = it.displayTitle,
+                    posterUrl = it.posterUrl,
+                    streamUrl = it.streamUrl,
+                    progress = progress,
+                    historyGroupKey = "movie:${it.displayTitle.trim().lowercase(java.util.Locale.ROOT)}:${it.year ?: ""}",
+                    updatedAtMillis = pos.updatedAtMillis,
+                )
+            }
+            "ep" -> graph.catalogRepository.episode(id)?.let { episode ->
+                val show = graph.catalogRepository.seriesByProviderKey(episode.sourceId, episode.seriesId)
+                ResumeItem(
+                    mediaKey = pos.mediaKey,
+                    title = show?.displayTitle ?: episode.title.ifBlank { episode.seriesId },
+                    posterUrl = show?.posterUrl ?: episode.stillUrl,
+                    streamUrl = episode.streamUrl,
+                    progress = progress,
+                    historyGroupKey = "series:${episode.sourceId}:${episode.seriesId}",
+                    episodeLabel = "S${episode.season}:E${episode.episodeNumber}",
+                    updatedAtMillis = pos.updatedAtMillis,
                 )
             }
             else -> null
