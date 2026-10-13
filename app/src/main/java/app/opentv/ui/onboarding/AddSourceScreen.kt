@@ -55,6 +55,13 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
+import kotlinx.coroutines.delay
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -77,7 +84,6 @@ import app.opentv.data.model.Source
 import app.opentv.data.model.SourceKind
 import app.opentv.isRunningOnTelevision
 import app.opentv.ui.SourcesViewModel
-import app.opentv.ui.explicitImeActivation
 import app.opentv.ui.channels.readClipboardText
 
 /**
@@ -283,7 +289,12 @@ fun AddSourceScreen(
                 )
                 Spacer(Modifier.height(if (wide) 12.dp else 6.dp))
 
+                TvLoginField(isTelevision, name, "Playlist name", masked = false) { inputModifier ->
+
+
                 OutlinedTextField(
+
+
                     value = name,
                     onValueChange = { name = oneLine(it); viewModel.clearConnectionResult() },
                     placeholder = { Text("Playlist name") },
@@ -291,10 +302,14 @@ fun AddSourceScreen(
                     keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
                     colors = fieldColors,
                     textStyle = TextStyle(fontSize = fieldFont, color = ink),
-                    modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = fieldHeight).explicitImeActivation(),
+                    modifier = inputModifier.defaultMinSize(minHeight = fieldHeight),
                 )
+                }
                 if (kind == SourceKind.XTREAM) {
+                    TvLoginField(isTelevision, username, "Username", masked = false) { inputModifier ->
+
                     OutlinedTextField(
+
                         value = username,
                         onValueChange = { username = oneLine(it); viewModel.clearConnectionResult() },
                         placeholder = { Text("Username") },
@@ -302,9 +317,13 @@ fun AddSourceScreen(
                         keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
                         colors = fieldColors,
                         textStyle = TextStyle(fontSize = fieldFont, color = ink),
-                        modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = fieldHeight).explicitImeActivation(),
+                        modifier = inputModifier.defaultMinSize(minHeight = fieldHeight),
                     )
+                    }
+                    TvLoginField(isTelevision, password, "Password", masked = true) { inputModifier ->
+
                     OutlinedTextField(
+
                         value = password,
                         onValueChange = { password = oneLine(it); viewModel.clearConnectionResult() },
                         placeholder = { Text("Password") },
@@ -321,10 +340,14 @@ fun AddSourceScreen(
                         },
                         colors = fieldColors,
                         textStyle = TextStyle(fontSize = fieldFont, color = ink),
-                        modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = fieldHeight).explicitImeActivation(),
+                        modifier = inputModifier.defaultMinSize(minHeight = fieldHeight),
                     )
+                    }
                 }
+                TvLoginField(isTelevision, url, "Server URL", masked = false) { inputModifier ->
+
                 OutlinedTextField(
+
                     value = url,
                     onValueChange = { url = oneLine(it); viewModel.clearConnectionResult() },
                     placeholder = {
@@ -336,10 +359,14 @@ fun AddSourceScreen(
                     colors = fieldColors,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, showKeyboardOnFocus = false),
                     textStyle = TextStyle(fontSize = fieldFont, color = ink),
-                    modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = fieldHeight).explicitImeActivation(),
+                    modifier = inputModifier.defaultMinSize(minHeight = fieldHeight),
                 )
+                }
                 if (kind == SourceKind.STALKER) {
+                    TvLoginField(isTelevision, mac, "MAC address", masked = false) { inputModifier ->
+
                     OutlinedTextField(
+
                         value = mac,
                         onValueChange = { mac = oneLine(it); viewModel.clearConnectionResult() },
                         placeholder = { Text("MAC address") },
@@ -347,8 +374,9 @@ fun AddSourceScreen(
                         keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
                         colors = fieldColors,
                         textStyle = TextStyle(fontSize = fieldFont, color = ink),
-                        modifier = Modifier.fillMaxWidth().explicitImeActivation(),
+                        modifier = inputModifier,
                     )
+                    }
                 }
                 if (providerError != null) {
                     Column(
@@ -434,26 +462,34 @@ fun AddSourceScreen(
                         color = Color.White)
                 }
                 if (showAdvanced) {
+                    TvLoginField(isTelevision, epgUrl, "Optional EPG URL", masked = false) { inputModifier ->
+
                     OutlinedTextField(
+
                         value = epgUrl,
                         onValueChange = { epgUrl = oneLine(it); viewModel.clearConnectionResult() },
                         placeholder = { Text("Optional EPG URL") },
                         colors = fieldColors,
                         textStyle = TextStyle(color = ink),
-                        modifier = Modifier.fillMaxWidth().explicitImeActivation(),
+                        modifier = inputModifier,
                         keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
                         singleLine = true,
                     )
+                    }
+                    TvLoginField(isTelevision, userAgent, "User-Agent", masked = false) { inputModifier ->
+
                     OutlinedTextField(
+
                         value = userAgent,
                         onValueChange = { userAgent = oneLine(it); viewModel.clearConnectionResult() },
                         placeholder = { Text("User-Agent") },
                         colors = fieldColors,
                         textStyle = TextStyle(color = ink),
-                        modifier = Modifier.fillMaxWidth().explicitImeActivation(),
+                        modifier = inputModifier,
                         keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
                         singleLine = true,
                     )
+                    }
                 }
                 OutlinedButton(
                     onClick = { dismissInput(); viewModel.test(draft()) },
@@ -500,3 +536,70 @@ private fun PasteButton(onPaste: (String) -> Unit) {
 internal fun oneLine(value: String): String =
     value.take(4_096).substringBefore('\n').substringBefore('\r')
         .substringBefore('\u2028').substringBefore('\u2029')
+
+/**
+ * TV remote navigation focuses a non-editing surrogate rather than BasicTextField.
+ * Android's IME therefore cannot open until the user presses OK on this box.
+ * Phone/tablet users still get the normal native text field.
+ */
+@Composable
+private fun TvLoginField(
+    isTelevision: Boolean,
+    value: String,
+    placeholder: String,
+    masked: Boolean = false,
+    field: @Composable (Modifier) -> Unit,
+) {
+    var editing by remember { mutableStateOf(false) }
+    var hadInputFocus by remember { mutableStateOf(false) }
+    var boxFocused by remember { mutableStateOf(false) }
+    val inputFocus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+
+    LaunchedEffect(editing) {
+        if (editing && isTelevision) {
+            delay(65L)
+            runCatching { inputFocus.requestFocus() }
+            keyboard?.show()
+        }
+    }
+    if (!isTelevision || editing) {
+        field(
+            Modifier.fillMaxWidth().then(
+                if (isTelevision) Modifier
+                    .focusRequester(inputFocus)
+                    .onFocusChanged { focus ->
+                        if (focus.hasFocus) hadInputFocus = true
+                        else if (hadInputFocus) {
+                            hadInputFocus = false
+                            editing = false
+                        }
+                    }
+                else Modifier
+            ),
+        )
+    } else {
+        Box(
+            Modifier.fillMaxWidth().defaultMinSize(minHeight = 56.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color(0xFFF0CDDB))
+                .onFocusChanged { boxFocused = it.isFocused }
+                .border(if (boxFocused) 4.dp else 1.dp,
+                    if (boxFocused) Color(0xFF00E5FF) else Color(0xFF715166),
+                    RoundedCornerShape(8.dp))
+                .clickable { editing = true }
+                .padding(horizontal = 16.dp, vertical = 15.dp),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            val display = if (value.isEmpty()) placeholder
+                else if (masked) "•".repeat(value.length.coerceAtMost(24))
+                else value
+            Text(
+                display,
+                color = if (value.isEmpty()) Color(0xFF6D5264) else Color(0xFF271B2A),
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
