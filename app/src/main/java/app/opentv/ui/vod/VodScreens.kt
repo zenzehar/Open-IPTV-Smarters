@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -33,12 +34,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -51,10 +54,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.zIndex
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.opentv.R
@@ -87,6 +96,7 @@ fun MoviesScreen(
     val recentlyAdded by viewModel.recentlyAddedMovies.collectAsState()
     val genreRows by viewModel.movieGenreRows.collectAsState()
     val categoryMovies by viewModel.movies.collectAsState()
+    val allMovies by viewModel.allMovies.collectAsState()
     val vodLoading by viewModel.vodLoading.collectAsState()
     val sources by viewModel.sources.collectAsState()
     val selectedSource by viewModel.selectedVodSource.collectAsState()
@@ -100,34 +110,48 @@ fun MoviesScreen(
         recentlyAdded.isNotEmpty() || genreRows.isNotEmpty()
     val onCategory: (String) -> Unit = { id ->
         browseCategory = id
-        viewModel.selectMovieCategory(if (id == CONTINUE_WATCHING_CATEGORY) null else id)
+        viewModel.selectMovieCategory(if (isSpecialVodCategory(id)) null else id)
     }
     val onAll: () -> Unit = {
         browseCategory = null
         viewModel.selectMovieCategory(null)
     }
 
+    val scopedMovies = remember(allMovies, selectedSource) {
+        if (selectedSource == null) allMovies else allMovies.filter { it.sourceId == selectedSource }
+    }
+    val counts = remember(scopedMovies, resume, recentlyAdded) {
+        scopedMovies.mapNotNull { it.categoryId }.groupingBy { it }.eachCount() +
+            mapOf(
+                ALL_CATEGORY to scopedMovies.size,
+                FAVOURITES_CATEGORY to scopedMovies.count { it.favourite },
+                CONTINUE_WATCHING_CATEGORY to resume.size,
+                RECENTLY_ADDED_CATEGORY to recentlyAdded.size,
+            )
+    }
+    val entries = vodSections() + categories.map { it.id to it.name }
     Column(Modifier.fillMaxSize()) {
-        SearchAffordance(onOpenSearch)
+        if (!isTelevision) SearchAffordance(onOpenSearch)
         if (sources.size > 1) ProviderChips(
             sources = sources,
             selected = selectedSource,
             onSelectAll = { browseCategory = null; viewModel.selectVodSource(null) },
             onSelectSource = { id -> browseCategory = null; viewModel.selectVodSource(id) },
         )
-        Row(Modifier.weight(1f).fillMaxWidth()) {
-            // Collapsible sidebar on both Android phones and TV; no squeezed TV-only layout.
-            VodCategorySidebar(
-                entries = listOf(CONTINUE_WATCHING_CATEGORY to stringResource(R.string.vod_continue_watching)) + categories.map { it.id to it.name },
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            VodBrowserFrame(
+                entries = entries,
+                counts = counts,
                 selected = browseCategory,
-                initiallyExpanded = isTelevision,
+                isTelevision = isTelevision,
                 onSelectHome = onAll,
                 onSelectCategory = onCategory,
-            )
-            Box(Modifier.weight(1f).fillMaxSize()) {
+            ) {
                 when {
-                    browseCategory == CONTINUE_WATCHING_CATEGORY -> ContinueWatchingGrid(resume, onResume)
-                    browseCategory != null -> MovieCategoryGrid(categoryMovies, viewModel, onOpenMovie)
+                    browseCategory == CONTINUE_WATCHING_CATEGORY -> ContinueWatchingGrid(resume, onResume, isTelevision)
+                    browseCategory == FAVOURITES_CATEGORY -> MovieCategoryGrid(scopedMovies.filter { it.favourite }, viewModel, onOpenMovie)
+                    browseCategory == RECENTLY_ADDED_CATEGORY -> MovieCategoryGrid(recentlyAdded, viewModel, onOpenMovie)
+                    browseCategory != null -> MovieCategoryGrid(categoryMovies.filter { selectedSource == null || it.sourceId == selectedSource }, viewModel, onOpenMovie)
                     !hasContent -> when {
                         vodLoading || isSyncing -> LoadingVod(stringResource(R.string.vod_loading_movies))
                         hasSources -> EmptyVod(stringResource(R.string.vod_no_movies), stringResource(R.string.vod_no_movies_provider))
@@ -171,6 +195,7 @@ fun SeriesScreen(
     val recentlyAdded by viewModel.recentlyAddedSeries.collectAsState()
     val genreRows by viewModel.seriesGenreRows.collectAsState()
     val categorySeries by viewModel.series.collectAsState()
+    val allSeries by viewModel.allSeries.collectAsState()
     val vodLoading by viewModel.vodLoading.collectAsState()
     val sources by viewModel.sources.collectAsState()
     val selectedSource by viewModel.selectedVodSource.collectAsState()
@@ -183,34 +208,48 @@ fun SeriesScreen(
     val hasContent = resume.isNotEmpty() || recentlyAdded.isNotEmpty() || genreRows.isNotEmpty()
     val onCategory: (String) -> Unit = { id ->
         browseCategory = id
-        viewModel.selectSeriesCategory(if (id == CONTINUE_WATCHING_CATEGORY) null else id)
+        viewModel.selectSeriesCategory(if (isSpecialVodCategory(id)) null else id)
     }
     val onAll: () -> Unit = {
         browseCategory = null
         viewModel.selectSeriesCategory(null)
     }
 
+    val scopedSeries = remember(allSeries, selectedSource) {
+        if (selectedSource == null) allSeries else allSeries.filter { it.sourceId == selectedSource }
+    }
+    val counts = remember(scopedSeries, resume, recentlyAdded) {
+        scopedSeries.mapNotNull { it.categoryId }.groupingBy { it }.eachCount() +
+            mapOf(
+                ALL_CATEGORY to scopedSeries.size,
+                FAVOURITES_CATEGORY to scopedSeries.count { it.favourite },
+                CONTINUE_WATCHING_CATEGORY to resume.size,
+                RECENTLY_ADDED_CATEGORY to recentlyAdded.size,
+            )
+    }
+    val entries = vodSections() + categories.map { it.id to it.name }
     Column(Modifier.fillMaxSize()) {
-        SearchAffordance(onOpenSearch)
+        if (!isTelevision) SearchAffordance(onOpenSearch)
         if (sources.size > 1) ProviderChips(
             sources = sources,
             selected = selectedSource,
             onSelectAll = { browseCategory = null; viewModel.selectVodSource(null) },
             onSelectSource = { id -> browseCategory = null; viewModel.selectVodSource(id) },
         )
-        Row(Modifier.weight(1f).fillMaxWidth()) {
-            // Collapsible sidebar on both Android phones and TV; no squeezed TV-only layout.
-            VodCategorySidebar(
-                entries = listOf(CONTINUE_WATCHING_CATEGORY to stringResource(R.string.vod_continue_watching)) + categories.map { it.id to it.name },
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            VodBrowserFrame(
+                entries = entries,
+                counts = counts,
                 selected = browseCategory,
-                initiallyExpanded = isTelevision,
+                isTelevision = isTelevision,
                 onSelectHome = onAll,
                 onSelectCategory = onCategory,
-            )
-            Box(Modifier.weight(1f).fillMaxSize()) {
+            ) {
                 when {
-                    browseCategory == CONTINUE_WATCHING_CATEGORY -> ContinueWatchingGrid(resume, onResume)
-                    browseCategory != null -> SeriesCategoryGrid(categorySeries, onOpenSeries)
+                    browseCategory == CONTINUE_WATCHING_CATEGORY -> ContinueWatchingGrid(resume, onResume, isTelevision)
+                    browseCategory == FAVOURITES_CATEGORY -> SeriesCategoryGrid(scopedSeries.filter { it.favourite }, onOpenSeries)
+                    browseCategory == RECENTLY_ADDED_CATEGORY -> SeriesCategoryGrid(recentlyAdded, onOpenSeries)
+                    browseCategory != null -> SeriesCategoryGrid(categorySeries.filter { selectedSource == null || it.sourceId == selectedSource }, onOpenSeries)
                     !hasContent -> when {
                         vodLoading || isSyncing -> LoadingVod(stringResource(R.string.vod_loading_shows))
                         hasSources -> EmptyVod(stringResource(R.string.vod_no_shows), stringResource(R.string.vod_no_shows_provider))
@@ -237,11 +276,24 @@ fun SeriesScreen(
 
 /** TV-style category column inspired by established IPTV browse patterns. */
 private const val CONTINUE_WATCHING_CATEGORY = "__myiptv_continue_watching__"
+private const val FAVOURITES_CATEGORY = "__myiptv_favourites__"
+private const val RECENTLY_ADDED_CATEGORY = "__myiptv_recently_added__"
+private const val ALL_CATEGORY = "__myiptv_all__"
+
+private fun isSpecialVodCategory(id: String): Boolean = id == CONTINUE_WATCHING_CATEGORY ||
+    id == FAVOURITES_CATEGORY || id == RECENTLY_ADDED_CATEGORY
+
+private fun vodSections() = listOf(
+    FAVOURITES_CATEGORY to "Favourites",
+    CONTINUE_WATCHING_CATEGORY to "Continue Watching",
+    RECENTLY_ADDED_CATEGORY to "Recently Added",
+)
 
 @Composable
 private fun ContinueWatchingGrid(
     items: List<VodViewModel.ResumeItem>,
     onResume: (mediaKey: String, url: String, title: String) -> Unit,
+    isTelevision: Boolean,
 ) {
     if (items.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -249,14 +301,54 @@ private fun ContinueWatchingGrid(
         }
         return
     }
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 204.dp),
-        contentPadding = PaddingValues(16.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        gridItems(items, key = { it.mediaKey }) { item ->
-            ResumeCard(item) { onResume(item.mediaKey, item.streamUrl, item.title) }
+    Column(Modifier.fillMaxSize().background(Brush.verticalGradient(
+        listOf(Color(0xFF1D2C43), Color(0xFF070D18)),
+    ))) {
+        Text("CONTINUE WATCHING", color = Color.White,
+            style = MaterialTheme.typography.headlineSmall,
+            modifier = Modifier.padding(start = 20.dp, top = 14.dp, bottom = 6.dp))
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = if (isTelevision) 160.dp else 130.dp),
+            contentPadding = PaddingValues(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            gridItems(items, key = { it.historyGroupKey }) { item ->
+                ResumeCard(item) { onResume(item.mediaKey, item.streamUrl, item.title) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun VodBrowserFrame(
+    entries: List<Pair<String, String>>,
+    counts: Map<String, Int>,
+    selected: String?,
+    isTelevision: Boolean,
+    onSelectHome: () -> Unit,
+    onSelectCategory: (String) -> Unit,
+    content: @Composable () -> Unit,
+) {
+    val page = @Composable {
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
+            listOf(Color(0xFF1B2B43), Color(0xFF07101B)),
+        ))) { content() }
+    }
+    if (isTelevision) {
+        Row(Modifier.fillMaxSize()) {
+            VodCategorySidebar(entries, counts, selected, true, onSelectHome, onSelectCategory)
+            Box(Modifier.weight(1f).fillMaxHeight()) { page() }
+        }
+    } else {
+        Box(Modifier.fillMaxSize()) {
+            Row(Modifier.fillMaxSize()) {
+                Spacer(Modifier.width(62.dp))
+                Box(Modifier.weight(1f).fillMaxHeight()) { page() }
+            }
+            // Expansion overlays the grid instead of reducing the phone to a tiny poster column.
+            VodCategorySidebar(entries, counts, selected, false, onSelectHome, onSelectCategory,
+                Modifier.align(Alignment.CenterStart).zIndex(2f))
         }
     }
 }
@@ -264,78 +356,112 @@ private fun ContinueWatchingGrid(
 @Composable
 private fun VodCategorySidebar(
     entries: List<Pair<String, String>>,
+    counts: Map<String, Int>,
     selected: String?,
-    initiallyExpanded: Boolean,
+    isTelevision: Boolean,
     onSelectHome: () -> Unit,
     onSelectCategory: (String) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    var expanded by remember(initiallyExpanded) { mutableStateOf(initiallyExpanded) }
+    var expanded by remember(isTelevision) { mutableStateOf(isTelevision) }
+    var categorySearch by remember { mutableStateOf("") }
+    val matching = remember(entries, categorySearch) {
+        if (categorySearch.isBlank()) entries
+        else entries.filter { it.second.contains(categorySearch.trim(), ignoreCase = true) }
+    }
     val chooseHome: () -> Unit = {
         onSelectHome()
-        if (!initiallyExpanded) expanded = false
+        if (!isTelevision) expanded = false
     }
     val chooseCategory: (String) -> Unit = { id ->
         onSelectCategory(id)
-        if (!initiallyExpanded) expanded = false
+        if (!isTelevision) expanded = false
     }
     Column(
-        modifier = Modifier
-            .width(if (expanded) 216.dp else 62.dp)
+        modifier = modifier
+            .width(if (expanded) (if (isTelevision) 286.dp else 236.dp) else 62.dp)
             .fillMaxHeight()
-            .background(MaterialTheme.colorScheme.surface),
+            .background(Color(0xFF080A0D)),
     ) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 7.dp, vertical = 6.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = { expanded = !expanded }) {
                 Icon(
                     if (expanded) Icons.Filled.Menu else Icons.Filled.ChevronRight,
                     contentDescription = if (expanded) "Collapse categories" else "Expand categories",
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = Color.White,
                 )
             }
-            if (expanded) Text(stringResource(R.string.vod_categories),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (expanded) Text("CATEGORIES", color = Color.White,
+                style = MaterialTheme.typography.titleSmall, maxLines = 1)
+        }
+        if (expanded) {
+            OutlinedTextField(
+                value = categorySearch,
+                onValueChange = { categorySearch = it },
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                placeholder = { Text("Search categories", maxLines = 1) },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
+            )
         }
         LazyColumn(
             modifier = Modifier.fillMaxWidth().weight(1f),
-            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(5.dp),
+            contentPadding = PaddingValues(horizontal = 5.dp, vertical = 7.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
-            item(key = "all") {
-                VodCategoryRow(stringResource(R.string.vod_all), selected == null, expanded, chooseHome)
+            if (categorySearch.isBlank() || "all".contains(categorySearch.trim(), true)) {
+                item(key = "all") {
+                    VodCategoryRow("ALL", selected == null, expanded, counts[ALL_CATEGORY], chooseHome)
+                }
             }
-            items(entries, key = { it.first }) { (id, label) ->
-                VodCategoryRow(label, selected == id, expanded) { chooseCategory(id) }
+            items(matching, key = { it.first }) { (id, label) ->
+                VodCategoryRow(label, selected == id, expanded, counts[id]) { chooseCategory(id) }
             }
         }
     }
 }
 
 @Composable
-private fun VodCategoryRow(label: String, selected: Boolean, expanded: Boolean, onClick: () -> Unit) {
+private fun VodCategoryRow(
+    label: String,
+    selected: Boolean,
+    expanded: Boolean,
+    count: Int?,
+    onClick: () -> Unit,
+) {
     var focused by remember { mutableStateOf(false) }
-    Box(
-        Modifier
-            .fillMaxWidth()
+    Row(
+        Modifier.fillMaxWidth()
             .onFocusChanged { focused = it.isFocused }
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (focused) MaterialTheme.colorScheme.primary else if (selected)
-                MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
+            .clip(RoundedCornerShape(4.dp))
+            .background(when {
+                focused -> Color(0xFF078499)
+                selected -> Color(0xFF086A7C)
+                else -> Color.Transparent
+            })
             .clickable(onClick = onClick)
             .padding(horizontal = if (expanded) 12.dp else 4.dp, vertical = 13.dp),
-        contentAlignment = if (expanded) Alignment.CenterStart else Alignment.Center,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = if (expanded) Arrangement.Start else Arrangement.Center,
     ) {
         Text(
             if (expanded) label else label.take(2).uppercase(),
+            modifier = if (expanded) Modifier.weight(1f) else Modifier,
             maxLines = if (expanded) 2 else 1,
             overflow = TextOverflow.Ellipsis,
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = if (focused || selected) FontWeight.Bold else FontWeight.Normal,
-            color = if (focused) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+            color = Color.White,
         )
+        if (expanded && count != null) {
+            Spacer(Modifier.width(8.dp))
+            Text(count.toString(), color = Color.White.copy(alpha = .88f),
+                style = MaterialTheme.typography.bodySmall)
+        }
     }
 }
 
