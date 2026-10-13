@@ -9,6 +9,7 @@ package app.opentv.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -353,6 +354,7 @@ private fun HeaderAction(icon: ImageVector, label: String, onClick: () -> Unit) 
             .clip(RoundedCornerShape(10.dp))
             .background(if (focused) MaterialTheme.colorScheme.primary else Color(0xFF172242))
             .onFocusChanged { focused = it.isFocused }
+            .border(if (focused) 3.dp else 0.dp, Color.White, RoundedCornerShape(10.dp))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -392,6 +394,15 @@ private fun DashboardHome(
     onRepairProvider: () -> Unit,
     onRefresh: () -> Unit,
 ) {
+    // TV/Fire TV remotes must land on an actionable, visibly focused item, with
+    // arrow keys traversing the normal Compose focus tree. No pointer required.
+    val homeFocus = remember { FocusRequester() }
+    LaunchedEffect(isTelevision) {
+        if (isTelevision) {
+            kotlinx.coroutines.delay(85)
+            runCatching { homeFocus.requestFocus() }
+        }
+    }
     val failure = when {
         liveState == "FAILED" -> liveFailure ?: "Live TV could not update."
         movieState == "FAILED" -> movieFailure ?: "Movies could not update."
@@ -451,6 +462,7 @@ private fun DashboardHome(
                             listOf(Color(0xFF29CAA0), Color(0xFF355CDE)),
                             available, Modifier.weight(1.05f), onLive, liveState,
                             liveLastUpdated, { onRefreshStage("live") }, liveFailure,
+                            firstFocus = if (isTelevision) homeFocus else null,
                         )
                     }
                     Column(
@@ -466,12 +478,15 @@ private fun DashboardHome(
                                 listOf(Color(0xFFEA365A), Color(0xFFF89A38)),
                                 upperHeight, Modifier.weight(1f), onMovies, movieState,
                                 moviesLastUpdated, { onRefreshStage("movies") }, movieFailure,
+                                firstFocus = if (isTelevision && !liveEnabled) homeFocus else null,
                             )
                             if (seriesEnabled) DashboardTile(
                                 "SERIES", "Seasons & episodes", Icons.Filled.Tv,
                                 listOf(Color(0xFF963AAE), Color(0xFF3995DB)),
                                 upperHeight, Modifier.weight(1f), onSeries, seriesState,
                                 seriesLastUpdated, { onRefreshStage("series") }, seriesFailure,
+                                firstFocus = if (isTelevision && !liveEnabled && !moviesEnabled)
+                                    homeFocus else null,
                             )
                         }
                         Row(
@@ -481,7 +496,9 @@ private fun DashboardHome(
                             if (liveEnabled) ShortcutTile("LIVE WITH EPG", Icons.Filled.LiveTv,
                                 Modifier.weight(1f), onGuide, shortcutHeight)
                             ShortcutTile("RECORDINGS", Icons.Filled.FiberManualRecord,
-                                Modifier.weight(1f), onRecordings, shortcutHeight)
+                                Modifier.weight(1f), onRecordings, shortcutHeight,
+                                firstFocus = if (isTelevision &&
+                                    !liveEnabled && !moviesEnabled && !seriesEnabled) homeFocus else null)
                             ShortcutTile("UPDATE", Icons.Filled.Refresh,
                                 Modifier.weight(1f), onRefresh, shortcutHeight)
                         }
@@ -566,6 +583,7 @@ private fun DashboardTile(
     lastUpdated: Long = 0L,
     onRefresh: () -> Unit = {},
     failureReason: String? = null,
+    firstFocus: FocusRequester? = null,
 ) {
     var focused by remember { mutableStateOf(false) }
     var showFailureDetails by remember { mutableStateOf(false) }
@@ -599,7 +617,12 @@ private fun DashboardTile(
     ) {
         Box(
             Modifier.fillMaxWidth().weight(1f)
+                .then(if (firstFocus != null) Modifier.focusRequester(firstFocus) else Modifier)
                 .onFocusChanged { focused = it.isFocused }
+                .border(
+                    if (focused) 3.dp else 0.dp, Color.White,
+                    RoundedCornerShape(if (compactTile) 12.dp else 16.dp),
+                )
                 .clickable(onClick = onClick),
             contentAlignment = Alignment.Center,
         ) {
@@ -671,14 +694,17 @@ private fun DashboardTile(
 }
 
 @Composable
-private fun ShortcutTile(title: String, icon: ImageVector, modifier: Modifier, onClick: () -> Unit, height: Dp = 66.dp) {
+private fun ShortcutTile(title: String, icon: ImageVector, modifier: Modifier,
+    onClick: () -> Unit, height: Dp = 66.dp, firstFocus: FocusRequester? = null) {
     var focused by remember { mutableStateOf(false) }
     Row(
         modifier
             .height(height)
             .clip(RoundedCornerShape(10.dp))
             .background(if (focused) Color(0xFF2CBB9A) else Color(0xFF238F89))
+            .then(if (firstFocus != null) Modifier.focusRequester(firstFocus) else Modifier)
             .onFocusChanged { focused = it.isFocused }
+            .border(if (focused) 3.dp else 0.dp, Color.White, RoundedCornerShape(10.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -734,6 +760,11 @@ private fun BottomNavItem(
 private fun TvNavigation(
     tabs: List<DashboardTab>, selected: DashboardTab, onSelect: (DashboardTab) -> Unit,
 ) {
+    val selectedFocus = remember { FocusRequester() }
+    LaunchedEffect(selected) {
+        kotlinx.coroutines.delay(65)
+        runCatching { selectedFocus.requestFocus() }
+    }
     Row(
         Modifier.fillMaxWidth().background(Color(0xFF10182E)).padding(horizontal = 22.dp, vertical = 7.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -745,7 +776,9 @@ private fun TvNavigation(
                     .clip(RoundedCornerShape(9.dp))
                     .background(if (focused) MaterialTheme.colorScheme.primary else if (selected == t)
                         Color(0xFF25436B) else Color.Transparent)
+                    .then(if (selected == t) Modifier.focusRequester(selectedFocus) else Modifier)
                     .onFocusChanged { focused = it.isFocused }
+                    .border(if (focused) 2.dp else 0.dp, Color.White, RoundedCornerShape(9.dp))
                     .clickable { onSelect(t) }
                     .padding(horizontal = 15.dp, vertical = 9.dp),
                 verticalAlignment = Alignment.CenterVertically,
