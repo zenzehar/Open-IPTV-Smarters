@@ -612,7 +612,7 @@ class CatalogRepository(
         if (source.kind != SourceKind.XTREAM) return
         runCatching { api.episodes(source, seriesId) }
             .onSuccess { if (it.isNotEmpty()) episodeDao.upsertAll(it) }
-            .onFailure { Log.w(TAG, "Episode fetch failed for series $seriesId", it) }
+            .onFailure { Log.w(TAG, "Episode fetch failed for series $seriesId (${it.javaClass.simpleName})") }
     }
 
     /**
@@ -630,7 +630,7 @@ class CatalogRepository(
             else SyncResult.Success(0, 0, 0)
         if (live is SyncResult.Success && source.kind == SourceKind.XTREAM) {
             runCatching { syncVod(source, nowUtcMillis) }
-                .onFailure { Log.w(TAG, "VOD sync failed for source ${source.id}", it) }
+                .onFailure { Log.w(TAG, "VOD sync failed for source ${source.id} (${it.javaClass.simpleName})") }
         }
         live
     }
@@ -647,7 +647,7 @@ class CatalogRepository(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.w(TAG, "Catalogue sync failed for source ${source.id}", e)
+            Log.w(TAG, "Catalogue sync failed for source ${source.id} (${e.javaClass.simpleName})")
             SyncResult.Failed(e.message ?: "The catalogue could not be downloaded.", e)
         }
         }
@@ -676,7 +676,7 @@ class CatalogRepository(
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    Log.w(TAG, "VOD sync failed for source ${source.id}", e)
+                    Log.w(TAG, "VOD sync failed for source ${source.id} (${e.javaClass.simpleName})")
                     val detail = providerFailureDescription(e)
                     VodSyncResult(
                         movieError = detail.takeIf { includeMovies },
@@ -770,7 +770,7 @@ class CatalogRepository(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.w(TAG, "VOD provider request failed (source ${source.id})", e)
+            Log.w(TAG, "VOD provider request failed (source ${source.id}: ${e.javaClass.simpleName})")
             Result.failure(e)
         }
 
