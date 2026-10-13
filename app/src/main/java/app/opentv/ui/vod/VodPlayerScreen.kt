@@ -274,6 +274,10 @@ fun VodPlayerScreen(
     var rootHasFocus by remember { mutableStateOf(false) }
     var interaction by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     val barFocus = remember { FocusRequester() }
+    val seekFocus = remember { FocusRequester() }
+    val backFocus = remember { FocusRequester() }
+    var seekHasFocus by remember { mutableStateOf(false) }
+    var backHasFocus by remember { mutableStateOf(false) }
     val rootFocus = remember { FocusRequester() }
 
     fun reveal() { controlsVisible = true; interaction++ }
@@ -390,11 +394,12 @@ fun VodPlayerScreen(
     // Auto-hide when playing and not paused/scrubbing and no picker open. A growing recording dips in
     // and out of Buffering as it rides the write head, so for that case Buffering counts as "playing"
     // here — otherwise a single hiccup would pin the transport bar on screen for the rest of the watch.
-    LaunchedEffect(controlsVisible, interaction, state, paused, scrubbing, vodPanel, controlsTimeoutSeconds) {
+    LaunchedEffect(controlsVisible, interaction, state, paused, scrubbing, seekHasFocus,
+        vodPanel, controlsTimeoutSeconds) {
         val activelyPlaying = state is PlayerController.State.Playing ||
             (growingRec && state is PlayerController.State.Buffering)
         if (controlsVisible && controlsTimeoutSeconds > 0 && !paused && !scrubbing &&
-            vodPanel == VodPanel.NONE && activelyPlaying) {
+            !seekHasFocus && vodPanel == VodPanel.NONE && activelyPlaying) {
             delay(controlsTimeoutSeconds * 1_000L)
             controlsVisible = false
         }
@@ -425,8 +430,37 @@ fun VodPlayerScreen(
                 when {
                     event.type != KeyEventType.KeyDown -> false
                     event.key == Key.Back || event.key == Key.Escape -> false
-                    !useVlc && (!controlsVisible || rootHasFocus) &&
-                        revealAndSeek(event.key) -> true
+                    useVlc -> false
+                    controlsVisible && vodPanel == VodPanel.NONE && event.key == Key.DirectionUp -> {
+                        // Up from the transport row enters the timeline; from the timeline
+                        // it goes to the top-left Back button.
+                        runCatching {
+                            if (seekHasFocus) backFocus.requestFocus()
+                            else seekFocus.requestFocus()
+                        }
+                        interaction++
+                        true
+                    }
+                    controlsVisible && vodPanel == VodPanel.NONE &&
+                        event.key == Key.DirectionDown && (seekHasFocus || backHasFocus) -> {
+                        runCatching {
+                            if (backHasFocus) seekFocus.requestFocus()
+                            else barFocus.requestFocus()
+                        }
+                        interaction++
+                        true
+                    }
+                    controlsVisible && seekHasFocus &&
+                        (event.key == Key.DirectionLeft || event.key == Key.DirectionRight) -> {
+                        // Each tap moves by five seconds, even when the native Slider
+                        // implementation does not forward D-pad seek on an Android TV.
+                        seekRelative(if (event.key == Key.DirectionLeft) -5_000L else 5_000L)
+                        positionMs = controller.player.currentPosition.coerceAtLeast(0L)
+                        scrubbing = false
+                        interaction++
+                        true
+                    }
+                    (!controlsVisible || rootHasFocus) && revealAndSeek(event.key) -> true
                     else -> { interaction++; false }
                 }
             }
@@ -477,6 +511,8 @@ fun VodPlayerScreen(
             androidx.compose.material3.IconButton(
                 onClick = ::requestPlayerExit,
                 modifier = Modifier
+                    .focusRequester(backFocus)
+                    .onFocusChanged { backHasFocus = it.isFocused }
                     .windowInsetsPadding(WindowInsets.safeDrawing.only(
                         WindowInsetsSides.Horizontal + WindowInsetsSides.Top))
                     .padding(12.dp)
@@ -583,7 +619,12 @@ fun VodPlayerScreen(
                             scrubbing = false
                             interaction++
                         },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f)
+                            .focusRequester(seekFocus)
+                            .onFocusChanged { seekHasFocus = it.isFocused }
+                            .then(if (seekHasFocus) Modifier.border(
+                                2.dp, MaterialTheme.colorScheme.primary,
+                                RoundedCornerShape(7.dp)) else Modifier),
                     )
                     Spacer(Modifier.width(12.dp))
                     Text(formatDuration(durationMs), color = Color.White)

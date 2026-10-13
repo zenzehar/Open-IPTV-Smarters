@@ -14,6 +14,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -123,6 +124,10 @@ fun VlcVodFallback(
     var backgroundFocused by remember { mutableStateOf(false) }
     val videoFocus = remember { FocusRequester() }
     val playButtonFocus = remember { FocusRequester() }
+    val seekBarFocus = remember { FocusRequester() }
+    val backButtonFocus = remember { FocusRequester() }
+    var seekBarFocused by remember { mutableStateOf(false) }
+    var backButtonFocused by remember { mutableStateOf(false) }
     LaunchedEffect(controlsVisible) {
         delay(100L)
         runCatching {
@@ -133,9 +138,9 @@ fun VlcVodFallback(
     val controlsTimeoutSeconds by graph.settings.controlsTimeoutSeconds.collectAsState()
     var controlsInteraction by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     LaunchedEffect(controlsVisible, controlsInteraction, playing, controlsTimeoutSeconds,
-        movingSlider, errorText) {
-        if (controlsVisible && playing && !movingSlider && errorText == null &&
-            controlsTimeoutSeconds > 0) {
+        movingSlider, seekBarFocused, errorText) {
+        if (controlsVisible && playing && !movingSlider && !seekBarFocused &&
+            errorText == null && controlsTimeoutSeconds > 0) {
             delay(controlsTimeoutSeconds * 1_000L)
             controlsVisible = false
         }
@@ -344,6 +349,26 @@ fun VlcVodFallback(
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown || event.key == Key.Back) {
                     false
+                } else if (controlsVisible && event.key == Key.DirectionUp) {
+                    runCatching {
+                        if (seekBarFocused) backButtonFocus.requestFocus()
+                        else seekBarFocus.requestFocus()
+                    }
+                    controlsInteraction++
+                    true
+                } else if (controlsVisible && event.key == Key.DirectionDown &&
+                    (seekBarFocused || backButtonFocused)) {
+                    runCatching {
+                        if (backButtonFocused) seekBarFocus.requestFocus()
+                        else playButtonFocus.requestFocus()
+                    }
+                    controlsInteraction++
+                    true
+                } else if (controlsVisible && seekBarFocused &&
+                    (event.key == Key.DirectionLeft || event.key == Key.DirectionRight)) {
+                    seekBy(if (event.key == Key.DirectionLeft) -5_000L else 5_000L)
+                    controlsInteraction++
+                    true
                 } else if (!controlsVisible || backgroundFocused) {
                     when (event.key) {
                         Key.DirectionLeft -> { controlsVisible = true; controlsInteraction++; seekBy(-10_000L); true }
@@ -396,6 +421,8 @@ fun VlcVodFallback(
             IconButton(
                 onClick = onBack,
                 modifier = Modifier.align(Alignment.TopStart)
+                    .focusRequester(backButtonFocus)
+                    .onFocusChanged { backButtonFocused = it.isFocused }
                     .windowInsetsPadding(WindowInsets.safeDrawing.only(
                         WindowInsetsSides.Horizontal + WindowInsetsSides.Top))
                     .padding(12.dp).background(Color.Black.copy(alpha = .65f), RoundedCornerShape(10.dp)),
@@ -425,7 +452,12 @@ fun VlcVodFallback(
                             movingSlider = false
                         },
                         valueRange = 0f..durationMs.coerceAtLeast(1L).toFloat(),
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f)
+                            .focusRequester(seekBarFocus)
+                            .onFocusChanged { seekBarFocused = it.isFocused }
+                            .then(if (seekBarFocused) Modifier.border(
+                                2.dp, MaterialTheme.colorScheme.primary,
+                                RoundedCornerShape(7.dp)) else Modifier),
                     )
                     Spacer(Modifier.width(10.dp))
                     Text(displayTime(durationMs), color = Color.White)
