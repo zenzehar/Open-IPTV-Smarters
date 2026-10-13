@@ -7,7 +7,7 @@
 - Remove the v0.12.19 automatic LibVLC fractional-position retry: it could calculate the fraction from catalogue metadata while the native decoder still lacked a real duration. Use time seeks only; clamp initial resume seeks to known length.
 - Correct misleading LibVLC error text: a generic VLC error event does not prove unsupported video. Show a Retry VLC button and emit focused, credential-free playback diagnostic logs.
 - Log native VLC surface-detach/stop/release failures to help isolate intermittent returns to Android home; preserve native cleanup and single-exit navigation logic.
-- Add separate phone and Android TV emulator smoke jobs to GitHub Actions for the PR (cold launch, D-pad focus actions, force-stop and relaunch, process liveness, saved logcat diagnostics).
+- Add separate phone and Android TV emulator smoke jobs to GitHub Actions for the PR (cold launch, D-pad focus actions, force-stop and relaunch, process liveness, saved logcat diagnostics). Use macOS Intel hypervisor-backed runners: the first Ubuntu phone emulator took 408 seconds to boot and ADB broke before app launch; Android TV requires a 32-bit x86 SDK image.
 - Emulator smoke coverage does NOT establish every application feature or actual-provider/native decoder compatibility. Capture logcat/tombstone on the user's TV if process crashes continue. No database or app-ID migration.
 
 

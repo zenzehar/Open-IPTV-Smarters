@@ -114,8 +114,10 @@ jobs:
     name: "Android ${{ matrix.device }} smoke"
     needs: build
     if: github.event_name == 'pull_request' && github.event.pull_request.number == 6
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # macOS Intel Hypervisor.Framework avoids the Linux runner's unusable
+    # software-emulated Android boot (408 s then adb broken pipe).
+    runs-on: macos-15-intel
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -123,10 +125,12 @@ jobs:
           - device: phone
             api: 30
             target: google_apis
+            arch: x86_64
             profile: pixel_2
           - device: android-tv
             api: 30
             target: android-tv
+            arch: x86
             profile: tv_1080p
     steps:
       - uses: actions/checkout@v4
@@ -137,20 +141,15 @@ jobs:
           name: opentv-debug-apk
           path: emulator-apks
 
-      - name: Enable hardware accelerated Android emulator
-        run: |
-          sudo sh -c 'echo KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm" > /etc/udev/rules.d/99-kvm4all.rules'
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm || true
-
       - name: Emulator launch, navigation and restart smoke
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: ${{ matrix.api }}
           target: ${{ matrix.target }}
-          arch: x86_64
+          arch: ${{ matrix.arch }}
           profile: ${{ matrix.profile }}
-          disable-animations: true
+          # Avoid slow system-settings calls while the emulator's framework stabilises.
+          disable-animations: false
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           script: bash scripts/emulator-smoke.sh
 
