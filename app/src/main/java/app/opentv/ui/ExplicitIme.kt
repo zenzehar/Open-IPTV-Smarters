@@ -12,8 +12,10 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.input.pointer.PointerEventType
-import androidx.compose.ui.input.pointer.onPointerEvent
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 
 /** Open Android's selected IME only after OK/Enter or a deliberate touch/mouse click. */
@@ -21,7 +23,12 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 fun Modifier.explicitImeActivation(): Modifier {
     val keyboard = LocalSoftwareKeyboardController.current
     return this
-        .onPointerEvent(PointerEventType.Release) { keyboard?.show() }
+        .pointerInput(keyboard) {
+            awaitEachGesture {
+                awaitFirstDown(requireUnconsumed = false)
+                if (waitForUpOrCancellation() != null) keyboard?.show()
+            }
+        }
         .onPreviewKeyEvent { event ->
             if (event.type == KeyEventType.KeyDown &&
                 (event.key == Key.DirectionCenter || event.key == Key.Enter ||

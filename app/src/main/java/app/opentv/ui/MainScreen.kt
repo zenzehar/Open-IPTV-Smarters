@@ -292,6 +292,8 @@ fun MainScreen(
                         isTelevision = isTelevision,
                         liveState = tileState("live"),
                         refreshProgress = refreshProgress,
+                        movieProgress = movieLoad.progress,
+                        seriesProgress = seriesLoad.progress,
                         liveFailure = failedRefreshMessages["live"],
                         movieFailure = failedRefreshMessages["movies"] ?: movieLoad.message.takeIf { movieLoad.phase == VodLoadPhase.FAILED },
                         seriesFailure = failedRefreshMessages["series"] ?: seriesLoad.message.takeIf { seriesLoad.phase == VodLoadPhase.FAILED },
@@ -468,6 +470,8 @@ private fun DashboardHome(
     isTelevision: Boolean,
     liveState: String,
     refreshProgress: Float,
+    movieProgress: Float?,
+    seriesProgress: Float?,
     liveFailure: String?,
     movieFailure: String?,
     seriesFailure: String?,
@@ -585,7 +589,7 @@ private fun DashboardHome(
                                 upperHeight, Modifier.weight(1f), onMovies, movieState,
                                 moviesLastUpdated, { onRefreshStage("movies") }, movieFailure,
                                 firstFocus = if (isTelevision && firstFocusTarget == DashboardFocusTarget.MOVIES) homeFocus else null,
-                                progress = if (movieState == "UPDATING") (movieLoad.progress ?: refreshProgress) else null,
+                                progress = if (movieState == "UPDATING") (movieProgress ?: refreshProgress) else null,
                             )
                             if (seriesEnabled) DashboardTile(
                                 "SERIES", "Seasons & episodes", Icons.Filled.Tv,
@@ -594,7 +598,7 @@ private fun DashboardHome(
                                 seriesLastUpdated, { onRefreshStage("series") }, seriesFailure,
                                 firstFocus = if (isTelevision && firstFocusTarget == DashboardFocusTarget.SERIES)
                                     homeFocus else null,
-                                progress = if (seriesState == "UPDATING") (seriesLoad.progress ?: refreshProgress) else null,
+                                progress = if (seriesState == "UPDATING") (seriesProgress ?: refreshProgress) else null,
                             )
                         }
                         Row(
@@ -634,7 +638,7 @@ private fun DashboardHome(
                         moviesLastUpdated, { onRefreshStage("movies") }, movieFailure,
                         firstFocus = if (isTelevision && firstFocusTarget == DashboardFocusTarget.MOVIES)
                             homeFocus else null,
-                        progress = if (movieState == "UPDATING") (movieLoad.progress ?: refreshProgress) else null,
+                        progress = if (movieState == "UPDATING") (movieProgress ?: refreshProgress) else null,
                     )
                     if (seriesEnabled) DashboardTile(
                         "SERIES", "Episodes", Icons.Filled.Tv,
@@ -643,7 +647,7 @@ private fun DashboardHome(
                         seriesLastUpdated, { onRefreshStage("series") }, seriesFailure,
                         firstFocus = if (isTelevision && firstFocusTarget == DashboardFocusTarget.SERIES)
                             homeFocus else null,
-                        progress = if (seriesState == "UPDATING") (seriesLoad.progress ?: refreshProgress) else null,
+                        progress = if (seriesState == "UPDATING") (seriesProgress ?: refreshProgress) else null,
                     )
                 }
                 Row(

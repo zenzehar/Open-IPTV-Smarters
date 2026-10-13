@@ -110,6 +110,7 @@ fun VlcVodFallback(
     var showStartupSpinner by remember(mediaKey, streamUrl) { mutableStateOf(false) }
     var errorText by remember { mutableStateOf<String?>(null) }
     var controlsVisible by remember { mutableStateOf(true) }
+    var movingSlider by remember { mutableStateOf(false) }
     val controlsTimeoutSeconds by graph.settings.controlsTimeoutSeconds.collectAsState()
     var controlsInteraction by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     LaunchedEffect(controlsVisible, controlsInteraction, playing, controlsTimeoutSeconds,
@@ -120,7 +121,6 @@ fun VlcVodFallback(
             controlsVisible = false
         }
     }
-    var movingSlider by remember { mutableStateOf(false) }
     var sliderValue by remember { mutableStateOf(0f) }
     var initialized by remember(mediaKey, streamUrl) { mutableStateOf(false) }
     var finished by remember(mediaKey) { mutableStateOf(false) }
