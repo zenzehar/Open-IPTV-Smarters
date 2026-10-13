@@ -637,7 +637,7 @@ private fun VodCategoryRow(
  */
 @Composable
 private fun PagedMovieCategoryGrid(
-    categoryId: String,
+    categoryId: String?,
     sourceId: Long?,
     filter: String,
     viewModel: VodViewModel,
