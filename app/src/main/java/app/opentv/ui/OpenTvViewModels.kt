@@ -1396,12 +1396,15 @@ class ProfilesViewModel(app: Application) : AndroidViewModel(app) {
     fun select(id: Long) { settings.setActiveProfile(id) }
 
     fun remove(id: Long) {
-        // The base profile stays — there is always at least one to be.
-        if (id == 1L) return
         viewModelScope.launch {
+            val existing = graph.profiles.all()
+            if (existing.size <= 1 || existing.none { it.id == id }) return@launch
+            val replacement = existing.first { it.id != id }.id
+            // Switch first so no observer can read a deleted active profile.
+            if (settings.activeProfileId.value == id) settings.setActiveProfile(replacement)
+            graph.profiles.detachRecordings(id)
             graph.profiles.deletePositions(id)
             graph.profiles.delete(id)
-            if (settings.activeProfileId.value == id) settings.setActiveProfile(1L)
         }
     }
 }
