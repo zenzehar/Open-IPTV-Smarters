@@ -68,6 +68,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.nativeKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.graphics.Color
@@ -374,13 +375,26 @@ fun VlcVodFallback(
                     true
                 } else if (controlsVisible && seekBarFocused &&
                     (event.key == Key.DirectionLeft || event.key == Key.DirectionRight)) {
-                    seekBy(if (event.key == Key.DirectionLeft) -5_000L else 5_000L)
+                    val amount = when {
+                        event.nativeKeyEvent.repeatCount >= 12 -> 60_000L
+                        event.nativeKeyEvent.repeatCount >= 4 -> 20_000L
+                        else -> 5_000L
+                    }
+                    seekBy(if (event.key == Key.DirectionLeft) -amount else amount)
                     controlsInteraction++
                     true
                 } else if (!controlsVisible || backgroundFocused) {
                     when (event.key) {
-                        Key.DirectionLeft -> { controlsVisible = true; controlsInteraction++; seekBy(-10_000L); true }
-                        Key.DirectionRight -> { controlsVisible = true; controlsInteraction++; seekBy(10_000L); true }
+                        Key.DirectionLeft -> {
+                            controlsVisible = true; controlsInteraction++
+                            seekBy(-if (event.nativeKeyEvent.repeatCount >= 4) 30_000L else 10_000L)
+                            true
+                        }
+                        Key.DirectionRight -> {
+                            controlsVisible = true; controlsInteraction++
+                            seekBy(if (event.nativeKeyEvent.repeatCount >= 4) 30_000L else 10_000L)
+                            true
+                        }
                         Key.DirectionUp, Key.DirectionDown -> { controlsVisible = true; controlsInteraction++; true }
                         else -> false
                     }

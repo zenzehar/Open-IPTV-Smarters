@@ -80,6 +80,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.nativeKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
@@ -283,9 +284,17 @@ fun VodPlayerScreen(
     fun reveal() { controlsVisible = true; interaction++ }
     // Root owns arrows only while the controls are hidden or the background has focus.
     // Once a chip has focus, native D-pad traversal reaches the actual buttons.
-    fun revealAndSeek(key: Key): Boolean = when (key) {
-        Key.DirectionLeft -> { reveal(); seekRelative(-10_000L); true }
-        Key.DirectionRight -> { reveal(); seekRelative(10_000L); true }
+    fun revealAndSeek(key: Key, repeats: Int): Boolean = when (key) {
+        Key.DirectionLeft -> {
+            reveal()
+            seekRelative(-if (repeats >= 12) 60_000L else if (repeats >= 4) 20_000L else 10_000L)
+            true
+        }
+        Key.DirectionRight -> {
+            reveal()
+            seekRelative(if (repeats >= 12) 60_000L else if (repeats >= 4) 20_000L else 10_000L)
+            true
+        }
         Key.DirectionUp, Key.DirectionDown -> { reveal(); true }
         else -> false
     }
@@ -460,13 +469,19 @@ fun VodPlayerScreen(
                         (event.key == Key.DirectionLeft || event.key == Key.DirectionRight) -> {
                         // Each tap moves by five seconds, even when the native Slider
                         // implementation does not forward D-pad seek on an Android TV.
-                        seekRelative(if (event.key == Key.DirectionLeft) -5_000L else 5_000L)
+                        val amount = when {
+                            event.nativeKeyEvent.repeatCount >= 12 -> 60_000L
+                            event.nativeKeyEvent.repeatCount >= 4 -> 20_000L
+                            else -> 5_000L
+                        }
+                        seekRelative(if (event.key == Key.DirectionLeft) -amount else amount)
                         positionMs = controller.player.currentPosition.coerceAtLeast(0L)
                         scrubbing = false
                         interaction++
                         true
                     }
-                    (!controlsVisible || rootHasFocus) && revealAndSeek(event.key) -> true
+                    (!controlsVisible || rootHasFocus) &&
+                        revealAndSeek(event.key, event.nativeKeyEvent.repeatCount) -> true
                     else -> { interaction++; false }
                 }
             }
