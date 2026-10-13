@@ -429,6 +429,17 @@ interface MovieDao {
     )
     fun observe(categoryId: String?): Flow<List<Movie>>
 
+    /** Bounded Room cursor avoids exhausting memory when a provider category has 20k+ films. */
+    @Query("""
+        SELECT * FROM movies
+        WHERE (:categoryId IS NULL OR categoryId = :categoryId)
+          AND (:sourceId IS NULL OR sourceId = :sourceId)
+          AND (:filter = '' OR name LIKE '%' || :filter || '%')
+        ORDER BY addedMillis DESC, id DESC
+        LIMIT :limit
+    """)
+    fun observePage(categoryId: String?, sourceId: Long?, filter: String, limit: Int): Flow<List<Movie>>
+
     @Query("SELECT * FROM movies WHERE favourite = 1 ORDER BY name")
     fun observeFavourites(): Flow<List<Movie>>
 

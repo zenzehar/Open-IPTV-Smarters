@@ -1014,6 +1014,10 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
 
     fun selectMovieCategory(id: String?) { movieCategory.value = id }
 
+    /** Stream one capped page at a time, instead of loading an entire huge category in Room. */
+    fun movieCategoryPage(categoryId: String?, sourceId: Long?, filter: String, limit: Int) =
+        graph.catalogRepository.observeMoviesPage(categoryId, sourceId, filter, limit)
+
     fun selectSeriesCategory(id: String?) { seriesCategory.value = id }
 
     /** True when at least one Stremio add-on is configured — gates the "add-on sources" button. */

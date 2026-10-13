@@ -179,10 +179,13 @@ fun MoviesScreen(
                         (selectedSource == null || it.sourceId == selectedSource) &&
                             it.displayTitle.contains(titleFilter.trim(), ignoreCase = true)
                     }, viewModel, onOpenMovie)
-                    browseCategory != null -> MovieCategoryGrid(categoryMovies.filter {
-                        (selectedSource == null || it.sourceId == selectedSource) &&
-                            it.displayTitle.contains(titleFilter.trim(), ignoreCase = true)
-                    }, viewModel, onOpenMovie)
+                    browseCategory != null -> PagedMovieCategoryGrid(
+                        categoryId = browseCategory!!,
+                        sourceId = selectedSource,
+                        filter = titleFilter,
+                        viewModel = viewModel,
+                        onOpenMovie = onOpenMovie,
+                    )
                     !hasContent -> when {
                         loadState.phase == VodLoadPhase.LOADING || isSyncing -> LoadingVod(stringResource(R.string.vod_loading_movies))
                         scopedMovies.isNotEmpty() -> MovieCategoryGrid(scopedMovies, viewModel, onOpenMovie)
@@ -583,9 +586,43 @@ private fun VodCategoryRow(
 
 // ---- Whole-category browse grids ---------------------------------------------------------------
 
+/**
+ * Only materialise a bounded DB page. The user explicitly asks for another page rather than
+ * a TV box allocating thousands of decoded posters or one enormous SQLite cursor.
+ * Each category/filter/provider change resets its pagination state safely.
+ */
+@Composable
+private fun PagedMovieCategoryGrid(
+    categoryId: String,
+    sourceId: Long?,
+    filter: String,
+    viewModel: VodViewModel,
+    onOpenMovie: (Movie) -> Unit,
+) {
+    var limit by remember(categoryId, sourceId, filter) { androidx.compose.runtime.mutableIntStateOf(160) }
+    val pagedFlow = remember(categoryId, sourceId, filter, limit) {
+        viewModel.movieCategoryPage(categoryId, sourceId, filter.trim(), limit + 1)
+    }
+    val page by pagedFlow.collectAsState(initial = emptyList())
+    val hasMore = page.size > limit
+    MovieCategoryGrid(
+        movies = page.take(limit),
+        viewModel = viewModel,
+        onOpenMovie = onOpenMovie,
+        hasMore = hasMore,
+        onLoadMore = { limit = (limit + 160).coerceAtMost(2_000) },
+    )
+}
+
 /** One category's films as a poster grid. Quality variants collapse to one card, badged. */
 @Composable
-private fun MovieCategoryGrid(movies: List<Movie>, viewModel: VodViewModel, onOpenMovie: (Movie) -> Unit) {
+private fun MovieCategoryGrid(
+    movies: List<Movie>,
+    viewModel: VodViewModel,
+    onOpenMovie: (Movie) -> Unit,
+    hasMore: Boolean = false,
+    onLoadMore: () -> Unit = {},
+) {
     if (movies.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("No matching movies in this category", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -631,6 +668,13 @@ private fun MovieCategoryGrid(movies: List<Movie>, viewModel: VodViewModel, onOp
                 qualityBadge = badge,
                 onClick = { onOpenMovie(group.primary) },
             )
+        }
+        if (hasMore) {
+            item(key = "load-more") {
+                androidx.compose.material3.OutlinedButton(onClick = onLoadMore) {
+                    Text("Load 160 more")
+                }
+            }
         }
     }
 }
