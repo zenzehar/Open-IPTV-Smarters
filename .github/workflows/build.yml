@@ -74,6 +74,9 @@ jobs:
       - name: Mock provider contract tests
         run: python3 scripts/test-mock-xtream-server.py
 
+      - name: Prove private provider secrets are masked and HTTP needs opt-in
+        run: python3 scripts/test-live-provider-qa.py
+
       - name: Unit tests
         run: ./gradlew test --stacktrace
 
