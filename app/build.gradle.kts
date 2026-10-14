@@ -9,6 +9,8 @@ plugins {
 android {
     namespace = "app.opentv"
     compileSdk = 35
+    // Instrument isolated QA package, never overwrite the user's Debug install.
+    testBuildType = "qa"
 
     defaultConfig {
         applicationId = "app.opentv"

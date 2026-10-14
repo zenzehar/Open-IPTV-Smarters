@@ -52,8 +52,14 @@ jobs:
             echo "::warning::Signing secrets not configured: debug APK will have a temporary certificate and cannot reliably upgrade an older APK."
           fi
 
+      - name: Mock provider contract tests
+        run: python3 scripts/test-mock-xtream-server.py
+
       - name: Unit tests
         run: ./gradlew test --stacktrace
+
+      - name: Compile Android QA integration tests
+        run: ./gradlew assembleQaAndroidTest --stacktrace
 
       - name: Assemble debug and side-by-side QA APKs
         run: ./gradlew assembleDebug assembleQa --stacktrace
@@ -73,6 +79,7 @@ jobs:
           path: |
             app/build/outputs/apk/debug/*.apk
             app/build/outputs/apk/qa/*.apk
+            app/build/outputs/apk/androidTest/qa/*.apk
             signing-fingerprint.txt
           if-no-files-found: error
 
@@ -160,5 +167,10 @@ jobs:
           name: emulator-smoke-${{ matrix.device }}-logs
           path: |
             emulator-logcat.txt
+            emulator-crashes.txt
             emulator-smoke-results.txt
+            emulator-instrumentation.txt
+            emulator-ui.xml
+            emulator-screenshots/
+            emulator-fixture.log
           if-no-files-found: ignore
