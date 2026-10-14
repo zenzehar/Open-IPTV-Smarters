@@ -206,7 +206,7 @@ class AppSettings private constructor(context: Context) {
     }
 
     /** Autoplay the next available episode when a series episode reaches its end. */
-    private val _autoplayNextEpisode = MutableStateFlow(prefs.getBoolean(KEY_AUTOPLAY_NEXT_EPISODE, false))
+    private val _autoplayNextEpisode = MutableStateFlow(prefs.getBoolean(KEY_AUTOPLAY_NEXT_EPISODE, true))
     val autoplayNextEpisode: StateFlow<Boolean> = _autoplayNextEpisode.asStateFlow()
 
     fun setAutoplayNextEpisode(enabled: Boolean) {

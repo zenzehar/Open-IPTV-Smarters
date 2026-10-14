@@ -201,7 +201,7 @@ fun MainScreen(
             else !isTelevision || maxWidth < 700.dp
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             DashboardHeader(
-                title = if (tab == DashboardTab.HOME) "MyIPTV" else tab.text,
+                title = if (tab == DashboardTab.HOME) "Koky & Sosy TV" else tab.text,
                 isHome = tab == DashboardTab.HOME,
                 onHome = { tab = DashboardTab.HOME },
                 onSearch = onOpenSearch,
