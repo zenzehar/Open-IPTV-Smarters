@@ -23,10 +23,12 @@ jobs:
           - device: phone
             api: 34
             target: google_apis
+            arch: x86_64
             profile: pixel_6
           - device: tv
             api: 33
             target: android-tv
+            arch: x86
             profile: tv_1080p
     steps:
       - uses: actions/checkout@v4
@@ -45,7 +47,7 @@ jobs:
         with:
           api-level: ${{ matrix.api }}
           target: ${{ matrix.target }}
-          arch: x86_64
+          arch: ${{ matrix.arch }}
           profile: ${{ matrix.profile }}
           avd-name: koky-sosy-${{ matrix.device }}
           emulator-boot-timeout: 600
