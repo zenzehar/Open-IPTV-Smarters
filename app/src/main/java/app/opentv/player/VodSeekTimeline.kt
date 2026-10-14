@@ -34,6 +34,18 @@ internal object VodSeekTimeline {
             if (knownDuration > 0L) it.coerceAtMost(knownDuration) else it
         }
 
+    /**
+     * Duration metadata from an IPTV source is provisional. Some provider containers report
+     * 44:00 while VLC is demonstrably still playing at 44:14. Treating that duration as a
+     * hard limit pins the slider at the end and blocks subsequent forward seeking.
+     *
+     * The calling screen latches this result for its playback session, even if the user
+     * seeks backwards, so a stale duration cannot come back and clamp the timeline again.
+     */
+    fun contradictsDuration(reportedDuration: Long, observedPosition: Long): Boolean =
+        reportedDuration > 0L && observedPosition > reportedDuration &&
+            observedPosition - reportedDuration > 2_000L
+
     fun reachedTarget(actual: Long, requested: Long): Boolean =
         kotlin.math.abs(actual - requested) <= 4_000L
 }

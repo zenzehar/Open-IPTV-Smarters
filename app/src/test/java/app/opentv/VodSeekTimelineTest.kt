@@ -28,6 +28,18 @@ class VodSeekTimelineTest {
         assertEquals(6_800_000L, VodSeekTimeline.durationMillis(-1L, 0L, 6_800_000L))
     }
 
+    @Test fun playingBeyondProviderReportedEndMustNotFreezeTimeline() {
+        val providerDuration = 44L * 60_000L
+        val decodedPosition = 44L * 60_000L + 14_000L
+        assertTrue(VodSeekTimeline.contradictsDuration(providerDuration, decodedPosition))
+        assertFalse(VodSeekTimeline.contradictsDuration(providerDuration, providerDuration + 1_000L))
+        // Once contradicted, the screen uses unknown-duration mode, including after seeking back.
+        assertEquals(0L, VodSeekTimeline.clampTarget(0L, 0L))
+        assertEquals(45L * 60_000L, VodSeekTimeline.clampTarget(45L * 60_000L, 0L))
+        assertEquals(decodedPosition + 30L * 60_000L,
+            VodSeekTimeline.seekBarMaxMillis(0L, decodedPosition, decodedPosition))
+    }
+
     @Test fun timelineClampAndSeekAcknowledgementAreShared() {
         assertEquals(0L, VodSeekTimeline.clampTarget(-10L, 0L))
         assertEquals(80_000L, VodSeekTimeline.clampTarget(120_000L, 80_000L))

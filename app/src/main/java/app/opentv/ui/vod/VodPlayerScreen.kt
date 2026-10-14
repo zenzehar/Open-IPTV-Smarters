@@ -210,11 +210,13 @@ fun VodPlayerScreen(
     var pendingSeek by remember(mediaKey) { mutableStateOf<Long?>(null) }
     var pendingSeekStartedAt by remember(mediaKey) { androidx.compose.runtime.mutableLongStateOf(0L) }
     var seekFailure by remember(mediaKey) { mutableStateOf(false) }
+    var durationContradicted by remember(mediaKey) { mutableStateOf(false) }
     // A request may not immediately move ExoPlayer's currentPosition; keep the slider
     // at the requested position while the decoder/buffer catches up.
     fun seekToMs(requested: Long) {
         val p = controller.player
         val maximum = if (growingRec) p.bufferedPosition.coerceAtLeast(0L)
+            else if (durationContradicted) 0L
             else VodSeekTimeline.durationMillis(p.duration, catalogueDurationMs, savedDurationMs)
         val target = VodSeekTimeline.clampTarget(requested, maximum)
         // A briefly unavailable Media3 seekability flag is not a verdict on the
@@ -446,9 +448,18 @@ fun VodPlayerScreen(
                 positionMs = (pendingSeek ?: actual).coerceAtLeast(0L)
                 // A growing recording has no fixed length; the recorded-so-far extent (how far you
                 // can skip ahead) is what's been read into the buffer.
-                durationMs = if (growingRec) controller.player.bufferedPosition.coerceAtLeast(0L)
-                else VodSeekTimeline.durationMillis(
-                    controller.player.duration, catalogueDurationMs, savedDurationMs)
+                val reportedDuration = if (growingRec) {
+                    controller.player.bufferedPosition.coerceAtLeast(0L)
+                } else {
+                    VodSeekTimeline.durationMillis(
+                        controller.player.duration, catalogueDurationMs, savedDurationMs,
+                    )
+                }
+                if (!growingRec && VodSeekTimeline.contradictsDuration(reportedDuration, actual)) {
+                    durationContradicted = true
+                }
+                durationMs = if (durationContradicted && !growingRec) 0L
+                    else reportedDuration
             }
             delay(500)
         }

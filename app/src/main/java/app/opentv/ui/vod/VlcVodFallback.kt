@@ -162,6 +162,8 @@ fun VlcVodFallback(
     var pendingSeekMs by remember(mediaKey) { mutableStateOf<Long?>(null) }
     var pendingSeekStartedAt by remember(mediaKey) { mutableLongStateOf(0L) }
     var seekFailure by remember(mediaKey) { mutableStateOf(false) }
+    // Once actual playback surpasses a provider's reported end, stop trusting that end.
+    var durationContradicted by remember(mediaKey) { mutableStateOf(false) }
     val controlsTimeoutSeconds by graph.settings.controlsTimeoutSeconds.collectAsState()
     var controlsInteraction by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     LaunchedEffect(controlsVisible, controlsInteraction, playing, controlsTimeoutSeconds,
@@ -233,12 +235,18 @@ fun VlcVodFallback(
     }
 
     fun seekToMs(requested: Long) {
-        val target = VodSeekTimeline.clampTarget(requested, durationMs)
+        val target = VodSeekTimeline.clampTarget(
+            requested, if (durationContradicted) 0L else durationMs,
+        )
         pendingSeekMs = target
         pendingSeekStartedAt = android.os.SystemClock.uptimeMillis()
         seekFailure = false
         positionMs = target
-        runCatching { player.setTime(target) }
+        runCatching { player.setTime(target) }.onFailure {
+            pendingSeekMs = null
+            seekFailure = true
+            Log.w("KokyTV/VLC", "Native VLC seek request failed", it)
+        }
     }
 
     fun seekBy(delta: Long) {
@@ -362,8 +370,16 @@ fun VlcVodFallback(
             delay(1_000L)
             val p = runCatching { player.time }.getOrDefault(0L)
             val d = runCatching { player.length }.getOrDefault(0L)
-            durationMs = VodSeekTimeline.durationMillis(d, catalogueDurationMs, savedDurationMs)
-            val actual = if (durationMs > 0L) p.coerceIn(0L, durationMs) else p.coerceAtLeast(0L)
+            val reportedDuration = VodSeekTimeline.durationMillis(
+                d, catalogueDurationMs, savedDurationMs,
+            )
+            if (VodSeekTimeline.contradictsDuration(reportedDuration, p)) {
+                durationContradicted = true
+            }
+            // Do not fabricate a valid end or clamp the decoded timestamp. An inaccurate
+            // duration becomes an explicitly unknown duration with a moving seek window.
+            durationMs = if (durationContradicted) 0L else reportedDuration
+            val actual = p.coerceAtLeast(0L)
             val pending = pendingSeekMs
             if (pending != null && VodSeekTimeline.reachedTarget(actual, pending)) {
                 pendingSeekMs = null
@@ -535,6 +551,11 @@ fun VlcVodFallback(
                 modifier = Modifier.align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .background(Color.Black.copy(alpha = 0.88f))
+                    .windowInsetsPadding(
+                        WindowInsets.safeDrawing.only(
+                            WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom,
+                        ),
+                    )
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
