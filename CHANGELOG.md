@@ -1,5 +1,201 @@
 # Changelog
 
+## 0.12.21 — Autonomous provider diagnostics on devices with saved accounts
+
+- Background read-only health checks start automatically after launch and repeat approximately daily; no GitHub secrets, user actions or source-code credentials are needed when the Xtream profile already exists on this installation.
+- Report login, category and cached-episode metadata checks plus a bounded same-host movie HTTP Range response. Results and individual statuses are visible in Settings → About.
+- Report only fixed PASS/FAIL and skipped statuses, never source names, endpoints, account information or response bodies. No automatic background decoding or interruption of live playback.
+- Add unit tests for due-time policy. Real decoder seeking, provider playback and remote exit still require genuine on-device verification.
+
+
+## QA worker: autonomous read-only diagnostics on Android hardware
+
+- Schedule private on-device Xtream provider diagnostics 90 seconds after launch and roughly every 24 hours using existing saved source logins, no credentials added to source or GitHub workflow inputs.
+- Test account authentication, Live/Movie/Series category metadata, a cached series' episode metadata and a capped same-provider-host HTTP Range request for one cached movie. Range must return HTTP 206, not just 200.
+- Do not download full catalogues, start background playback, disrupt watching, export request URLs, log credentials or modify user profiles/history.
+- Store fixed-label PASS/FAIL summaries on-device and show the latest aggregate report in About.
+- An HTTP Range pass is not a demonstration that Android TV decoder seeking works; hardware playback regressions remain open.
+
+
+## 0.12.20 — VLC playback regression triage and Android TV/phone smoke checks
+
+- Remove the 25-second forced Media3-to-LibVLC switch on slow startup buffering. Only known unsupported codecs/containers and explicit user choice activate VLC.
+- Add a visible manual VLC alternative when startup buffering is prolonged; don't interrupt a stream that may still recover.
+- Remove the v0.12.19 automatic LibVLC fractional-position retry: it could calculate the fraction from catalogue metadata while the native decoder still lacked a real duration. Use time seeks only; clamp initial resume seeks to known length.
+- Correct misleading LibVLC error text: a generic VLC error event does not prove unsupported video. Show a Retry VLC button and emit focused, credential-free playback diagnostic logs.
+- Log native VLC surface-detach/stop/release failures to help isolate intermittent returns to Android home; preserve native cleanup and single-exit navigation logic.
+- Add separate phone and Android TV emulator smoke jobs to GitHub Actions for the PR (cold launch, D-pad focus actions, force-stop and relaunch, process liveness, saved logcat diagnostics). Use macOS Intel hypervisor-backed runners: the first Ubuntu phone emulator took 408 seconds to boot and ADB broke before app launch; Android TV requires a 32-bit x86 SDK image.
+- Emulator smoke coverage does NOT establish every application feature or actual-provider/native decoder compatibility. Capture logcat/tombstone on the user's TV if process crashes continue. No database or app-ID migration.
+
+
+## 0.12.19 — Restore usable movie seeking on Media3 and LibVLC
+
+- Fix movie timebars freezing at zero: both Media3 and LibVLC previously fell back to an unusable 0..1 millisecond Slider when the decoder did not yet expose a duration. Use the same shared timeline policy for movies and episodes and restore provider movie duration, watch-history duration and actual decoder duration in order.
+- If no duration has arrived, keep the actual duration unknown (display –:–) and provide a rolling 30-minute seek window instead of a 1 ms slider. Progress controls remain responsive while runtime metadata loads.
+- LibVLC now keeps a requested seek position visible while it is being processed, retries by fractional position when time seeking is ignored before getLength arrives, and shares the time-seek behaviour with Media3. D-pad left/right and ±10 seconds use the same VLC seek function.
+- Include regression tests for movie duration fallback, unknown-duration seek window, clamping, history fallback and seek acknowledgement. Preserve existing credentials, version identity and watch positions.
+- Device-level validation remains necessary, especially on movie sources requiring native VLC fallback and where provider runtime duration data is absent.
+
+
+## 0.12.18 — Restore consistent movie and series seek semantics
+
+- Remove the new Media3 seekability-flag shortcut that forced movie seeks into VLC; always issue a normal time seek for movies and episodes, even while seekability metadata is initialising.
+- Fix automatic playback restarts after a seek losing the requested VOD time and returning to the originally saved position. The active playback request now retains the latest seek for recovery and manual retries.
+- Prevent automatic retries from resetting their own failure limit. Successful playback or deliberate playback selection still clears the counter.
+- Don't forcibly swap decoders on an arbitrary seek timeout. After an extended unsuccessful seek, display an accurate status and provide an explicit VLC alternative with the requested time.
+- Leave TV Back logic, history, credentials and package IDs unchanged. Device verification remains necessary.
+
+
+## 0.12.17 — Seek reliability, VLC Back, remote OK hold and startup status
+
+- Keep the movie seek thumb at the requested position until Media3 confirms the seek; retry ignored or unsupported seek operations through embedded VLC with the target position.
+- Keep the VLC output attached during the deferred Back transition; route Back from VLC's visible/hidden control states through one guarded exit request. Prevent double pops if Back is pressed repeatedly.
+- Implement native remote OK/Enter held-duration handling for Continue Watching cards, independent of Compose touch long-click. MENU key also opens the same actions; short OK still resumes.
+- Remove the redundant preview poster and 'Select the poster to resume playback' pane in Continue Watching. Cards now occupy the available content width.
+- Prevent false dashboard 'updating' badges during a warm cached VOD check; only show UPDATING for actual foreground provider downloads.
+- Skip startup WorkManager enqueuing if persisted per-section stamps show the configured interval has not passed. Retain worker-level due checks and periodic Android scheduling.
+- Keep existing package IDs and saved user data; device verification remains required for seek support, native VLC lifecycle and remote key events.
+
+
+## 0.12.16 — Live category search, launch refresh, Continue Watching reset and safer navigation
+
+- Search live category names within the TV sidebar or phone category bar, independent of the existing channel-title search.
+- Remove the redundant dashboard initial Live refresh; configured automatic update frequency now controls launch and scheduled syncs through serialized workers.
+- Long-press Continue Watching opens a choice between title details and a confirmed reset of the selected film or entire series' progress for the active profile.
+- Keep VOD Back intercepted during deferred video exit; guard repeated Live navigation; restore Home when a player lacks a usable back destination.
+- Brand the startup loading screen with the Koky TV emblem and name rather than just a turquoise spinner.
+- No destructive migrations, package-ID changes or automatic deletion of provider data. Physical-device QA remains outstanding.
+
+
+## 0.12.15 — Large-catalogue paging beyond 2,000 titles
+
+- Movie and Series category searches and browse grids now use incremental 160-row SQLite LIMIT/OFFSET slices instead of an expanding 2,001-row limit, removing the prior ceiling and the no-op Load More button.
+- Previously loaded posters remain visible while the next 160 are fetched. The Load More button is disabled during loading and hidden at the end of the query results. Category, provider and search changes reset pagination.
+- No changes to app IDs, signing setup, credentials, Room schema or watch history. Real-device QA remains necessary for very large categories and playback.
+
+
+## 0.12.14 — Continue Watching, season focus, accelerated seek, refreshed icon and automatic NAS sync
+
+- First Back while VOD player controls are showing hides the controls and keeps playback running; the next Back returns to the detail screen. An open Media3 track chooser still dismisses before hiding playback controls.
+- Long-hold Left or Right on Android TV accelerates Media3/VLC seek from normal 5/10-second steps to 20/30-second and then 60-second steps using Android key-repeat events; regular short taps remain precise.
+- Long-press a movie or series entry in Continue Watching to open its full detail screen, retaining ordinary short-click to resume. Cards show watched minutes, total minutes and completion percentage.
+- After launching an episode from a series detail screen, going Back restores that show's selected season, scrolls to the just-watched episode row, and requests TV focus on that episode.
+- Movies and Series local search now runs a parameterised Room query against the entire *cached* provider category, with bounded 160-item pages and Load More rather than searching only the recent/curated shelves. Full catalogue search continues to depend on titles actually cached by provider sync.
+- Redesigned Koky TV adaptive launcher icon: original cyan/violet TV and white play emblem, reproduced in the Home header. Existing package names unchanged.
+- Opt-in automatic background sync using the user's existing configured SMB/NAS relay runs periodically at approximately 15-minute intervals through WorkManager, independent of the app staying open. Each device writes a durable JSON snapshot to the shared NAS and merges the other devices' last saved snapshots on its next online window. Both Android devices need not run concurrently, but the shared NAS/server must remain available. Background execution may be deferred by Android. Existing LAN/manual sync remains unchanged.
+- No destructive migrations. QA still required for actual TV key repeats, long-press on remote controls, restoring episode selection, large-category database search and remote SMB reachability.
+
+
+## 0.12.13 — category-local search and focusable remote seeking
+
+- Search in Live TV, Movies and Series is now bound to the visible screen's actual state. The Live header and both Live guide layouts explicitly share one ChannelsViewModel; the selected Live category and provider continue to constrain search results.
+- Changing Movies or Series categories no longer silently clears an active search; the same term filters the newly selected category in place. Source changes also preserve the query.
+- Search filtering now covers the original “All” movie/series shelves (Continue Watching, Recommended, Recently Added and genre rows), not just standalone category grids. Empty matches show a clear “No matching titles” state instead of unfiltered or blank rows.
+- Pressing the visible category Search icon focuses that field and explicitly opens the keyboard. Simply moving TV remote focus does not open the keyboard.
+- VOD Media3 and VLC timelines are now explicitly focusable from the remote: Up from the control buttons selects the seek bar, Left/Right moves the playback cursor by 5 seconds per key press, Down returns to the controls, and Up from the timeline moves to the Back button. The focused timeline has an obvious highlight. While the timeline is focused, the control bar remains visible so the user can adjust an exact point.
+- Background-video arrows still reveal controls and seek by 10 seconds when the bar is hidden, while standard Left/Right continue to navigate buttons when the seek bar itself is not focused.
+- Preserve all package identifiers, provider credentials, watched history and existing player buffering settings. Verify precise Android TV D-pad navigation and search behaviour on physical hardware.
+
+
+## 0.12.12 — TV remote playback, clean login focus and stable exit
+
+- TV login now shows remote-focusable, clearly bordered, inert field tiles. Actual Android TextFields are created only after pressing OK; this prevents provider TV keyboards from flashing open while moving between login fields. Phone input remains native.
+- Live player: dedicated Channel Up/Down still tune channels; ordinary D-pad arrows reveal the bar and navigate its selectable transport controls instead of unexpectedly changing channels.
+- Playback: D-pad Up/Down reveals the transport overlay. Left/Right reveals the overlay and seeks by 10 seconds when playback background has focus or controls are hidden. When visible, focus is moved onto the Pause/Play button so directional navigation can select all transport chips; embedded VLC gets matching arrow handling and its own focusable Play/Pause.
+- Player Back consistently exits when no track picker is open rather than consuming a press merely to hide the bar. Back at the top left also remains visible while playback is paused.
+- Player return removes the media surface and navigates after a short frame, with deferred Media3 release on its required main looper, and VLC native stop/release performed away from Compose teardown. Saved position persists on exit; the same stream format fallback and autoplay behaviour remain.
+- Title pages show a restrained gradient instead of stretching or cropping inconsistent provider backdrop art. Poster remains separately fitted, 144×214dp with rounded clipping.
+- No Room or credentials migration, no package/signature change introduced intentionally. TV and codec-specific crashes must still be validated on hardware.
+
+
+## 0.12.11 — Koky TV, TV stability and contextual search
+
+- Display name and launcher label changed to **Koky TV** across device locales using an unlocalized launcher label. Retain Android application IDs for safe updates, Room data, favourites and history.
+- Android TV Back behaviour: no blocking exit dialog. Back from a section returns Home; the second Back warns with a toast, and the third exits. The Home-only first Back primes the sequence, with a five-second timeout.
+- Movies category crash mitigation: query one bounded 160-title page from Room instead of subscribing to the entire selected category; more titles via a Load More button. Perform quality-variant grouping off the main thread as before.
+- Media3 video Back path now unmounts the Android player view before its native decoder is released. Embedded VLC suppresses late native callbacks during shutdown to reduce device-dependent hangs.
+- VOD starts after about 1 second of media is buffered instead of 2.5 seconds; 15–60-second target reservoir and 5-second rebuffer threshold remain unchanged. Live/recording buffer profiles untouched.
+- Stronger Android TV keyboard suppression: on mere D-pad focus, hide the platform IME repeatedly; pressing OK/Enter or tapping a text field deliberately enables it.
+- Double Down/Up jumps now require 1–7 seconds between the presses, so rapid sequential category navigation does not jump unexpectedly.
+- The Live TV top search field now scopes channels to the currently selected category/provider and preserves the existing EPG or channel-list layout. Movies and Series search icon focuses the local filter in their existing poster layouts instead of opening global Search. The Home tab retains global Search.
+- No destructive database migration or credential deletion. Real TV testing and stack traces are still required to confirm crash causes and hardware-specific playback issues.
+
+
+## 0.12.10 — TV keyboard, Movies responsiveness, catalogue progress and screen density
+
+- Android TV keyboard: moving focus over login fields, category search or global search no longer opens the software keyboard. Explicit OK/Enter or pointer selection opens the current Android keyboard. Login submission still dismisses it.
+- Movie-quality variant grouping runs on Dispatchers.Default rather than the Compose main/UI thread; a loading spinner replaces a frozen browsing grid during computation.
+- Require deliberate Down/Up TV remote shortcut presses separated by at least 2 seconds (and no more than 7). Rapid presses now simply navigate; two deliberate Down jumps to the bottom navigation and Up to the selected Movies/Series category.
+- Catalogue progress is emitted from actual milestones (authentication, category retrieval, stream retrieval, database writes) rather than only completed-provider counts. Home tiles animate and brighten as checkpoint progress advances. Network transfer without measurable bytes is still shown as indeterminate buffering, not a fictitious exact percentage.
+- Live TV uses an explicit loading stage during initial provider onboarding, and cached Live is shown as available rather than Waiting while other catalogues update.
+- Choose automatic channel, Movies, Series and EPG refresh frequency: Off, every 1, 3, 6, 12, or 24 hours. WorkManager updates/cancels its recurring task immediately; manual Update remains available. Existing installs default to 6 hours.
+- Move Movies/Series title filter into the shared top header; remove redundant browse-area search controls to leave more room for posters.
+- Shrink poster presets by one tier: Small 92dp, Medium 108dp (old Small), Large 124dp (old Medium); default Medium.
+- Unified Live, VOD (Media3) and embedded VLC auto-hide control timeout: Never, 2, 3, 5, 8, 10 or 15 seconds. New default 3 seconds; pause/picker interactions suspend auto-hide.
+- No Room migration, credential deletion, or playback-history reset. Verify keyboard focus, massive provider-category performance, D-pad timing and update cadence on physical devices before merging.
+
+
+## 0.12.9 — TV login, player resilience, VOD navigation and visual polish
+
+- TV provider fields use a cyan focused outline against muted idle borders. Submitting a login or Test Connection clears text focus and dismisses the Android keyboard.
+- New installs default next-episode autoplay ON; existing saved preferences still take priority.
+- Multi-season series detail has a top-centred season selector and displays episodes for the selected season.
+- Title detail hero and poster use Fit instead of cropping provider artwork.
+- Movies and Series open into Recently Added. Searching in a selected category filters only titles in that category, without leaving for global search. Empty grids display a useful empty result.
+- Settings > Display offers Small/Medium/Large movie and series poster sizes, defaulting to smaller Medium. Resizing also changes whole-category grid density.
+- Show cached movie and series catalogue entries while a background refresh proceeds, avoiding a second blocking load when selecting a section.
+- Start an initial Live catalogue sync on a first run with no cached Live content; show per-provider completion progress in the appropriate Home tile. These are completed provider counts, not invented byte download percentages.
+- For VOD startup that stays in Media3 Buffering for 25 seconds without ever Playing, switch to embedded VLC. Avoid switching after normal playback has started. The VLC timeline displays no greater than its known duration.
+- In TV Movies/Series, two quick Down presses jump to bottom navigation and two quick Up presses return to the selected category tile.
+- No credential or database migration; real-TV stream compatibility and remote-focus navigation still require testing.
+
+
+## 0.12.8 — remote-focus reliability for compact Home and Settings
+
+- Fix the missing initial D-pad focus on the Home dashboard when TV/remote layout is selected on a portrait or narrow screen. Choose the first available tile (Live TV, Movies, Series, or Recordings) consistently in both compact and wide Home layouts.
+- Restore focus to the initial Home tile after changing between compact and wide screen layouts. Add focused unit tests for the tile-selection fallback policy.
+- In TV/remote mode, open Settings with focus on its first action rather than relying on implicit Android focus discovery. Apply this to both the compact settings list and TV settings grid, including after a width change.
+- Retain natural Android orientation, system-bar insets, existing Back behaviour, playback engines, IPTV credentials and watch history; no Room migrations.
+- Signing is not yet permanent, and physical remote navigation still requires device verification.
+
+
+## 0.12.7 — system orientation, TV remote navigation and title Back
+
+- Stop forcing the Home screen into landscape. Phones and tablets follow Android's current orientation; Home rearranges responsively without deliberate scrollbars.
+- Remove the obsolete Landscape Home toggle. TV/remote mode remains selectable under Settings > Device layout; Automatic remains the default.
+- TV D-pad users land on a selectable Home tile, and the selected bottom TV navigation tab can take focus. Add clear white focus outlines for Home tiles, navigation and shortcuts; remote arrows move through Compose's standard focus tree and OK activates the selected control.
+- Provide a fixed, focusable Back button on movie, series and cast-person detail screens. Android/TV remote Back invokes the same navigation; buttons remain visible while the detail content is loading or scrolling.
+- Preserve video playback behaviour, saved logins, favourites, progress and the existing separate QA Android package. No database schema change.
+
+
+## 0.12.6 — fixed Home, expiry and account management
+
+- The dashboard no longer scrolls: Live TV, Movies, Series, shortcuts and the playlist/expiry footer are all sized to the screen’s available height.
+- Display the Xtream provider's real account expiry date from `user_info.exp_date`, if returned, in the Home footer by default. Cache expiry locally per source and refresh the account response on startup at most daily; no extra Test button.
+- Allow any viewing profile, including the original, to be removed if at least one will remain. Require explicit confirmation before deleting that profile’s resume history; preserve recordings and select a remaining profile if needed.
+- Add **Factory reset** to Settings with a two-stage destructive confirmation. Android clears MyIPTV’s private application data, including provider credentials, playlists, favourites, profiles, playback history, settings and internal recordings. External NAS/USB files are not intentionally deleted.
+- Reuse the existing signing and side-by-side MyIPTV QA mechanisms; no Room schema version change.
+
+
+## 0.12.5 — login and TLS diagnostics
+
+- Detect likely HTTPS/TLS-on-HTTP-port mismatch and explain what to check without showing passwords or private URLs.
+- Offer explicit, consent-gated HTTP correction for Xtream HTTPS on port 80 only; never downgrade a connection automatically.
+- Test provider authentication before saving or editing logins. A failed authentication stays on the login screen, with existing saved accounts unaffected.
+- Test Connection now contacts M3U playlist servers instead of incorrectly returning an unconditional success.
+- Failed TV phone-pairing setup returns to an editable, pre-filled login form and shows an actionable error.
+- Clear outdated connection errors when any login field changes; ensure credential fields never join pasted lines.
+- Side-by-side MyIPTV QA package remains available for non-destructive device testing. Real provider success must still be confirmed by the user.
+
+
+## 0.12.4 — catalogue failure diagnostics
+
+- Home refresh now reports safe per-category failure reasons. Tap the Failed footer for details and Retry; no IPTV account credentials are shown.
+- Serialize Live, Movies and Series provider requests across manual, automatic and periodic catalogue refreshes to reduce provider rate limiting and request collisions.
+- Constrain oversized header profile names so Search, Profiles and Settings remain visible on small landscape screens.
+- Keep existing saved catalogue rows, favourites, playback history and credentials on failed network refreshes.
+- Signing compatibility still depends on one permanent certificate; this development APK must be verified on a device before merging.
+
 ## 0.11.8
 
 - **Edit a saved provider.** Settings → Providers now has an **Edit** button on each provider, so you

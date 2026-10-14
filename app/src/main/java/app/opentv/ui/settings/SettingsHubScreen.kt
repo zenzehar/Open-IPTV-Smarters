@@ -5,6 +5,8 @@
  */
 package app.opentv.ui.settings
 
+import android.app.ActivityManager
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -27,6 +29,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.GridView
@@ -38,23 +41,30 @@ import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 import app.opentv.R
 
 /**
@@ -75,7 +85,57 @@ fun SettingsHubScreen(
     onOpenRecordings: () -> Unit,
     onOpenAbout: () -> Unit,
     onBack: () -> Unit,
+    isTelevision: Boolean = false,
 ) {
+    val context = LocalContext.current
+    var resetStage by remember { mutableStateOf(0) }
+    var resetFailed by remember { mutableStateOf(false) }
+    val firstEntryFocus = remember { FocusRequester() }
+    if (resetStage > 0) {
+        AlertDialog(
+            onDismissRequest = { resetStage = 0 },
+            title = { Text(if (resetStage == 1) "Factory reset Koky TV?" else "Final confirmation") },
+            text = {
+                Text(if (resetStage == 1)
+                    "This will permanently erase ALL Koky TV app data on this device: " +
+                        "provider logins, playlists, favourites, viewing profiles, playback history, " +
+                        "preferences, and locally stored recordings. External NAS/USB files are " +
+                        "not intentionally erased. This cannot be undone."
+                else
+                    "Erase everything and return Koky TV to first-run setup? " +
+                        "Make sure you have backed up anything you need.")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (resetStage == 1) resetStage = 2
+                    else {
+                        resetStage = 0
+                        val manager = context.getSystemService(Context.ACTIVITY_SERVICE)
+                            as? ActivityManager
+                        resetFailed = try { manager?.clearApplicationUserData() != true }
+                            catch (_: SecurityException) { true }
+                    }
+                }) {
+                    Text(if (resetStage == 1) "Continue" else "Erase all app data",
+                        color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { resetStage = 0 }) { Text("Cancel") }
+            },
+        )
+    }
+    if (resetFailed) {
+        AlertDialog(
+            onDismissRequest = { resetFailed = false },
+            title = { Text("Reset unavailable") },
+            text = { Text("Android could not clear the app data. " +
+                "Use Android Settings → Apps → Koky TV → Storage → Clear data instead.") },
+            confirmButton = {
+                TextButton(onClick = { resetFailed = false }) { Text("OK") }
+            },
+        )
+    }
     val entries = listOf(
         HubEntry(Icons.Filled.Dns, stringResource(R.string.settings_providers_title), stringResource(R.string.settings_providers_subtitle), onOpenProviders),
         HubEntry(Icons.Filled.Extension, stringResource(R.string.settings_addons_title), stringResource(R.string.settings_addons_subtitle), onOpenAddons),
@@ -87,6 +147,7 @@ fun SettingsHubScreen(
         HubEntry(Icons.Filled.Lock, stringResource(R.string.settings_parental_title), stringResource(R.string.settings_parental_subtitle), onOpenParental),
         HubEntry(Icons.Filled.Sync, stringResource(R.string.settings_sync_title), stringResource(R.string.settings_sync_subtitle), onOpenSync),
         HubEntry(Icons.Filled.Info, stringResource(R.string.settings_about_title), stringResource(R.string.settings_about_subtitle), onOpenAbout),
+        HubEntry(Icons.Filled.DeleteForever, "Factory reset", "Erase Koky TV app data and settings", { resetStage = 1 }),
     )
 
     Column(
@@ -105,20 +166,31 @@ fun SettingsHubScreen(
         Spacer(Modifier.height(20.dp))
 
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-            if (maxWidth >= 650.dp) {
+            val wideLayout = maxWidth >= 650.dp
+            LaunchedEffect(isTelevision, wideLayout) {
+                if (isTelevision) {
+                    delay(85)
+                    runCatching { firstEntryFocus.requestFocus() }
+                }
+            }
+            if (wideLayout) {
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 174.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    gridItems(entries) { entry -> HubTile(entry) }
+                    gridItems(entries) { entry ->
+                        HubTile(entry, if (entry === entries.first()) firstEntryFocus else null)
+                    }
                 }
             } else {
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.fillMaxSize(),
                 ) {
-                    items(entries) { entry -> HubRow(entry) }
+                    items(entries) { entry ->
+                        HubRow(entry, if (entry === entries.first()) firstEntryFocus else null)
+                    }
                 }
             }
         }
@@ -133,11 +205,12 @@ private data class HubEntry(
 )
 
 @Composable
-private fun HubRow(entry: HubEntry) {
+private fun HubRow(entry: HubEntry, firstFocus: FocusRequester? = null) {
     var focused by remember { mutableStateOf(false) }
     Row(
         Modifier
             .fillMaxWidth()
+            .then(if (firstFocus != null) Modifier.focusRequester(firstFocus) else Modifier)
             .onFocusChanged { focused = it.isFocused }
             .clip(RoundedCornerShape(14.dp))
             .background(
@@ -196,11 +269,12 @@ internal fun HubTextButton(label: String, onClick: () -> Unit) {
 
 /** Remote-friendly tiles for the television Settings screen. */
 @Composable
-private fun HubTile(entry: HubEntry) {
+private fun HubTile(entry: HubEntry, firstFocus: FocusRequester? = null) {
     var focused by remember { mutableStateOf(false) }
     Column(
         Modifier
             .fillMaxWidth()
+            .then(if (firstFocus != null) Modifier.focusRequester(firstFocus) else Modifier)
             .height(150.dp)
             .clip(RoundedCornerShape(11.dp))
             .background(if (focused) Color(0xFF5835BA) else Color(0xFF1A2449))

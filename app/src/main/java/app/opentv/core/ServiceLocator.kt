@@ -18,6 +18,7 @@ import app.opentv.data.repo.SourceRepository
 import app.opentv.recording.RecordingEngine
 import java.util.concurrent.TimeUnit
 import okhttp3.OkHttpClient
+import kotlinx.coroutines.sync.Mutex
 
 /**
  * Hand-rolled dependency container.
@@ -41,6 +42,9 @@ object ServiceLocator {
         private val appContext = context.applicationContext
 
         val settings: AppSettings by lazy { AppSettings.get(appContext) }
+
+        /** Serializes foreground/worker catalogue requests to prevent double downloads. */
+        val catalogueRefreshMutex = Mutex()
 
         val database: OpenTvDatabase by lazy { OpenTvDatabase.build(context) }
 
@@ -83,7 +87,7 @@ object ServiceLocator {
         val stremioClient: StremioClient by lazy { StremioClient(httpClient) }
 
         val sourceRepository: SourceRepository by lazy {
-            SourceRepository(database.sources(), xtreamApi, stalkerApi)
+            SourceRepository(database.sources(), xtreamApi, stalkerApi, httpClient)
         }
 
         val catalogRepository: CatalogRepository by lazy {

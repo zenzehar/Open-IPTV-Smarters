@@ -17,11 +17,19 @@ import android.util.Rational
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.SystemBarStyle
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -93,13 +101,20 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        // Dark translucent status bar ensures readable white system icons over navy and gradient screens.
+        enableEdgeToEdge(statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT))
         handlePlayIntent(intent)
-        val isTelevision = isRunningOnTelevision(this)
+        val detectedTv = isRunningOnTelevision(this)
 
         setContent {
             val settings = remember { ServiceLocator.get(this).settings }
             val themeMode by settings.themeMode.collectAsState()
+            val deviceMode by settings.deviceMode.collectAsState()
+            val isTelevision = when (deviceMode) {
+                AppSettings.DeviceMode.TV -> true
+                AppSettings.DeviceMode.MOBILE -> false
+                AppSettings.DeviceMode.AUTO -> detectedTv
+            }
             val darkTheme = when (themeMode) {
                 AppSettings.ThemeMode.DARK -> true
                 AppSettings.ThemeMode.LIGHT -> false
@@ -238,8 +253,19 @@ private fun OpenTvApp(isTelevision: Boolean) {
     // asks for their provider again. NavHost locks in its start destination on first
     // composition, so wait for that first load before building it.
     if (!sourcesUi.loaded) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
+        Column(
+            Modifier.fillMaxSize().background(Color(0xFF080D1C)),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Image(
+                painter = painterResource(R.drawable.ic_launcher_foreground),
+                contentDescription = "Koky TV",
+                modifier = Modifier.size(178.dp),
+            )
+            Text("Koky TV", color = Color.White, style = MaterialTheme.typography.headlineMedium)
+            Spacer(Modifier.height(18.dp))
+            CircularProgressIndicator(color = Color(0xFF00CFE9), modifier = Modifier.size(28.dp))
         }
         return
     }
@@ -252,6 +278,13 @@ private fun OpenTvApp(isTelevision: Boolean) {
     // Runs once; backing out returns to the guide and doesn't re-trigger.
     val bootContext = androidx.compose.ui.platform.LocalContext.current
     val bootSettings = remember { ServiceLocator.get(bootContext).settings }
+    val providerExpiryRevision by bootSettings.providerExpiryRevision.collectAsState()
+    val primarySource = sourcesUi.sources.firstOrNull { it.enabled } ?: sourcesUi.sources.firstOrNull()
+    // Collecting the revision ensures a background metadata refresh updates Home immediately.
+    val providerExpiryMillis = remember(primarySource?.id, providerExpiryRevision) {
+        primarySource?.id?.let { bootSettings.providerExpiryFor(it) }
+    }
+
     LaunchedEffect(start) {
         if (start == Routes.HOME && bootSettings.resumeLastChannel.value && bootSettings.lastChannelId != 0L) {
             navController.navigate(Routes.player(bootSettings.lastChannelId))
@@ -318,7 +351,12 @@ private fun OpenTvApp(isTelevision: Boolean) {
                 AddSourceScreen(
                     viewModel = sourcesViewModel,
                     editingSourceId = sourceId,
-                    onFinished = { navController.popBackStack() },
+                    onFinished = {
+                        // Editing a failed source must recheck VOD, not leave the previous
+                        // ViewModel's failed-state guard permanently latched.
+                        vodViewModel.refreshVod()
+                        navController.popBackStack()
+                    },
                 )
             }
 
@@ -327,6 +365,13 @@ private fun OpenTvApp(isTelevision: Boolean) {
                     isTelevision = isTelevision,
                     hasSources = sourcesUi.sources.isNotEmpty(),
                     isSyncing = sourcesUi.syncing,
+                    refreshStage = sourcesUi.refreshStage,
+                    refreshProgress = sourcesUi.stageProgress,
+                    refreshedStages = sourcesUi.completedStages,
+                    failedRefreshStages = sourcesUi.failedStages,
+                    failedRefreshMessages = sourcesUi.failureMessages,
+                    refreshMessage = sourcesUi.syncMessage,
+                    liveCatalogueTimestamp = sourcesUi.sources.maxOfOrNull { it.lastCatalogSyncMillis } ?: 0L,
                     onPlayChannel = { channel -> navController.navigate(Routes.player(channel.id)) },
                     onOpenMovie = { movie ->
                         navController.navigate(Routes.movieDetail(movie.id))
@@ -339,8 +384,24 @@ private fun OpenTvApp(isTelevision: Boolean) {
                             Routes.vodPlayer(key, url, title, "OpenTV/0.1 (Android)"),
                         )
                     },
+                    onOpenResumeDetails = { item ->
+                        when {
+                            item.seriesDetailId != null ->
+                                navController.navigate(Routes.seriesDetail(item.seriesDetailId))
+                            item.movieDetailId != null ->
+                                navController.navigate(Routes.movieDetail(item.movieDetailId))
+                            else -> Unit
+                        }
+                    },
                     onAddSource = { navController.navigate(Routes.ADD_SOURCE) },
+                    onRepairProvider = {
+                        val source = sourcesUi.sources.firstOrNull { it.enabled }
+                            ?: sourcesUi.sources.firstOrNull()
+                        if (source != null) navController.navigate(Routes.editSource(source.id))
+                        else navController.navigate(Routes.ADD_SOURCE)
+                    },
                     onRefresh = sourcesViewModel::refreshAll,
+                    onRefreshStage = sourcesViewModel::refreshStage,
                     onOpenSearch = { navController.navigate(Routes.SEARCH) },
                     onOpenSettings = { navController.navigate(Routes.SETTINGS_HUB) },
                     onOpenProfiles = { navController.navigate(Routes.PROFILES) },
@@ -375,6 +436,9 @@ private fun OpenTvApp(isTelevision: Boolean) {
                         navController.navigate(Routes.vodPlayer(key, url, title, ua))
                     },
                     activeProfileName = activeProfileName,
+                    providerName = primarySource?.name ?: "No playlist",
+                    providerExpiryMillis = providerExpiryMillis,
+                    vodViewModel = vodViewModel,
                 )
             }
 
@@ -416,6 +480,7 @@ private fun OpenTvApp(isTelevision: Boolean) {
                     onOpenRecordings = { navController.navigate(Routes.REC_SETTINGS) },
                     onOpenAbout = { navController.navigate(Routes.ABOUT) },
                     onBack = { navController.popBackStack() },
+                    isTelevision = isTelevision,
                 )
             }
 
@@ -466,9 +531,17 @@ private fun OpenTvApp(isTelevision: Boolean) {
 
             composable(Routes.PLAYER) { entry ->
                 val channelId = entry.arguments?.getString("channelId")?.toLongOrNull()
+                var exiting by remember(entry) { mutableStateOf(false) }
                 PlayerScreen(
                     channelId = channelId,
-                    onBack = { navController.popBackStack() },
+                    onBack = {
+                        if (!exiting) {
+                            exiting = true
+                            if (!navController.popBackStack()) {
+                                navController.navigate(Routes.HOME) { launchSingleTop = true }
+                            }
+                        }
+                    },
                 )
             }
 
@@ -484,6 +557,7 @@ private fun OpenTvApp(isTelevision: Boolean) {
                     },
                     onOpenSeries = { series -> navController.navigate(Routes.seriesDetail(series.id)) },
                     onOpenPerson = { name -> navController.navigate(Routes.person(name)) },
+                    onBack = { navController.popBackStack() },
                 )
             }
 
@@ -509,6 +583,7 @@ private fun OpenTvApp(isTelevision: Boolean) {
                     },
                     onOpenMovie = { movie -> navController.navigate(Routes.movieDetail(movie.id)) },
                     onOpenPerson = { name -> navController.navigate(Routes.person(name)) },
+                    onBack = { navController.popBackStack() },
                 )
             }
 
@@ -525,6 +600,7 @@ private fun OpenTvApp(isTelevision: Boolean) {
             }
 
             composable(Routes.VOD_PLAYER) { entry ->
+                var returning by remember(entry) { mutableStateOf(false) }
                 fun arg(name: String) = entry.arguments?.getString(name)
                     ?.let { java.net.URLDecoder.decode(it, "UTF-8") }.orEmpty()
                 VodPlayerScreen(
@@ -532,7 +608,14 @@ private fun OpenTvApp(isTelevision: Boolean) {
                     streamUrl = arg("url"),
                     title = arg("title"),
                     userAgent = arg("ua").ifEmpty { "OpenTV/0.1 (Android)" },
-                    onBack = { navController.popBackStack() },
+                    onBack = {
+                        if (!returning) {
+                            returning = true
+                            if (!navController.popBackStack()) {
+                                navController.navigate(Routes.HOME) { launchSingleTop = true }
+                            }
+                        }
+                    },
                     onNextEpisode = { episode ->
                         // Replace the active episode in navigation, don't grow the backstack
                         // every time autoplay moves through a season.

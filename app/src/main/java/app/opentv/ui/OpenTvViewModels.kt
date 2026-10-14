@@ -8,7 +8,9 @@ package app.opentv.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import app.opentv.ui.vod.mostRecentPerTitle
 import app.opentv.core.ServiceLocator
+import app.opentv.data.work.CatalogueRefreshPolicy
 import app.opentv.data.model.Category
 import app.opentv.data.model.Channel
 import app.opentv.data.model.EpgFeed
@@ -70,6 +72,7 @@ import kotlinx.coroutines.sync.withLock
 
 class SourcesViewModel(app: Application) : AndroidViewModel(app) {
     private val graph = ServiceLocator.get(app)
+    private val settings = graph.settings
 
     data class UiState(
         val sources: List<Source> = emptyList(),
@@ -83,8 +86,14 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
         val testing: Boolean = false,
         val testResult: String? = null,
         val testError: String? = null,
+        val syncError: String? = null,
         val syncing: Boolean = false,
         val syncMessage: String? = null,
+        val refreshStage: String? = null,
+        val stageProgress: Float = 0f,
+        val completedStages: Set<String> = emptySet(),
+        val failedStages: Set<String> = emptySet(),
+        val failureMessages: Map<String, String> = emptyMap(),
     )
 
     private val _ui = MutableStateFlow(UiState())
@@ -94,74 +103,138 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             graph.sourceRepository.observeAll().collect { sources ->
                 _ui.value = _ui.value.copy(sources = sources, loaded = true)
+                // A low-frequency provider lookup populates expiry on first Home open,
+                // then revalidates it at most once per day. Never block catalogue browsing.
+                sources.filter { it.enabled && it.kind == SourceKind.XTREAM }.forEach { source ->
+                    if (System.currentTimeMillis() - settings.expiryLastChecked(source.id) > 86_400_000L) {
+                        // Mark the attempt up front, so a Room emission cannot start a duplicate.
+                        settings.recordExpiryCheckAttempt(source.id)
+                        viewModelScope.launch {
+                            val check = graph.sourceRepository.testDetailed(source).getOrNull()
+                            if (check != null) settings.recordProviderExpiry(source.id, check.expiryMillis)
+                        }
+                    }
+                }
             }
         }
+    }
+
+    /** Discard stale test feedback as soon as any login field changes. */
+    fun clearConnectionResult() {
+        _ui.value = _ui.value.copy(testResult = null, testError = null,
+            syncError = null, syncMessage = null)
     }
 
     fun test(draft: Source) {
+        if (_ui.value.testing || _ui.value.syncing) return
         viewModelScope.launch {
-            _ui.value = _ui.value.copy(testing = true, testResult = null, testError = null)
-            val result = graph.sourceRepository.test(draft)
-            _ui.value = _ui.value.copy(
-                testing = false,
-                testResult = result.getOrNull(),
-                testError = result.exceptionOrNull()?.message,
-            )
+            _ui.value = _ui.value.copy(testing = true, testResult = null,
+                testError = null, syncError = null, syncMessage = null)
+            try {
+                val result = graph.sourceRepository.testDetailed(draft)
+                // Display expiry immediately when testing unchanged saved credentials.
+                if (result.isSuccess && draft.id != 0L) {
+                    val saved = graph.sourceRepository.byId(draft.id)
+                    if (saved?.url == draft.url && saved.username == draft.username &&
+                        saved.password == draft.password) {
+                        settings.recordProviderExpiry(draft.id, result.getOrNull()?.expiryMillis)
+                    }
+                }
+                _ui.value = _ui.value.copy(
+                    testing = false,
+                    testResult = result.getOrNull()?.message,
+                    testError = result.exceptionOrNull()?.let { safeRefreshFailure(it.message) },
+                )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _ui.value = _ui.value.copy(testing = false, testError = safeRefreshFailure(e.message))
+            }
         }
     }
 
-    /** Saves, then immediately pulls the catalogue so the user sees channels, not a spinner. */
+    /**
+     * Validate connection BEFORE creating/updating a saved account.
+     * A mistyped URL or password must stay on the login screen and must not create
+     * a phantom provider that makes the next launch navigate straight to an empty Home.
+     */
     fun saveAndSync(draft: Source, onDone: (Boolean) -> Unit = {}) {
+        if (_ui.value.syncing || _ui.value.testing) return
         viewModelScope.launch {
-            _ui.value = _ui.value.copy(syncing = true, syncMessage = "Saving source…")
-            val id = graph.sourceRepository.save(draft)
-            val saved = graph.sourceRepository.byId(id)
-            if (saved == null) {
-                _ui.value = _ui.value.copy(syncing = false, syncMessage = "Could not save source.")
-                onDone(false)
-                return@launch
-            }
-
-            _ui.value = _ui.value.copy(syncMessage = "Loading channels…")
-            val now = System.currentTimeMillis()
-            // Load live channels first and get the user watching straight away. Movies, series and
-            // the guide are what make a big provider take minutes — they load in the background so
-            // "loading channels" is a few seconds, not a twenty-minute blank screen.
-            when (val result = graph.catalogRepository.syncLive(saved, now)) {
-                is CatalogRepository.SyncResult.Failed -> {
-                    _ui.value = _ui.value.copy(syncing = false, syncMessage = result.reason)
+            _ui.value = _ui.value.copy(syncing = true, testResult = null,
+                testError = null, syncError = null, syncMessage = "Checking connection…",
+                failedStages = emptySet(), completedStages = emptySet(),
+                failureMessages = emptyMap(), refreshStage = "live", stageProgress = 0f)
+            try {
+                val verification = graph.sourceRepository.testDetailed(draft)
+                if (verification.isFailure) {
+                    _ui.value = _ui.value.copy(syncing = false, syncMessage = null,
+                        syncError = safeRefreshFailure(verification.exceptionOrNull()?.message))
                     onDone(false)
                     return@launch
                 }
-                is CatalogRepository.SyncResult.Success -> {
-                    _ui.value = _ui.value.copy(
-                        syncing = false,
-                        syncMessage = "Loaded ${result.channelCount} channels. The guide is " +
-                            "loading in the background; Movies and Shows load when you open them.",
-                    )
-                    onDone(true)
+                _ui.value = _ui.value.copy(syncMessage = "Connected. Checking Live TV catalogue…")
+                // Keep the previous configuration until the new one fully works.
+                val previous = draft.id.takeIf { it != 0L }?.let { graph.sourceRepository.byId(it) }
+                val id = graph.sourceRepository.save(draft)
+                val saved = graph.sourceRepository.byId(id)
+                if (saved == null) {
+                    _ui.value = _ui.value.copy(syncing = false, syncMessage = null,
+                        syncError = "Could not save provider. No changes were confirmed.")
+                    onDone(false)
+                    return@launch
                 }
-            }
 
-            // Background: the guide. Movies/series are pulled on demand from their own tabs, so
-            // nothing the user hasn't asked for ever blocks the channels they can already watch.
-            runCatching {
-                val summary = StatusBus.during("Building the TV guide…") {
-                    graph.epgRepository.syncAll(now)
+                _ui.value = _ui.value.copy(syncMessage = "Loading Live TV channels…")
+                val now = System.currentTimeMillis()
+                when (val result = graph.catalogRepository.syncLive(saved, now) { fraction ->
+                    _ui.value = _ui.value.copy(refreshStage = "live", stageProgress = fraction)
+                }) {
+                    is CatalogRepository.SyncResult.Failed -> {
+                        // An unsuccessful import must not create a phantom login or
+                        // replace a previously working provider configuration.
+                        // Only discard the newly created source; never delete an old source.
+                        runCatching {
+                            if (previous != null) graph.sourceRepository.save(previous)
+                            else graph.catalogRepository.deleteSource(id)
+                        }.onFailure { Log.w("OpenTV", "Failed to restore provider after rejected import") }
+                        _ui.value = _ui.value.copy(syncing = false, syncMessage = null,
+                            syncError = "Login was verified, but Live TV could not load. " +
+                                safeRefreshFailure(result.reason) +
+                                " Previous provider settings were retained where applicable.")
+                        onDone(false)
+                        return@launch
+                    }
+                    is CatalogRepository.SyncResult.Success -> {
+                        settings.recordProviderExpiry(id, verification.getOrNull()?.expiryMillis)
+                        settings.recordCatalogueUpdated("live", System.currentTimeMillis())
+                        _ui.value = _ui.value.copy(syncing = false, syncError = null,
+                            refreshStage = null, completedStages = setOf("live"), stageProgress = 1f,
+                            syncMessage = "Loaded ${result.channelCount} channels. " +
+                                "Guide and on-demand sections can update in the background.")
+                        onDone(true)
+                    }
                 }
-                _ui.value = _ui.value.copy(
-                    syncMessage = when {
-                        summary.channelsMatched > 0 ->
-                            "Guide ready — matched ${summary.channelsMatched} of " +
-                                "${summary.channelsTotal} channels."
-                        else ->
-                            "Channels ready. No guide data matched yet — add a free guide " +
-                                "under Guide settings."
-                    },
-                )
-                // Book any new series-link airings the fresh guide just revealed.
-                runCatching { graph.recordingEngine.rescanSeriesRules() }
-            }.onFailure { Log.w("OpenTV", "Background VOD/guide load failed", it) }
+
+                // Background guide synchronisation must not block the user or change login outcome.
+                runCatching {
+                    val summary = StatusBus.during("Building the TV guide…") {
+                        graph.epgRepository.syncAll(now)
+                    }
+                    _ui.value = _ui.value.copy(
+                        syncMessage = if (summary.channelsMatched > 0)
+                            "Guide ready: ${summary.channelsMatched} of ${summary.channelsTotal} channels matched."
+                        else "Channels ready. No guide entries matched yet.",
+                    )
+                    runCatching { graph.recordingEngine.rescanSeriesRules() }
+                }.onFailure { Log.w("OpenTV", "Background guide load failed", it) }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _ui.value = _ui.value.copy(syncing = false, syncMessage = null,
+                    syncError = safeRefreshFailure(e.message))
+                onDone(false)
+            }
         }
     }
 
@@ -179,30 +252,129 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { graph.catalogRepository.setLiveFormat(source.id, format) }
     }
 
-    fun refreshAll() {
+    /** Update the three catalogue sections in order or one chosen section on demand.
+     * Both entry points use the same state and refuse overlapping refresh jobs.
+     * Errors are retained per tile while successfully refreshed catalogues remain intact.
+     */
+    fun refreshAll() = refreshCatalogues(null)
+
+    fun refreshStage(stage: String) {
+        if (stage !in setOf("live", "movies", "series")) return
+        refreshCatalogues(stage)
+    }
+
+    private fun refreshCatalogues(onlyStage: String?) {
+        if (_ui.value.syncing) return
+        _ui.value = _ui.value.copy(syncing = true,
+            refreshStage = onlyStage ?: "live", stageProgress = 0f,
+            syncMessage = "Preparing catalogue update…",
+            completedStages = emptySet(), failedStages = emptySet(),
+            failureMessages = emptyMap())
         viewModelScope.launch {
-            _ui.value = _ui.value.copy(syncing = true, syncMessage = "Refreshing…")
+            graph.catalogueRefreshMutex.withLock {
+            val failed = mutableSetOf<String>()
+            val errors = mutableMapOf<String, String>()
+            val completed = mutableSetOf<String>()
             val now = System.currentTimeMillis()
-            var channels = 0
-            var problems = 0
-            for (source in graph.sourceRepository.enabled()) {
-                when (val result = graph.catalogRepository.sync(source, now)) {
-                    is CatalogRepository.SyncResult.Success -> channels += result.channelCount
-                    is CatalogRepository.SyncResult.Failed -> problems++
+            try {
+                val enabled = graph.sourceRepository.enabled()
+                if (enabled.isEmpty()) {
+                    val stage = onlyStage ?: "live"
+                    failed += stage
+                    errors[stage] = "No enabled IPTV source. Check Providers in Settings."
+                    return@launch
                 }
+                val stages = listOf(
+                    "live" to settings.liveEnabled.value,
+                    "movies" to settings.moviesEnabled.value,
+                    "series" to settings.seriesEnabled.value,
+                ).filter { it.second && (onlyStage == null || it.first == onlyStage) }
+                    .map { it.first }
+                for (stage in stages) {
+                    _ui.value = _ui.value.copy(
+                        refreshStage = stage,
+                        stageProgress = 0f,
+                        syncMessage = "Updating ${stage.replaceFirstChar { it.uppercase() }}…",
+                    )
+                    for ((index, source) in enabled.withIndex()) {
+                        _ui.value = _ui.value.copy(
+                            stageProgress = index.toFloat() / enabled.size,
+                            syncMessage = "Updating $stage · provider ${index + 1}/${enabled.size}",
+                        )
+                        val progressUpdate: (Float) -> Unit = { fraction ->
+                            _ui.value = _ui.value.copy(
+                                stageProgress = ((index + fraction.coerceIn(0f, 1f)) /
+                                    enabled.size).coerceIn(0f, 1f)
+                            )
+                        }
+                        when (stage) {
+                            "live" -> {
+                                val result = graph.catalogRepository.syncLive(source, now, progressUpdate)
+                                if (result is CatalogRepository.SyncResult.Failed) {
+                                    failed += stage
+                                    errors.putIfAbsent(stage, safeRefreshFailure(result.reason))
+                                }
+                            }
+                            "movies" -> {
+                                val result = graph.catalogRepository.syncVod(source, now,
+                                    includeMovies = true, includeSeries = false,
+                                    onProgress = progressUpdate)
+                                if (result.movieError != null) {
+                                    failed += stage
+                                    errors.putIfAbsent(stage, safeRefreshFailure(result.movieError))
+                                    Log.w("OpenTV", "Movie refresh failed for source ${source.id}")
+                                }
+                            }
+                            "series" -> {
+                                val result = graph.catalogRepository.syncVod(source, now,
+                                    includeMovies = false, includeSeries = true,
+                                    onProgress = progressUpdate)
+                                if (result.seriesError != null) {
+                                    failed += stage
+                                    errors.putIfAbsent(stage, safeRefreshFailure(result.seriesError))
+                                    Log.w("OpenTV", "Series refresh failed for source ${source.id}")
+                                }
+                            }
+                        }
+                        _ui.value = _ui.value.copy(
+                            stageProgress = (index + 1).toFloat() / enabled.size,
+                        )
+                    }
+                    if (stage !in failed) {
+                        completed += stage
+                        settings.recordCatalogueUpdated(stage, System.currentTimeMillis())
+                        if (stage == "series" || (stage == "movies" && !settings.seriesEnabled.value))
+                            settings.vodSyncedAtMillis = System.currentTimeMillis()
+                    }
+                    _ui.value = _ui.value.copy(
+                        completedStages = completed.toSet(), failedStages = failed.toSet(),
+                        failureMessages = errors.toMap(),
+                    )
+                }
+                // Guide loading runs separately; do not delay the three on-tile refresh outcomes.
+                if ("live" in stages) {
+                    runCatching { graph.epgRepository.syncAll(now, force = true) }
+                        .onFailure { Log.w("OpenTV", "Background guide refresh failed", it) }
+                    runCatching { graph.recordingEngine.rescanSeriesRules() }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w("OpenTV", "Staged refresh failed", e)
+                _ui.value.refreshStage?.let { stage ->
+                    failed += stage
+                    errors[stage] = safeRefreshFailure(e.message)
+                }
+            } finally {
+                _ui.value = _ui.value.copy(
+                    syncing = false, refreshStage = null,
+                    failedStages = failed.toSet(), completedStages = completed.toSet(),
+                    failureMessages = errors.toMap(),
+                    syncMessage = if (failed.isEmpty()) "Update completed"
+                        else "Update failed for: ${failed.joinToString()}. Tap the retry icon.",
+                )
             }
-            val summary = graph.epgRepository.syncAll(now, force = true)
-            problems += summary.feedsFailed
-            runCatching { graph.recordingEngine.rescanSeriesRules() }
-            _ui.value = _ui.value.copy(
-                syncing = false,
-                syncMessage = if (problems == 0) {
-                    "Refreshed $channels channels, guide matched " +
-                        "${summary.channelsMatched} of ${summary.channelsTotal}."
-                } else {
-                    "Refreshed $channels channels, $problems problem(s) — see Guide settings."
-                },
-            )
+            }
         }
     }
 
@@ -375,7 +547,11 @@ class ChannelsViewModel(app: Application) : AndroidViewModel(app) {
             .combine(selectedSource) { key, source -> key to source }
             .flatMapLatest { (key, source) ->
                 val channelFlow = when {
-                    key.query.isNotBlank() -> graph.catalogRepository.searchChannels(key.query)
+                    key.query.isNotBlank() && key.categoryIds != null ->
+                        graph.catalogRepository.searchChannelsInCategoriesScoped(
+                            key.query, source, key.categoryIds)
+                    key.query.isNotBlank() ->
+                        graph.catalogRepository.searchChannelsScoped(key.query, source, key.favs)
                     key.favs -> graph.catalogRepository.observeFavouriteChannels()
                     key.categoryIds != null -> graph.catalogRepository.observeChannelsIn(key.categoryIds)
                     else -> graph.catalogRepository.observeChannels(source)
@@ -702,6 +878,15 @@ class EpgViewModel(app: Application) : AndroidViewModel(app) {
     }
 }
 
+enum class VodLoadPhase { PENDING, LOADING, READY, EMPTY, FAILED }
+
+data class VodSectionStatus(
+    val phase: VodLoadPhase = VodLoadPhase.PENDING,
+    val message: String = "",
+    val count: Int = 0,
+    val progress: Float? = null,
+)
+
 class VodViewModel(app: Application) : AndroidViewModel(app) {
     private val graph = ServiceLocator.get(app)
     private val settings = graph.settings
@@ -713,22 +898,45 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
         val posterUrl: String?,
         val streamUrl: String,
         val progress: Float,
+        val positionMillis: Long = 0,
+        val durationMillis: Long = 0,
+        val movieDetailId: Long? = null,
+        val seriesDetailId: Long? = null,
+        val historyGroupKey: String = mediaKey,
+        val episodeLabel: String? = null,
+        val updatedAtMillis: Long = 0,
+        val isFinished: Boolean = false,
     )
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val continueWatching: StateFlow<List<ResumeItem>> =
         settings.activeProfileId
-            .flatMapLatest { pid -> graph.playbackPositions.observeRecent(pid) }
-            .mapLatest { positions -> positions.filter { it.positionMillis > 0 && !it.isFinished }.mapNotNull { resolveResume(it) } }
+            .flatMapLatest { pid -> graph.playbackPositions.observeRecent(pid, limit = 150) }
+            .mapLatest { positions ->
+                positions.filter { it.positionMillis > 0 }
+                    .mapNotNull { resolveResume(it) }
+            }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Independent history shelves; a movie must never appear under Series, or vice versa. */
     val continueWatchingMovies: StateFlow<List<ResumeItem>> =
-        continueWatching.map { items -> items.filter { it.mediaKey.startsWith("movie:") } }
+        continueWatching.map { items ->
+            mostRecentPerTitle(
+                items.filter { it.mediaKey.startsWith("movie:") },
+                { it.updatedAtMillis },
+                { it.historyGroupKey },
+            ).filterNot { it.isFinished }
+        }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val continueWatchingSeries: StateFlow<List<ResumeItem>> =
-        continueWatching.map { items -> items.filter { it.mediaKey.startsWith("ep:") } }
+        continueWatching.map { items ->
+            mostRecentPerTitle(
+                items.filter { it.mediaKey.startsWith("ep:") },
+                { it.updatedAtMillis },
+                { it.historyGroupKey },
+            ).filterNot { it.isFinished }
+        }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private suspend fun resolveResume(pos: PlaybackPosition): ResumeItem? {
@@ -739,18 +947,57 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
             if (pos.durationMillis > 0) (pos.positionMillis.toFloat() / pos.durationMillis).coerceIn(0f, 1f) else 0f
         return when (parts[0]) {
             "movie" -> graph.catalogRepository.movie(id)?.let {
-                ResumeItem(pos.mediaKey, it.displayTitle, it.posterUrl, it.streamUrl, progress)
-            }
-            "ep" -> graph.catalogRepository.episode(id)?.let {
                 ResumeItem(
-                    pos.mediaKey,
-                    it.title.ifBlank { "S${it.season} E${it.episodeNumber}" },
-                    it.stillUrl,
-                    it.streamUrl,
-                    progress,
+                    mediaKey = pos.mediaKey,
+                    title = it.displayTitle,
+                    posterUrl = it.posterUrl,
+                    streamUrl = it.streamUrl,
+                    progress = progress,
+                    positionMillis = pos.positionMillis,
+                    durationMillis = pos.durationMillis,
+                    movieDetailId = it.id,
+                    historyGroupKey = "movie:${it.displayTitle.trim().lowercase(java.util.Locale.ROOT)}:${it.year ?: ""}",
+                    updatedAtMillis = pos.updatedAtMillis,
+                    isFinished = pos.isFinished,
+                )
+            }
+            "ep" -> graph.catalogRepository.episode(id)?.let { episode ->
+                val show = graph.catalogRepository.seriesByProviderKey(episode.sourceId, episode.seriesId)
+                ResumeItem(
+                    mediaKey = pos.mediaKey,
+                    title = show?.displayTitle ?: episode.title.ifBlank { episode.seriesId },
+                    posterUrl = show?.posterUrl ?: episode.stillUrl,
+                    streamUrl = episode.streamUrl,
+                    progress = progress,
+                    positionMillis = pos.positionMillis,
+                    durationMillis = pos.durationMillis,
+                    seriesDetailId = show?.id,
+                    historyGroupKey = "series:${episode.sourceId}:${episode.seriesId}",
+                    episodeLabel = "S${episode.season}:E${episode.episodeNumber}",
+                    updatedAtMillis = pos.updatedAtMillis,
+                    isFinished = pos.isFinished,
                 )
             }
             else -> null
+        }
+    }
+
+    /** Reset this profile's progress only; series resets all its cached episode rows.
+     * Retaining zero-position timestamps lets cross-device merges propagate removal.
+     */
+    suspend fun resetContinueWatching(item: ResumeItem) {
+        val profileId = settings.activeProfileId.value
+        val now = System.currentTimeMillis()
+        when {
+            item.mediaKey.startsWith("movie:") ->
+                graph.playbackPositions.resetPosition(profileId, item.mediaKey, now)
+            item.mediaKey.startsWith("ep:") -> {
+                val id = item.mediaKey.substringAfter(':').toLongOrNull() ?: return
+                val episode = graph.catalogRepository.episode(id) ?: return
+                graph.playbackPositions.resetSeriesEpisodes(
+                    profileId, episode.sourceId, episode.seriesId, now,
+                )
+            }
         }
     }
 
@@ -782,6 +1029,16 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
         ) { raw, sourceId -> if (sourceId == null) raw else raw.filter { it.sourceId == sourceId } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    // Keep a complete provider-filterable catalogue for accurate category/favourite counts
+    // while the grid's selected category flow is narrowed.
+    val allMovies: StateFlow<List<Movie>> =
+        graph.catalogRepository.observeMovies(null)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val allSeries: StateFlow<List<Series>> =
+        graph.catalogRepository.observeSeries(null)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     @OptIn(ExperimentalCoroutinesApi::class)
     val movies: StateFlow<List<Movie>> = movieCategory
         .flatMapLatest { graph.catalogRepository.observeMovies(it) }
@@ -793,6 +1050,13 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun selectMovieCategory(id: String?) { movieCategory.value = id }
+
+    /** Stream one capped page at a time, instead of loading an entire huge category in Room. */
+    fun movieCategoryPage(categoryId: String?, sourceId: Long?, filter: String, limit: Int, offset: Int) =
+        graph.catalogRepository.observeMoviesPage(categoryId, sourceId, filter, limit, offset)
+
+    fun seriesCategoryPage(categoryId: String?, sourceId: Long?, filter: String, limit: Int, offset: Int) =
+        graph.catalogRepository.observeSeriesPage(categoryId, sourceId, filter, limit, offset)
 
     fun selectSeriesCategory(id: String?) { seriesCategory.value = id }
 
@@ -917,67 +1181,154 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    // Movies + series load on demand — the first time the user opens Movies or Shows — rather than
-    // up front at login. A provider's 40,000-title VOD list is exactly what makes a first sync
-    // crawl, and most sessions only ever watch live TV. Loaded once per app run.
+    // These states are shared by the home dashboard and both VOD screens.
+    // PENDING is deliberately *not* EMPTY: Room may not have emitted yet.
+    private val _movieStatus = MutableStateFlow(VodSectionStatus())
+    val movieStatus: StateFlow<VodSectionStatus> = _movieStatus.asStateFlow()
+    private val _seriesStatus = MutableStateFlow(VodSectionStatus())
+    val seriesStatus: StateFlow<VodSectionStatus> = _seriesStatus.asStateFlow()
+
     private val _vodLoading = MutableStateFlow(false)
     val vodLoading: StateFlow<Boolean> = _vodLoading.asStateFlow()
-
     @Volatile private var vodRequested = false
-
-    /** How long a fetched VOD catalogue is trusted before a warm launch re-syncs it. */
-    private val VOD_TTL_MILLIS = 12L * 60 * 60 * 1000  // 12 hours
+    private val vodSyncMutex = Mutex()
 
     fun ensureVodLoaded() {
         if (vodRequested) return
         vodRequested = true
+        // Set LOADING before launching a coroutine. Otherwise an initial recomposition
+        // incorrectly renders the "No movies" state on the very first frame.
+        _movieStatus.value = VodSectionStatus(VodLoadPhase.LOADING, "Checking movies…")
+        _seriesStatus.value = VodSectionStatus(VodLoadPhase.PENDING, "Waiting for movies…")
+        _vodLoading.value = true
         viewModelScope.launch { syncVodIfStale(force = false) }
     }
 
-    /**
-     * Force a fresh download of the movies/series catalogue, ignoring the freshness cache. Wired
-     * to the pull-to-refresh / refresh action so the user always has a way to pull new titles in
-     * before the TTL lapses.
-     */
     fun refreshVod() {
+        if (_vodLoading.value) return
         vodRequested = true
+        _movieStatus.value = VodSectionStatus(VodLoadPhase.LOADING, "Refreshing movies…")
+        _seriesStatus.value = VodSectionStatus(VodLoadPhase.PENDING, "Waiting for movies…")
+        _vodLoading.value = true
         viewModelScope.launch { syncVodIfStale(force = true) }
     }
 
-    private suspend fun syncVodIfStale(force: Boolean) {
-        val now = System.currentTimeMillis()
+    private fun completedStatus(count: Int, failed: Boolean, detail: String? = null): VodSectionStatus = when {
+        count > 0 -> VodSectionStatus(VodLoadPhase.READY,
+            if (failed) "Showing saved catalogue; refresh failed" else "Ready", count)
+        failed -> VodSectionStatus(VodLoadPhase.FAILED,
+            detail ?: "Could not reach the IPTV provider. Tap the refresh icon to retry.", 0)
+        else -> VodSectionStatus(VodLoadPhase.EMPTY, "This provider has no titles in this section", 0)
+    }
 
-        // Warm-launch fast path. The catalogue is persisted in Room, so once it has been fetched
-        // there is no reason to re-download and re-upsert a 40k-title list on every launch — that
-        // was both the multi-minute "Loading movies & shows…" and the bandwidth hog that starved
-        // the live preview into buffering. When we synced recently and already have rows, skip the
-        // network entirely and just (re)build the home shelves off what is stored.
-        if (!force) {
-            val haveCatalogue = runCatching {
-                graph.catalogRepository.movieCount() + graph.catalogRepository.seriesCount()
-            }.getOrDefault(0) > 0
-            val last = settings.vodSyncedAtMillis
-            val fresh = last > 0 && now - last < VOD_TTL_MILLIS
-            if (haveCatalogue && fresh) {
-                loadHomeFeeds()
-                return
+    /** Called after a manual on-tile refresh so the browse tabs see the new Room rows. */
+    fun reconcileManualRefresh(completed: Set<String>, failed: Set<String>) {
+        if (_vodLoading.value) return
+        if (completed.isEmpty() && failed.isEmpty()) return
+        viewModelScope.launch {
+            if ("movies" in completed || "movies" in failed) {
+                _movieStatus.value = completedStatus(
+                    graph.catalogRepository.movieCount(), "movies" in failed,
+                    "Movie catalogue update failed. Tap its refresh icon to retry.",
+                )
             }
+            if ("series" in completed || "series" in failed) {
+                _seriesStatus.value = completedStatus(
+                    graph.catalogRepository.seriesCount(), "series" in failed,
+                    "Series catalogue update failed. Tap its refresh icon to retry.",
+                )
+            }
+            loadHomeFeeds()
         }
+    }
 
-        _vodLoading.value = true
-        val synced = StatusBus.during("Loading movies & shows…") {
-            runCatching {
-                for (source in graph.sourceRepository.enabled()) {
-                    graph.catalogRepository.syncVod(source, now)
+    private suspend fun syncVodIfStale(force: Boolean) = graph.catalogueRefreshMutex.withLock {
+        vodSyncMutex.withLock {
+        try {
+            val now = System.currentTimeMillis()
+            val initialMovies = graph.catalogRepository.movieCount()
+            val initialSeries = graph.catalogRepository.seriesCount()
+            val hours = settings.catalogueUpdateHours.value
+            val fresh = settings.vodSyncedAtMillis.let {
+                it > 0 && (hours == 0 || !CatalogueRefreshPolicy.isDue(it, hours, now))
+            }
+            // Warm-cache path must be immediate; never re-download a large library
+            // when persisted rows are still fresh.
+            // The due-only worker owns configured refreshes; opening the browse tab must
+            // not download the same large provider catalogue a second time.
+            if (!force && (fresh || hours > 0) &&
+                (!settings.moviesEnabled.value || initialMovies > 0) &&
+                (!settings.seriesEnabled.value || initialSeries > 0)
+            ) {
+                _movieStatus.value = completedStatus(initialMovies, false)
+                _seriesStatus.value = completedStatus(initialSeries, false)
+                loadHomeFeeds()
+                return@withLock
+            }
+
+            val enabled = graph.sourceRepository.enabled()
+            var movieFailure = false
+            var seriesFailure = false
+            var movieError: String? = null
+            var seriesError: String? = null
+            // Every source finishes the Movies pass before the first Series request begins.
+            // This makes the dashboard's active tile genuinely reflect the active network work.
+            if (settings.moviesEnabled.value) {
+                StatusBus.during("Updating movies…") {
+                    enabled.forEachIndexed { index, source ->
+                        _movieStatus.value = VodSectionStatus(VodLoadPhase.LOADING,
+                            "Movies · provider ${index + 1}/${enabled.size}",
+                            progress = index.toFloat() / enabled.size)
+                        val result = graph.catalogRepository.syncVod(source, now,
+                            includeMovies = true, includeSeries = false,
+                            onProgress = { fraction ->
+                                _movieStatus.value = _movieStatus.value.copy(
+                                    progress = (index + fraction.coerceIn(0f, 1f)) / enabled.size)
+                            })
+                        movieFailure = movieFailure || result.movieError != null
+                        movieError = movieError ?: result.movieError
+                    }
                 }
-            }.isSuccess
+            }
+            val finalMovies = graph.catalogRepository.movieCount()
+            _movieStatus.value = completedStatus(finalMovies, movieFailure, movieError)
+            if (!movieFailure && settings.moviesEnabled.value)
+                settings.recordCatalogueUpdated("movies")
+            if (settings.seriesEnabled.value) {
+                StatusBus.during("Updating series…") {
+                    enabled.forEachIndexed { index, source ->
+                        _seriesStatus.value = VodSectionStatus(VodLoadPhase.LOADING,
+                            "Series · provider ${index + 1}/${enabled.size}",
+                            progress = index.toFloat() / enabled.size)
+                        val result = graph.catalogRepository.syncVod(source, now,
+                            includeMovies = false, includeSeries = true,
+                            onProgress = { fraction ->
+                                _seriesStatus.value = _seriesStatus.value.copy(
+                                    progress = (index + fraction.coerceIn(0f, 1f)) / enabled.size)
+                            })
+                        seriesFailure = seriesFailure || result.seriesError != null
+                        seriesError = seriesError ?: result.seriesError
+                    }
+                }
+            }
+            val finalSeries = graph.catalogRepository.seriesCount()
+            _seriesStatus.value = completedStatus(finalSeries, seriesFailure, seriesError)
+            if (!seriesFailure && settings.seriesEnabled.value)
+                settings.recordCatalogueUpdated("series")
+            if (!movieFailure && !seriesFailure) settings.vodSyncedAtMillis = now
+            loadHomeFeeds()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w("OpenTV", "VOD loading failed", e)
+            val cachedMovies = runCatching { graph.catalogRepository.movieCount() }.getOrDefault(0)
+            val cachedSeries = runCatching { graph.catalogRepository.seriesCount() }.getOrDefault(0)
+            _movieStatus.value = completedStatus(cachedMovies, true)
+            _seriesStatus.value = completedStatus(cachedSeries, true)
+        } finally {
+            _vodLoading.value = false
         }
-        _vodLoading.value = false
-        // Stamp the cache only when the fetch actually succeeded, so a failed sync retries on the
-        // next open instead of being remembered as "fresh" and leaving the user with no catalogue.
-        if (synced) settings.vodSyncedAtMillis = now
-        // The catalogue may have grown — recompute the computed home rows off the fresh data.
-        loadHomeFeeds()
+        }
     }
 
     // ---- VOD search (shared by the unified search screen) --------------------------------------
@@ -1124,12 +1475,14 @@ class ProfilesViewModel(app: Application) : AndroidViewModel(app) {
     fun select(id: Long) { settings.setActiveProfile(id) }
 
     fun remove(id: Long) {
-        // The base profile stays — there is always at least one to be.
-        if (id == 1L) return
         viewModelScope.launch {
+            val replacement = replacementProfileId(graph.profiles.all(), id)
+                ?: return@launch
+            // Switch first so no observer can read a deleted active profile.
+            if (settings.activeProfileId.value == id) settings.setActiveProfile(replacement)
+            graph.profiles.detachRecordings(id)
             graph.profiles.deletePositions(id)
             graph.profiles.delete(id)
-            if (settings.activeProfileId.value == id) settings.setActiveProfile(1L)
         }
     }
 }

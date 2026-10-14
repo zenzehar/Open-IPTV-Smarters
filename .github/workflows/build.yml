@@ -5,6 +5,22 @@ on:
     branches: [main, 'feature/**']
   pull_request:
   workflow_dispatch:
+    inputs:
+      live_provider_qa:
+        description: 'Run PRIVATE provider contract checks (protected secrets required)'
+        required: true
+        type: boolean
+        default: false
+      allow_insecure_http:
+        description: 'I accept sending credentials without encryption over HTTP'
+        required: true
+        type: boolean
+        default: false
+      probe_one_media_stream:
+        description: 'Optionally request at most 8 KiB from one VOD stream'
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -16,7 +32,12 @@ concurrency:
 jobs:
   build:
     name: Test and assemble
+    # Private provider testing runs in a separate protected job: no credentials
+    # are ever passed into PR builds, APK release steps or emulator artifacts.
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.live_provider_qa != true }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -50,18 +71,85 @@ jobs:
             echo "::warning::Signing secrets not configured: debug APK will have a temporary certificate and cannot reliably upgrade an older APK."
           fi
 
+      - name: Mock provider contract tests
+        run: python3 scripts/test-mock-xtream-server.py
+
+      - name: Prove private provider secrets are masked and HTTP needs opt-in
+        run: python3 scripts/test-live-provider-qa.py
+
       - name: Unit tests
         run: ./gradlew test --stacktrace
 
-      - name: Assemble debug APK
-        run: ./gradlew assembleDebug --stacktrace
+      - name: Generate actual synthetic MP4 for Android decoder and seek tests
+        run: |
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y ffmpeg
+          fi
+          mkdir -p app/src/androidTest/assets
+          python3 - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          spec=importlib.util.spec_from_file_location("koky_mock","scripts/mock-xtream-server.py")
+          module=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          path=Path("app/src/androidTest/assets/qa_seek_fixture.mp4")
+          if not module.make_video(path):
+              raise SystemExit("FAIL: synthetic media was not generated")
+          print("QA fixture generated:", path.stat().st_size, "bytes")
+          PY
+
+      - name: Compile Android QA integration tests
+        run: ./gradlew assembleQaAndroidTest --stacktrace
+
+      - name: Assemble debug and side-by-side QA APKs
+        run: ./gradlew assembleDebug assembleQa --stacktrace
+
+      # Publish the actual APK signer fingerprint for comparison across subsequent builds.
+      # A SHA-256 certificate digest is public information; the private key remains secret.
+      - name: Record APK signing fingerprint
+        run: |
+          APK=$(find app/build/outputs/apk/debug -name '*.apk' -type f | head -1)
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
+          "$APKSIGNER" verify --print-certs "$APK" | grep 'certificate SHA-256 digest' | tee signing-fingerprint.txt
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: opentv-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/qa/*.apk
+            app/build/outputs/apk/androidTest/qa/*.apk
+            app/src/androidTest/assets/qa_seek_fixture.mp4
+            signing-fingerprint.txt
           if-no-files-found: error
+
+      # Publish direct, separately installable APK URLs only for this first-party QA PR.
+      # Keep them explicitly marked as PRE-RELEASE until real-device testing is complete.
+      - name: Publish direct APKs as an unmerged QA pre-release
+        if: github.event_name == 'pull_request' && github.event.pull_request.number == 6 && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          DEBUG_APK=$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -type f | head -1)
+          QA_APK=$(find app/build/outputs/apk/qa -maxdepth 1 -name '*.apk' -type f | head -1)
+          test -s "$DEBUG_APK"
+          test -s "$QA_APK"
+          AAPT=$(find "$ANDROID_HOME/build-tools" -name aapt -type f | sort -V | tail -1)
+          "$AAPT" dump badging "$DEBUG_APK" | grep -q "package: name='app.opentv.debug' versionCode='44'"
+          "$AAPT" dump badging "$QA_APK" | grep -q "package: name='app.opentv.qa' versionCode='44'"
+          mkdir -p direct-apks
+          cp "$DEBUG_APK" direct-apks/KokyTV-v0.12.22-debug.apk
+          cp "$QA_APK" direct-apks/KokyTV-v0.12.22-QA.apk
+          git tag --list
+          TAG="qa-v0.12.22-${HEAD_SHA:0:8}"
+          gh release create "$TAG" direct-apks/*.apk --prerelease --target "$HEAD_SHA" \
+            --title "Koky TV v0.12.22 (PR #6, unmerged QA)" \
+            --notes "UNMERGED QA BUILD. For real-device testing only. Debug certificates are temporary and not upgrade compatible across runs. The separate Koky TV QA package does not overwrite the original debug installation. Keep saved data and keys backed up. See PR #6."
+          echo "Direct APKs published at release tag: $TAG"
 
       - name: Upload test reports
         if: always()
@@ -69,4 +157,118 @@ jobs:
         with:
           name: test-reports
           path: app/build/reports/tests/
+          if-no-files-found: ignore
+
+  emulator-smoke:
+    name: "Android ${{ matrix.device }} smoke"
+    needs: build
+    if: github.event_name == 'pull_request' && github.event.pull_request.number == 6
+    # macOS Intel Hypervisor.Framework avoids the Linux runner's unusable
+    # software-emulated Android boot (408 s then adb broken pipe).
+    runs-on: macos-15-intel
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - device: phone
+            api: 30
+            target: google_apis
+            arch: x86_64
+            profile: pixel_2
+          - device: android-tv
+            api: 30
+            target: android-tv
+            arch: x86
+            profile: tv_1080p
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download built APKs
+        uses: actions/download-artifact@v4
+        with:
+          name: opentv-debug-apk
+          path: emulator-apks
+
+      - name: Emulator launch, navigation and restart smoke
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          target: ${{ matrix.target }}
+          arch: ${{ matrix.arch }}
+          profile: ${{ matrix.profile }}
+          # Avoid slow system-settings calls while the emulator's framework stabilises.
+          disable-animations: false
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: bash scripts/emulator-smoke.sh
+
+      - name: Generate per-requirement evidence report
+        if: always()
+        run: python3 scripts/report-coverage.py --device ${{ matrix.device }}
+
+      - name: Upload Android emulator diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: emulator-smoke-${{ matrix.device }}-logs
+          path: |
+            emulator-logcat.txt
+            emulator-crashes.txt
+            emulator-smoke-results.txt
+            emulator-instrumentation.txt
+            emulator-ui.xml
+            emulator-screenshots/
+            emulator-fixture.log
+            emulator-quality/
+          if-no-files-found: ignore
+
+  private-live-provider-qa:
+    name: Private live-provider contract tests
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.live_provider_qa == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    # Configure protected environment + its secrets in Settings > Environments.
+    # Not run by push or PR; can require manual reviewer approval.
+    environment: live-provider-qa
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Validate private provider and TLS policy
+        env:
+          KOKY_PROVIDER_URL: ${{ secrets.KOKY_PROVIDER_URL }}
+          KOKY_PROVIDER_USERNAME: ${{ secrets.KOKY_PROVIDER_USERNAME }}
+          KOKY_PROVIDER_PASSWORD: ${{ secrets.KOKY_PROVIDER_PASSWORD }}
+          KOKY_ALLOW_HTTP: ${{ inputs.allow_insecure_http }}
+          KOKY_PROBE_MEDIA: ${{ inputs.probe_one_media_stream }}
+        run: |
+          set +x
+          python3 scripts/live-provider-qa.py
+
+      - name: Run actual Koky TV Xtream client against protected provider
+        env:
+          KOKY_PROVIDER_URL: ${{ secrets.KOKY_PROVIDER_URL }}
+          KOKY_PROVIDER_USERNAME: ${{ secrets.KOKY_PROVIDER_USERNAME }}
+          KOKY_PROVIDER_PASSWORD: ${{ secrets.KOKY_PROVIDER_PASSWORD }}
+          KOKY_ALLOW_HTTP: ${{ inputs.allow_insecure_http }}
+        run: |
+          set +x
+          ./gradlew :app:testQaUnitTest --tests 'app.opentv.RealProviderContractTest' --stacktrace --console=plain
+
+      - name: Upload sanitized test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: private-provider-sanitized-results
+          path: live-provider-qa-summary.json
           if-no-files-found: ignore

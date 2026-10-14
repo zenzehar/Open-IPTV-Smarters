@@ -22,6 +22,14 @@ import java.net.UnknownHostException
  */
 @OptIn(UnstableApi::class)
 object PlaybackErrors {
+    /** Format failures cannot recover by reopening the same Media3 decoder. */
+    fun requiresAlternativeDecoder(errorCode: Int): Boolean = when (errorCode) {
+        PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
+        PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+        PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+        PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED -> true
+        else -> false
+    }
 
     fun describe(error: PlaybackException): String {
         (error.cause as? HttpDataSource.InvalidResponseCodeException)?.let {

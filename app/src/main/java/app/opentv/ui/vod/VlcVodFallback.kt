@@ -10,13 +10,20 @@ package app.opentv.ui.vod
 
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.util.Log
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -35,6 +42,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -54,6 +62,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -62,6 +79,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import app.opentv.core.ServiceLocator
 import app.opentv.data.model.PlaybackPosition
 import app.opentv.data.model.Episode
+import app.opentv.player.VodSeekTimeline
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -71,6 +89,7 @@ import kotlinx.coroutines.launch
 import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
+import java.util.concurrent.atomic.AtomicBoolean
 import org.videolan.libvlc.util.VLCVideoLayout
 
 /**
@@ -85,6 +104,8 @@ fun VlcVodFallback(
     title: String,
     userAgent: String,
     onBack: () -> Unit,
+    exitRequested: Boolean = false,
+    initialSeekMs: Long? = null,
     nextEpisode: Episode? = null,
     autoplayNext: Boolean = false,
     onAutoplayChange: (Boolean) -> Unit = {},
@@ -94,14 +115,65 @@ fun VlcVodFallback(
     val graph = remember { ServiceLocator.get(context) }
     val profileId by graph.settings.activeProfileId.collectAsState()
     val scope = rememberCoroutineScope()
+    var catalogueDurationMs by remember(mediaKey) { mutableLongStateOf(0L) }
+    var savedDurationMs by remember(mediaKey) { mutableLongStateOf(0L) }
+    LaunchedEffect(mediaKey, streamUrl, profileId) {
+        savedDurationMs = graph.playbackPositions.get(profileId, mediaKey)
+            ?.durationMillis?.coerceAtLeast(0L) ?: 0L
+        catalogueDurationMs = when {
+            mediaKey.startsWith("movie:") -> {
+                val id = mediaKey.substringAfter("movie:").toLongOrNull()
+                val movie = id?.let { graph.catalogRepository.movie(it) }
+                val detailed = if (movie?.durationSeconds == null && id != null)
+                    graph.catalogRepository.movieDetail(id) else movie
+                VodSeekTimeline.catalogueMillis(detailed?.durationSeconds)
+            }
+            mediaKey.startsWith("ep:") ->
+                VodSeekTimeline.catalogueMillis(
+                    mediaKey.substringAfter("ep:").toLongOrNull()
+                        ?.let { graph.catalogRepository.episode(it) }?.durationSeconds)
+            else -> 0L
+        }
+    }
     var layout by remember { mutableStateOf<VLCVideoLayout?>(null) }
+    var attachedLayout by remember { mutableStateOf<VLCVideoLayout?>(null) }
     var positionMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
     var playing by remember { mutableStateOf(false) }
     var buffering by remember { mutableStateOf(true) }
+    var startedVideo by remember(mediaKey, streamUrl) { mutableStateOf(false) }
+    var showStartupSpinner by remember(mediaKey, streamUrl) { mutableStateOf(false) }
     var errorText by remember { mutableStateOf<String?>(null) }
     var controlsVisible by remember { mutableStateOf(true) }
+    var backgroundFocused by remember { mutableStateOf(false) }
+    val videoFocus = remember { FocusRequester() }
+    val playButtonFocus = remember { FocusRequester() }
+    val seekBarFocus = remember { FocusRequester() }
+    val backButtonFocus = remember { FocusRequester() }
+    var seekBarFocused by remember { mutableStateOf(false) }
+    var backButtonFocused by remember { mutableStateOf(false) }
+    LaunchedEffect(controlsVisible) {
+        delay(100L)
+        runCatching {
+            if (controlsVisible) playButtonFocus.requestFocus() else videoFocus.requestFocus()
+        }
+    }
     var movingSlider by remember { mutableStateOf(false) }
+    var pendingSeekMs by remember(mediaKey) { mutableStateOf<Long?>(null) }
+    var pendingSeekStartedAt by remember(mediaKey) { mutableLongStateOf(0L) }
+    var seekFailure by remember(mediaKey) { mutableStateOf(false) }
+    // Once actual playback surpasses a provider's reported end, stop trusting that end.
+    var durationContradicted by remember(mediaKey) { mutableStateOf(false) }
+    val controlsTimeoutSeconds by graph.settings.controlsTimeoutSeconds.collectAsState()
+    var controlsInteraction by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    LaunchedEffect(controlsVisible, controlsInteraction, playing, controlsTimeoutSeconds,
+        movingSlider, seekBarFocused, errorText) {
+        if (controlsVisible && playing && !movingSlider && !seekBarFocused &&
+            errorText == null && controlsTimeoutSeconds > 0) {
+            delay(controlsTimeoutSeconds * 1_000L)
+            controlsVisible = false
+        }
+    }
     var sliderValue by remember { mutableStateOf(0f) }
     var initialized by remember(mediaKey, streamUrl) { mutableStateOf(false) }
     var finished by remember(mediaKey) { mutableStateOf(false) }
@@ -118,8 +190,12 @@ fun VlcVodFallback(
         }
     }
 
-    val libVlc = remember { LibVLC(context.applicationContext, arrayListOf("--network-caching=1500", "--http-reconnect")) }
+    // 750 ms reduces startup latency for VOD. Avoid setting a second contradictory cache
+    // on the Media instance; unreliable provider networks may still buffer as needed.
+    val libVlc = remember { LibVLC(context.applicationContext, arrayListOf("--network-caching=750", "--http-reconnect")) }
     val player = remember { MediaPlayer(libVlc) }
+    val shuttingDown = remember { AtomicBoolean(false) }
+    var vlcErrorCount by remember(mediaKey) { androidx.compose.runtime.mutableIntStateOf(0) }
 
     fun openExternal() {
         try {
@@ -134,6 +210,7 @@ fun VlcVodFallback(
     }
 
     suspend fun persistPosition() {
+        if (finished) return // Never overwrite the completed episode with an end-of-stream zero.
         val pos = player.time.coerceAtLeast(0L)
         val duration = player.length.coerceAtLeast(0L)
         if (pos > 5_000L && duration > 0L) {
@@ -147,47 +224,116 @@ fun VlcVodFallback(
         }
     }
 
-    BackHandler { onBack() }
+    BackHandler(enabled = !exitRequested) {
+        // Back is non-destructive while controls are visible; the next Back exits.
+        if (controlsVisible) {
+            controlsVisible = false
+            controlsInteraction++
+        } else {
+            onBack()
+        }
+    }
+
+    fun seekToMs(requested: Long) {
+        val target = VodSeekTimeline.clampTarget(
+            requested, if (durationContradicted) 0L else durationMs,
+        )
+        pendingSeekMs = target
+        pendingSeekStartedAt = android.os.SystemClock.uptimeMillis()
+        seekFailure = false
+        positionMs = target
+        runCatching { player.setTime(target) }.onFailure {
+            pendingSeekMs = null
+            seekFailure = true
+            Log.w("KokyTV/VLC", "Native VLC seek request failed", it)
+        }
+    }
+
+    fun seekBy(delta: Long) {
+        val now = pendingSeekMs ?: runCatching { player.time }.getOrDefault(0L)
+        seekToMs(now + delta)
+    }
+
+    LaunchedEffect(mediaKey, streamUrl) {
+        delay(700L)
+        showStartupSpinner = true
+    }
 
     LaunchedEffect(layout, streamUrl) {
         val surface = layout ?: return@LaunchedEffect
         // AndroidView can recreate its surface while the player is already attached.
         // Do not attach the same VLC MediaPlayer again: it produces the exact warning
         // "Can't set view when already attached" despite playback working underneath.
-        if (initialized) return@LaunchedEffect
+        if (initialized) {
+            // The Compose AndroidView can be replaced on rotation or resize.
+            // Keep playback alive, but rebind the native video output to the new view.
+            if (attachedLayout !== surface) {
+                try {
+                    if (player.vlcVout.areViewsAttached()) player.detachViews()
+                    player.attachViews(surface, null, true, false)
+                    attachedLayout = surface
+                    errorText = null
+                } catch (e: Exception) {
+                    errorText = "VLC video surface could not be restored: ${e.localizedMessage ?: "unknown error"}"
+                }
+            }
+            return@LaunchedEffect
+        }
         try {
             val resumeFrom = graph.playbackPositions.get(profileId, mediaKey)
                 ?.takeIf { !it.isFinished }?.positionMillis ?: 0L
-            if (!player.vlcVout.areViewsAttached()) {
-                player.attachViews(surface, null, true, false)
-            }
+            if (player.vlcVout.areViewsAttached()) player.detachViews()
+            player.attachViews(surface, null, true, false)
+            attachedLayout = surface
             initialized = true
             errorText = null
             var resumeApplied = false
+            val initialPosition = VodSeekTimeline.clampTarget(
+                initialSeekMs ?: resumeFrom,
+                VodSeekTimeline.durationMillis(0L, catalogueDurationMs, savedDurationMs),
+            )
             player.setEventListener { event ->
-                scope.launch {
+                if (!shuttingDown.get()) scope.launch {
+                    if (shuttingDown.get()) return@launch
                     when (event.type) {
                         MediaPlayer.Event.Playing -> {
                             buffering = false
                             playing = true
+                            startedVideo = true
                             errorText = null
-                            if (resumeFrom > 0L && !resumeApplied) {
-                                // A pause/resume must not jump back to the original timestamp.
+                            if (initialPosition > 0L && !resumeApplied) {
+                                // Respect a seek that triggered the Media3-to-VLC fallback.
                                 resumeApplied = true
-                                runCatching { player.setTime(resumeFrom) }
+                                runCatching { player.setTime(initialPosition) }
                             }
                         }
                         MediaPlayer.Event.Paused -> playing = false
-                        MediaPlayer.Event.Buffering, MediaPlayer.Event.Opening -> buffering = true
+                        MediaPlayer.Event.Vout -> {
+                            // A video output exists: never obscure the picture with "Opening".
+                            startedVideo = true
+                            buffering = false
+                        }
+                        MediaPlayer.Event.Buffering, MediaPlayer.Event.Opening -> {
+                            // VLC can emit buffering updates long after video is visible.
+                            if (!startedVideo) buffering = true
+                        }
                         MediaPlayer.Event.EncounteredError -> {
-                            errorText = "VLC could not decode this stream. Check provider access or try an external player."
+                            vlcErrorCount++
+                            Log.e("KokyTV/VLC",
+                                "VLC playback error #$vlcErrorCount mediaKey=$mediaKey " +
+                                    "startedVideo=$startedVideo playing=$playing " +
+                                    "positionMs=$positionMs durationMs=$durationMs " +
+                                    "pendingSeek=${pendingSeekMs != null}")
+                            playing = false
+                            errorText = "VLC playback was interrupted. This can be a stream, " +
+                                "network or decoder error; it does not prove the episode is unsupported."
                             buffering = false
                         }
                         MediaPlayer.Event.EndReached -> {
                             playing = false
                             buffering = false
                             finished = true
-                            val length = player.length.coerceAtLeast(0L)
+                            val length = maxOf(player.length, durationMs).coerceAtLeast(0L)
                             if (length > 0L) {
                                 graph.playbackPositions.upsert(PlaybackPosition(
                                     profileId, mediaKey, length, length, System.currentTimeMillis(),
@@ -201,7 +347,6 @@ fun VlcVodFallback(
             val media = Media(libVlc, Uri.parse(streamUrl))
             media.setHWDecoderEnabled(true, false)
             media.addOption(":http-user-agent=${userAgent.replace("\n", "").replace("\r", "")}")
-            media.addOption(":network-caching=1500")
             player.media = media
             media.release()
             player.play()
@@ -225,19 +370,39 @@ fun VlcVodFallback(
             delay(1_000L)
             val p = runCatching { player.time }.getOrDefault(0L)
             val d = runCatching { player.length }.getOrDefault(0L)
-            positionMs = p.coerceAtLeast(0L)
-            durationMs = d.coerceAtLeast(0L)
+            val reportedDuration = VodSeekTimeline.durationMillis(
+                d, catalogueDurationMs, savedDurationMs,
+            )
+            if (VodSeekTimeline.contradictsDuration(reportedDuration, p)) {
+                durationContradicted = true
+            }
+            // Do not fabricate a valid end or clamp the decoded timestamp. An inaccurate
+            // duration becomes an explicitly unknown duration with a moving seek window.
+            durationMs = if (durationContradicted) 0L else reportedDuration
+            val actual = p.coerceAtLeast(0L)
+            val pending = pendingSeekMs
+            if (pending != null && VodSeekTimeline.reachedTarget(actual, pending)) {
+                pendingSeekMs = null
+                seekFailure = false
+            } else if (pending != null &&
+                android.os.SystemClock.uptimeMillis() - pendingSeekStartedAt > 15_000L) {
+                pendingSeekMs = null
+                seekFailure = true
+            }
+            positionMs = pendingSeekMs ?: actual
         }
     }
     LaunchedEffect(mediaKey) {
         while (isActive) {
-            delay(15_000L)
+            delay(10_000L)
             persistPosition()
         }
     }
 
     DisposableEffect(Unit) {
         onDispose {
+            shuttingDown.set(true)
+            runCatching { player.setEventListener(null) }
             // Use a separate IO scope: composition scope is cancelled on navigation.
             val p = runCatching { player.time }.getOrDefault(0L)
             val d = runCatching { player.length }.getOrDefault(0L)
@@ -248,21 +413,94 @@ fun VlcVodFallback(
                     ))
                 }
             }
-            runCatching { player.stop() }
-            runCatching { player.detachViews() }
-            runCatching { player.release() }
-            runCatching { libVlc.release() }
+            // A surface must be detached on the UI thread before native cleanup.
+            // Never let a late VLC event retain a disposed Compose screen.
+            runCatching { player.detachViews() }.onFailure {
+                Log.w("KokyTV/VLC", "VLC view detach failed mediaKey=$mediaKey", it)
+            }
+            attachedLayout = null
+            CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+                runCatching { player.stop() }.onFailure {
+                    Log.w("KokyTV/VLC", "VLC native stop failed mediaKey=$mediaKey", it)
+                }
+                runCatching { player.release() }.onFailure {
+                    Log.e("KokyTV/VLC", "VLC native release failed mediaKey=$mediaKey", it)
+                }
+                runCatching { libVlc.release() }.onFailure {
+                    Log.e("KokyTV/VLC", "LibVLC release failed mediaKey=$mediaKey", it)
+                }
+            }
         }
     }
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    Box(
+        Modifier.fillMaxSize().background(Color.Black)
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown || event.key == Key.Back) {
+                    false
+                } else if (controlsVisible && event.key == Key.DirectionUp) {
+                    runCatching {
+                        if (seekBarFocused) backButtonFocus.requestFocus()
+                        else seekBarFocus.requestFocus()
+                    }
+                    controlsInteraction++
+                    true
+                } else if (controlsVisible && event.key == Key.DirectionDown &&
+                    (seekBarFocused || backButtonFocused)) {
+                    runCatching {
+                        if (backButtonFocused) seekBarFocus.requestFocus()
+                        else playButtonFocus.requestFocus()
+                    }
+                    controlsInteraction++
+                    true
+                } else if (controlsVisible && seekBarFocused &&
+                    (event.key == Key.DirectionLeft || event.key == Key.DirectionRight)) {
+                    val amount = when {
+                        event.nativeKeyEvent.repeatCount >= 12 -> 60_000L
+                        event.nativeKeyEvent.repeatCount >= 4 -> 20_000L
+                        else -> 5_000L
+                    }
+                    seekBy(if (event.key == Key.DirectionLeft) -amount else amount)
+                    controlsInteraction++
+                    true
+                } else if (!controlsVisible || backgroundFocused) {
+                    when (event.key) {
+                        Key.DirectionLeft -> {
+                            controlsVisible = true; controlsInteraction++
+                            seekBy(-if (event.nativeKeyEvent.repeatCount >= 4) 30_000L else 10_000L)
+                            true
+                        }
+                        Key.DirectionRight -> {
+                            controlsVisible = true; controlsInteraction++
+                            seekBy(if (event.nativeKeyEvent.repeatCount >= 4) 30_000L else 10_000L)
+                            true
+                        }
+                        Key.DirectionUp, Key.DirectionDown -> { controlsVisible = true; controlsInteraction++; true }
+                        else -> false
+                    }
+                } else {
+                    controlsInteraction++
+                    false
+                }
+            }
+            .focusRequester(videoFocus)
+            .onFocusChanged { backgroundFocused = it.isFocused }
+            .focusable()
+    ) {
         AndroidView(
-            modifier = Modifier.fillMaxSize().clickable { controlsVisible = !controlsVisible },
+            modifier = Modifier.fillMaxSize().clickable {
+                controlsVisible = !controlsVisible
+                controlsInteraction++
+            },
             factory = { ctx -> VLCVideoLayout(ctx).also { layout = it } },
         )
-        if (buffering && errorText == null) {
-            Text("Opening in VLC player…", color = Color.White,
-                modifier = Modifier.align(Alignment.Center).padding(16.dp))
+        // Show a small startup indicator only until the first playback/video-output event.
+        // Never paint a large "Opening" label over video that is already rendering.
+        if (buffering && !startedVideo && showStartupSpinner && errorText == null) {
+            CircularProgressIndicator(
+                modifier = Modifier.align(Alignment.Center),
+                color = Color.White,
+            )
         }
         if (errorText != null && !playing) {
             Column(
@@ -278,59 +516,100 @@ fun VlcVodFallback(
                     style = MaterialTheme.typography.titleMedium)
                 Text(errorText.orEmpty().take(250), color = Color.White.copy(alpha = 0.85f),
                     style = MaterialTheme.typography.bodySmall, maxLines = 5)
+                Button(onClick = {
+                    if (!shuttingDown.get()) {
+                        errorText = null
+                        buffering = true
+                        pendingSeekMs = null
+                        seekFailure = false
+                        runCatching {
+                            player.stop()
+                            player.play()
+                        }.onFailure {
+                            Log.e("KokyTV/VLC", "VLC retry failed mediaKey=$mediaKey", it)
+                            errorText = "VLC retry failed. Try the external player or go back."
+                            buffering = false
+                        }
+                    }
+                }) { Text("Retry VLC") }
                 Button(onClick = ::openExternal) { Text("Open in another player", maxLines = 1) }
             }
         }
-        if (controlsVisible) {
+        if (controlsVisible || !playing) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier.align(Alignment.TopStart)
+                    .focusRequester(backButtonFocus)
+                    .onFocusChanged { backButtonFocused = it.isFocused }
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(
+                        WindowInsetsSides.Horizontal + WindowInsetsSides.Top))
+                    .padding(12.dp).background(Color.Black.copy(alpha = .65f), RoundedCornerShape(10.dp)),
+            ) {
+                Icon(Icons.Filled.ArrowBack, contentDescription = "Back to library", tint = Color.White)
+            }
             Column(
                 modifier = Modifier.align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .background(Color.Black.copy(alpha = 0.88f))
+                    .windowInsetsPadding(
+                        WindowInsets.safeDrawing.only(
+                            WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom,
+                        ),
+                    )
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
-                    }
                     Text(title, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                     Text("VLC", color = Color(0xFF68D6CD))
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(displayTime(positionMs), color = Color.White)
+                    Text(displayTime(if (movingSlider) sliderValue.toLong() else positionMs), color = Color.White)
                     Spacer(Modifier.width(10.dp))
+                    val sliderMaximum = VodSeekTimeline.seekBarMaxMillis(
+                        durationMs, positionMs, maxOf(pendingSeekMs ?: 0L, sliderValue.toLong()))
                     Slider(
-                        value = if (movingSlider) sliderValue else positionMs.toFloat(),
-                        onValueChange = { sliderValue = it; movingSlider = true },
+                        value = (if (movingSlider) sliderValue else positionMs.toFloat())
+                            .coerceIn(0f, sliderMaximum.toFloat()),
+                        onValueChange = { sliderValue = it; movingSlider = true; controlsInteraction++ },
                         onValueChangeFinished = {
-                            runCatching { player.setTime(sliderValue.toLong()) }
+                            seekToMs(sliderValue.toLong())
                             movingSlider = false
                         },
-                        valueRange = 0f..durationMs.coerceAtLeast(1L).toFloat(),
-                        modifier = Modifier.weight(1f),
+                        valueRange = 0f..sliderMaximum.toFloat(),
+                        modifier = Modifier.weight(1f)
+                            .focusRequester(seekBarFocus)
+                            .onFocusChanged { seekBarFocused = it.isFocused }
+                            .then(if (seekBarFocused) Modifier.border(
+                                2.dp, MaterialTheme.colorScheme.primary,
+                                RoundedCornerShape(7.dp)) else Modifier),
                     )
                     Spacer(Modifier.width(10.dp))
-                    Text(displayTime(durationMs), color = Color.White)
+                    Text(if (durationMs > 0L) displayTime(durationMs) else "–:–", color = Color.White)
+                }
+                if (seekFailure) {
+                    Text("Seek did not finish; try the timeline or another playback source",
+                        color = Color(0xFFFFD89E),
+                        style = MaterialTheme.typography.bodySmall)
                 }
                 Row(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    IconButton(onClick = {
-                        runCatching { player.setTime((player.time - 15_000L).coerceAtLeast(0L)) }
-                    }) {
-                        Icon(Icons.Filled.FastRewind, contentDescription = "Back 15 seconds", tint = Color.White)
+                    IconButton(onClick = { seekBy(-10_000L) }) {
+                        Icon(Icons.Filled.FastRewind, contentDescription = "Back 10 seconds", tint = Color.White)
                     }
-                    IconButton(onClick = { if (playing) player.pause() else player.play() }) {
+                    IconButton(
+                        onClick = { if (playing) player.pause() else player.play(); controlsInteraction++ },
+                        modifier = Modifier.focusRequester(playButtonFocus),
+                    ) {
                         Icon(if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                             contentDescription = if (playing) "Pause" else "Play", tint = Color.White)
                     }
-                    IconButton(onClick = {
-                        runCatching { player.setTime((player.time + 15_000L).coerceAtMost(durationMs.coerceAtLeast(0L))) }
-                    }) {
-                        Icon(Icons.Filled.FastForward, contentDescription = "Forward 15 seconds", tint = Color.White)
+                    IconButton(onClick = { seekBy(10_000L) }) {
+                        Icon(Icons.Filled.FastForward, contentDescription = "Forward 10 seconds", tint = Color.White)
                     }
                     if (nextEpisode != null) {
                         IconButton(onClick = { goNextOnce() }) {

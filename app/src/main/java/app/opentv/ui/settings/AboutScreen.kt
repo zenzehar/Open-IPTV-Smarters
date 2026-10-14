@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import app.opentv.BuildConfig
 import app.opentv.R
 import app.opentv.core.ServiceLocator
+import app.opentv.data.work.AutoProviderQaWorker
 import app.opentv.update.UpdateChecker
 import kotlinx.coroutines.launch
 
@@ -76,7 +77,7 @@ fun AboutScreen(onBack: () -> Unit) {
         Spacer(Modifier.height(20.dp))
 
         Section(stringResource(R.string.about_version)) {
-            Text("OpenTV ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.titleMedium)
+            Text("Koky TV ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OutlinedButton(
@@ -108,6 +109,30 @@ fun AboutScreen(onBack: () -> Unit) {
                     Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
                 }
             }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        Section("Automatic provider diagnostics") {
+            Text(
+                AutoProviderQaWorker.lastSummary(context),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                AutoProviderQaWorker.lastDetails(context),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Runs automatically after startup and approximately every 24 hours " +
+                    "for configured Xtream sources. Checks login, categories, episodes " +
+                    "and a small same-host Movie HTTP range. Doesn't alter playback or " +
+                    "share provider details. Not a decoder or real-device seek test.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
 
         Spacer(Modifier.height(16.dp))

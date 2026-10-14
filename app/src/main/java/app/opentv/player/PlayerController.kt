@@ -84,6 +84,7 @@ class PlayerController(
      * is a network round-trip — rides over the gaps instead of stalling on every one.
      */
     private val liveRecording: Boolean = false,
+    private val quickVodStart: Boolean = false,
 ) {
 
     /** Channel-surf debounce for this controller — longer for the preview so browsing is calm. */
@@ -94,7 +95,12 @@ class PlayerController(
         data class Buffering(val title: String) : State
         data class Playing(val title: String) : State
         /** Playback stopped and retries are exhausted. [message] is written for humans. */
-        data class Error(val title: String, val message: String, val canRetry: Boolean) : State
+        data class Error(
+            val title: String,
+            val message: String,
+            val canRetry: Boolean,
+            val errorCode: Int? = null,
+        ) : State
     }
 
     data class Request(
@@ -200,6 +206,7 @@ class PlayerController(
                     when {
                         preview -> PREVIEW_BUFFER_FOR_PLAYBACK_MILLIS
                         liveRecording -> LIVE_REC_BUFFER_FOR_PLAYBACK_MILLIS
+                        quickVodStart -> VOD_FAST_START_MILLIS
                         else -> BUFFER_FOR_PLAYBACK_MILLIS
                     },
                     when {
@@ -236,17 +243,19 @@ class PlayerController(
                 override fun onPlayerError(error: PlaybackException) {
                     consecutiveFailures++
                     val request = current
+                    val unsupported = PlaybackErrors.requiresAlternativeDecoder(error.errorCode)
                     _state.value = State.Error(
                         title = request?.title.orEmpty(),
                         message = PlaybackErrors.describe(error),
-                        canRetry = consecutiveFailures < MAX_AUTO_RESTARTS,
+                        canRetry = !unsupported && consecutiveFailures < MAX_AUTO_RESTARTS,
+                        errorCode = error.errorCode,
                     )
                     // One silent restart covers the common case of a provider dropping the
                     // connection when another device on the account starts streaming.
-                    if (consecutiveFailures < MAX_AUTO_RESTARTS && request != null) {
+                    if (!unsupported && consecutiveFailures < MAX_AUTO_RESTARTS && request != null) {
                         scope.launch {
                             delay(AUTO_RESTART_DELAY_MILLIS)
-                            if (current == request) play(request, debounce = false)
+                            if (current == request) play(request, debounce = false, automaticRetry = true)
                         }
                     }
                 }
@@ -259,7 +268,7 @@ class PlayerController(
      * @param debounce when true (the default for channel surfing) the switch waits briefly so
      * that rapid presses collapse into a single tune. Pass false for a deliberate selection.
      */
-    fun play(request: Request, debounce: Boolean = true) {
+    fun play(request: Request, debounce: Boolean = true, automaticRetry: Boolean = false) {
         // Cancelling here is what makes fast channel-changing safe: the previous switch never
         // reaches the player, so we never stack prepares.
         switchJob?.cancel()
@@ -268,7 +277,8 @@ class PlayerController(
         switchJob = scope.launch {
             if (debounce) delay(switchDebounceMillis)
 
-            consecutiveFailures = 0
+            // Automatic retries must not reset their own failure count.
+            if (!automaticRetry) consecutiveFailures = 0
             httpFactory.setDefaultRequestProperties(mapOf("User-Agent" to request.userAgent))
             _state.value = State.Buffering(request.title)
 
@@ -298,6 +308,25 @@ class PlayerController(
                 prepare()
             }
         }
+    }
+
+    /**
+     * A VOD seek changes the next retry position as well as the active player position.
+     * Without this, a recoverable HTTP error after a seek restarted movies at the
+     * original bookmark (or zero), even though the seek was correctly issued.
+     */
+    fun seekToVod(positionMillis: Long) {
+        val target = positionMillis.coerceAtLeast(0L)
+        current?.let { request ->
+            if (!request.isLive) {
+                current = request.copy(
+                    startPositionMillis = VodSeekRecovery.retryStart(
+                        request.startPositionMillis, target, isLive = false,
+                    ),
+                )
+            }
+        }
+        player.seekTo(target)
     }
 
     fun retry() {
@@ -393,6 +422,7 @@ class PlayerController(
         const val MIN_BUFFER_MILLIS = 15_000
         const val MAX_BUFFER_MILLIS = 60_000
         const val BUFFER_FOR_PLAYBACK_MILLIS = 2_500
+        const val VOD_FAST_START_MILLIS = 1_000 // steady buffer and 5s rebuffer unchanged
         const val BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MILLIS = 5_000
 
         // DVR mode (pause & rewind live TV): keep a couple of minutes behind the live edge to seek

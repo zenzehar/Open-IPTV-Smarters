@@ -19,6 +19,8 @@ import androidx.work.WorkerParameters
 import app.opentv.core.ServiceLocator
 import app.opentv.data.repo.CatalogRepository
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.sync.withLock
+import androidx.work.workDataOf
 
 /**
  * Background refresh of the catalogue and the guide.
@@ -34,39 +36,64 @@ class SyncWorker(
 
     override suspend fun doWork(): Result {
         val graph = ServiceLocator.get(applicationContext)
-        val now = System.currentTimeMillis()
-        val sources = graph.sourceRepository.enabled()
-        if (sources.isEmpty()) return Result.success()
+        // Serialize against the UI and other worker instances, then RECHECK due times.
+        // A periodic job and a startup job may both run, but only one downloads.
+        return graph.catalogueRefreshMutex.withLock {
+            val now = System.currentTimeMillis()
+            val sources = graph.sourceRepository.enabled()
+            if (sources.isEmpty()) return@withLock Result.success()
+            val settings = graph.settings
+            val force = inputData.getBoolean("force_refresh", false)
+            val hours = settings.catalogueUpdateHours.value
+            val legacyLive = sources.minOfOrNull { it.lastCatalogSyncMillis } ?: 0L
+            val liveStamp = settings.liveUpdated.value.takeIf { it > 0L } ?: legacyLive
+            val moviesStamp = settings.moviesUpdated.value.takeIf { it > 0L } ?: settings.vodSyncedAtMillis
+            val seriesStamp = settings.seriesUpdated.value.takeIf { it > 0L } ?: settings.vodSyncedAtMillis
+            val liveDue = settings.liveEnabled.value &&
+                (force || CatalogueRefreshPolicy.isDue(liveStamp, hours, now))
+            val moviesDue = settings.moviesEnabled.value &&
+                (force || CatalogueRefreshPolicy.isDue(moviesStamp, hours, now))
+            val seriesDue = settings.seriesEnabled.value &&
+                (force || CatalogueRefreshPolicy.isDue(seriesStamp, hours, now))
+            if (!liveDue && !moviesDue && !seriesDue) return@withLock Result.success()
 
-        var anyFailed = false
-
-        for (source in sources) {
-            when (val result = graph.catalogRepository.sync(source, now)) {
-                is CatalogRepository.SyncResult.Success ->
-                    Log.i(TAG, "Catalogue for ${source.name}: ${result.channelCount} channels")
-                is CatalogRepository.SyncResult.Failed -> {
-                    anyFailed = true
-                    Log.w(TAG, "Catalogue for ${source.name} failed: ${result.reason}")
+            var liveFailed = false
+            var moviesFailed = false
+            var seriesFailed = false
+            for (source in sources) {
+                if (liveDue) {
+                    when (val result = graph.catalogRepository.syncLive(source, now)) {
+                        is CatalogRepository.SyncResult.Success ->
+                            Log.i(TAG, "Live for ${source.name}: ${result.channelCount} channels")
+                        is CatalogRepository.SyncResult.Failed -> {
+                            liveFailed = true
+                            Log.w(TAG, "Live for ${source.name} failed: ${result.reason}")
+                        }
+                    }
+                }
+                if ((moviesDue || seriesDue) &&
+                    source.kind == app.opentv.data.model.SourceKind.XTREAM) {
+                    val result = graph.catalogRepository.syncVod(
+                        source, now, includeMovies = moviesDue, includeSeries = seriesDue,
+                    )
+                    if (moviesDue && result.movieError != null) moviesFailed = true
+                    if (seriesDue && result.seriesError != null) seriesFailed = true
                 }
             }
+            if (liveDue && !liveFailed) settings.recordCatalogueUpdated("live")
+            if (moviesDue && !moviesFailed) settings.recordCatalogueUpdated("movies")
+            if (seriesDue && !seriesFailed) settings.recordCatalogueUpdated("series")
+            if ((moviesDue || seriesDue) && !moviesFailed && !seriesFailed)
+                settings.vodSyncedAtMillis = now
 
+            if (liveDue) {
+                val summary = graph.epgRepository.syncAll(now)
+                if (summary.feedsFailed > 0) liveFailed = true
+                runCatching { graph.recordingEngine.rescanSeriesRules() }
+            }
+            if (liveFailed || moviesFailed || seriesFailed) Result.retry()
+            else Result.success()
         }
-
-        // Guides sync as one pass across every enabled feed — provider guides, built-in
-        // free sources and user URLs merge into a single guide, then the matcher runs.
-        val summary = graph.epgRepository.syncAll(now)
-        if (summary.feedsFailed > 0) anyFailed = true
-        Log.i(
-            TAG,
-            "Guide: ${summary.programmesWritten} programmes from ${summary.feedsSucceeded} " +
-                "feed(s), ${summary.channelsMatched}/${summary.channelsTotal} channels matched",
-        )
-
-        // Book any newly-revealed series-link airings from this fresh guide.
-        runCatching { graph.recordingEngine.rescanSeriesRules() }
-
-        // A partial failure is still a retry — but the user keeps everything already on disk.
-        return if (anyFailed) Result.retry() else Result.success()
     }
 
     companion object {
@@ -82,6 +109,7 @@ class SyncWorker(
          */
         fun refreshNow(context: Context) {
             val request = OneTimeWorkRequestBuilder<SyncWorker>()
+                .setInputData(workDataOf("force_refresh" to true))
                 .setConstraints(
                     Constraints.Builder()
                         .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -95,8 +123,37 @@ class SyncWorker(
             )
         }
 
+        /** A single stale-only check on app start. The mutex and stage stamps prevent
+         * another fetch when periodic work happens to launch at the same moment. */
+        fun refreshDueAtStartup(context: Context) {
+            val settings = app.opentv.core.AppSettings.get(context)
+            val hours = settings.catalogueUpdateHours.value
+            if (hours == 0) return
+            val now = System.currentTimeMillis()
+            val due = (settings.liveEnabled.value &&
+                CatalogueRefreshPolicy.isDue(settings.liveUpdated.value, hours, now)) ||
+                (settings.moviesEnabled.value &&
+                    CatalogueRefreshPolicy.isDue(settings.moviesUpdated.value, hours, now)) ||
+                (settings.seriesEnabled.value &&
+                    CatalogueRefreshPolicy.isDue(settings.seriesUpdated.value, hours, now))
+            if (!due) return
+            val request = OneTimeWorkRequestBuilder<SyncWorker>()
+                .setConstraints(Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.CONNECTED).build())
+                .build()
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                "opentv-startup-due-sync", ExistingWorkPolicy.KEEP, request,
+            )
+        }
+
         fun schedule(context: Context) {
-            val request = PeriodicWorkRequestBuilder<SyncWorker>(6, TimeUnit.HOURS)
+            val interval = app.opentv.core.AppSettings.get(context).catalogueUpdateHours.value.toLong()
+            val manager = WorkManager.getInstance(context)
+            if (interval == 0L) {
+                manager.cancelUniqueWork(WORK_NAME)
+                return
+            }
+            val request = PeriodicWorkRequestBuilder<SyncWorker>(interval, TimeUnit.HOURS)
                 .setConstraints(
                     Constraints.Builder()
                         .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -111,7 +168,7 @@ class SyncWorker(
 
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
                 WORK_NAME,
-                ExistingPeriodicWorkPolicy.KEEP,
+                ExistingPeriodicWorkPolicy.UPDATE,
                 request,
             )
         }

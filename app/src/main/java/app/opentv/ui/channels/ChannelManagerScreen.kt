@@ -10,6 +10,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -20,16 +21,19 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -51,6 +55,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -101,7 +106,9 @@ fun ChannelManagerScreen(
         runCatching { railFocusRequester.requestFocus() }.isSuccess
     }
 
-    BackHandler { onBack() }
+    val compact = LocalConfiguration.current.screenWidthDp < 720
+    var showRows by remember { mutableStateOf(false) }
+    BackHandler { if (compact && showRows) showRows = false else onBack() }
 
     // Open on the first category so channels show straight away — the whole complaint was that the
     // manager never displayed any. Re-runs when the category set changes (e.g. after switching
@@ -126,19 +133,29 @@ fun ChannelManagerScreen(
         // Top bar: title + Done (Back also exits via BackHandler). Kept out of the two panes so
         // pressing RIGHT from a category lands in the channel list, not on this button.
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 16.dp),
+            Modifier.fillMaxWidth().padding(horizontal = if (compact) 12.dp else 28.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(stringResource(R.string.channels_manager_title), style = MaterialTheme.typography.headlineMedium)
-            Spacer(Modifier.weight(1f))
-            OutlinedButton(onClick = onBack) { Text(stringResource(R.string.common_done)) }
+            if (compact && showRows) {
+                IconButton(onClick = { showRows = false }) {
+                    Icon(Icons.Filled.ArrowBack, contentDescription = "Back to categories")
+                }
+            }
+            Text(
+                if (compact && showRows) "Channels" else stringResource(R.string.channels_manager_title),
+                style = if (compact) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineMedium,
+                modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+            OutlinedButton(onClick = onBack) {
+                Text(stringResource(R.string.common_done), maxLines = 1, softWrap = false)
+            }
         }
 
         Row(Modifier.weight(1f).fillMaxWidth()) {
             // ---- LEFT pane: Search, an optional source filter, and the category list ----------
-            LazyColumn(
+            if (!compact || !showRows) LazyColumn(
                 modifier = Modifier
-                    .width(280.dp)
+                    .then(if (compact) Modifier.weight(1f) else Modifier.width(280.dp))
                     .fillMaxHeight()
                     .background(MaterialTheme.colorScheme.surface),
                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 12.dp),
@@ -148,7 +165,7 @@ fun ChannelManagerScreen(
                     RailEntry(
                         label = stringResource(R.string.nav_search),
                         selected = searchMode,
-                        onClick = { searchMode = true },
+                        onClick = { searchMode = true; if (compact) showRows = true },
                         modifier = if (searchMode) Modifier.focusRequester(railFocusRequester) else Modifier,
                     )
                 }
@@ -179,22 +196,24 @@ fun ChannelManagerScreen(
                     RailEntry(
                         label = group.label,
                         selected = groupSelected,
-                        onClick = { searchMode = false; viewModel.selectManagerCategory(group.key) },
+                        onClick = { searchMode = false; viewModel.selectManagerCategory(group.key); if (compact) showRows = true },
                         modifier = if (groupSelected) Modifier.focusRequester(railFocusRequester) else Modifier,
                     )
                 }
             }
 
             // ---- RIGHT pane: the search UI, or the selected category's channels ---------------
-            Column(
+            if (!compact || showRows) Column(
                 Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .padding(horizontal = 24.dp, vertical = 12.dp),
+                    .padding(horizontal = if (compact) 8.dp else 24.dp, vertical = 12.dp),
             ) {
                 if (searchMode) {
                     SearchPane(
                         query = query,
+                        compact = compact,
+                        onQueryChange = { query = it.take(60) },
                         results = searchResults,
                         onKey = { if (query.length < 40) query += it },
                         onSpace = { if (query.length < 40) query += " " },
@@ -223,6 +242,8 @@ fun ChannelManagerScreen(
 private fun SearchPane(
     query: String,
     results: List<ChannelsViewModel.Row>,
+    compact: Boolean = false,
+    onQueryChange: (String) -> Unit = {},
     onKey: (String) -> Unit,
     onSpace: () -> Unit,
     onBackspace: () -> Unit,
@@ -230,10 +251,31 @@ private fun SearchPane(
     onToggleHidden: (ChannelsViewModel.Row, Boolean) -> Unit,
     onToggleFavourite: (ChannelsViewModel.Row) -> Unit,
 ) {
-    Row(Modifier.fillMaxSize()) {
+    if (compact) {
+        Column(Modifier.fillMaxSize()) {
+            OutlinedTextField(value = query, onValueChange = onQueryChange,
+                modifier = Modifier.fillMaxWidth(), singleLine = true,
+                label = { Text("Search channels") })
+            Spacer(Modifier.height(8.dp))
+            ChannelSearchResults(query, results, onToggleHidden, onToggleFavourite)
+        }
+    } else Row(Modifier.fillMaxSize()) {
         OnScreenKeyboard(onKey = onKey, onSpace = onSpace, onBackspace = onBackspace, onClear = onClear)
         Spacer(Modifier.width(24.dp))
         Column(Modifier.weight(1f).fillMaxSize()) {
+            ChannelSearchResults(query, results, onToggleHidden, onToggleFavourite)
+        }
+    }
+}
+
+@Composable
+private fun ChannelSearchResults(
+    query: String,
+    results: List<ChannelsViewModel.Row>,
+    onToggleHidden: (ChannelsViewModel.Row, Boolean) -> Unit,
+    onToggleFavourite: (ChannelsViewModel.Row) -> Unit,
+) {
+        Column(Modifier.fillMaxSize()) {
             when {
                 query.isBlank() -> Hint(stringResource(R.string.channels_manager_search_hint))
                 query.trim().length < 2 -> Hint(stringResource(R.string.common_keep_typing))
@@ -251,7 +293,6 @@ private fun SearchPane(
                 }
             }
         }
-    }
 }
 
 /** The selected category's channels — hidden ones included, greyed, so they can be un-hidden. */
@@ -389,9 +430,12 @@ private fun ManagerRow(
                 contentDescription = if (row.primary.favourite) stringResource(R.string.common_remove_favourite) else stringResource(R.string.common_favourite),
             )
         }
-        Spacer(Modifier.width(8.dp))
+        Spacer(Modifier.width(4.dp))
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(stringResource(R.string.channels_show), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+            if (LocalConfiguration.current.screenWidthDp >= 720) {
+                Text(stringResource(R.string.channels_show), style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
+            }
             // Checked = visible; off = hidden. Reads the natural way: switch it off to hide.
             Switch(checked = !hidden, onCheckedChange = { onToggleHidden() })
         }

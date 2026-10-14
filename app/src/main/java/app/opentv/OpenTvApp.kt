@@ -11,6 +11,7 @@ import app.opentv.core.LocaleUtils
 import app.opentv.core.ServiceLocator
 import app.opentv.data.repo.CatalogRepository
 import app.opentv.data.work.SyncWorker
+import app.opentv.data.work.AutoProviderQaWorker
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
@@ -19,6 +20,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 
 class OpenTvApp : Application(), ImageLoaderFactory {
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -60,6 +62,11 @@ class OpenTvApp : Application(), ImageLoaderFactory {
         super.onCreate()
         val graph = ServiceLocator.get(this)
         SyncWorker.schedule(this)
+        SyncWorker.refreshDueAtStartup(this)
+        // Use the already-saved Xtream profiles; never ship or ask for credentials.
+        // Runs after startup and daily without interrupting foreground video playback.
+        AutoProviderQaWorker.schedule(this)
+        app.opentv.data.work.NasAutoSyncWorker.schedule(this, graph.settings.nasAutoSync.value)
 
         // When the normaliser has moved on since the catalogue was last processed, re-clean
         // the stored channels and re-run the guide matcher — locally, no re-download. This
@@ -107,7 +114,9 @@ class OpenTvApp : Application(), ImageLoaderFactory {
             // refresh window are skipped), but it is what makes the free regional guide turn
             // itself on and download the first time — without waiting for the user to find
             // the refresh button. ensureFeeds + auto-enable-by-region + matcher all live here.
-            graph.epgRepository.syncAll(System.currentTimeMillis(), force = false)
+            graph.catalogueRefreshMutex.withLock {
+                graph.epgRepository.syncAll(System.currentTimeMillis(), force = false)
+            }
         }
     }
 }

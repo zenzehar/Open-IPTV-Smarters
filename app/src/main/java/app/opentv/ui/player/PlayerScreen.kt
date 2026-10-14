@@ -13,6 +13,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
@@ -44,6 +45,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.FastForward
@@ -57,6 +59,7 @@ import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -177,6 +180,7 @@ fun PlayerScreen(
     var paused by remember { mutableStateOf(false) }
     var resizeMode by remember { mutableIntStateOf(settings.playerResizeMode.value) }
 
+    val controlsTimeoutSeconds by settings.controlsTimeoutSeconds.collectAsState()
     var controlsVisible by remember { mutableStateOf(true) }
     var panel by remember { mutableStateOf(Panel.NONE) }
     var channelListVisible by remember { mutableStateOf(false) }
@@ -299,11 +303,11 @@ fun PlayerScreen(
     }
 
     // Auto-hide the bar after a few seconds — but never while paused or with a picker open.
-    LaunchedEffect(controlsVisible, interaction, state, paused, panel) {
-        if (controlsVisible && !paused && panel == Panel.NONE &&
+    LaunchedEffect(controlsVisible, interaction, state, paused, panel, controlsTimeoutSeconds) {
+        if (controlsVisible && controlsTimeoutSeconds > 0 && !paused && panel == Panel.NONE &&
             state is PlayerController.State.Playing
         ) {
-            delay(CONTROLS_TIMEOUT_MILLIS)
+            delay(controlsTimeoutSeconds * 1_000L)
             controlsVisible = false
         }
     }
@@ -312,7 +316,7 @@ fun PlayerScreen(
     // catcher (so the next remote press brings the bar back).
     LaunchedEffect(controlsVisible, panel) {
         if (controlsVisible) {
-            delay(40)
+            delay(110L)
             runCatching { if (panel != Panel.NONE) panelFocus.requestFocus() else barFocus.requestFocus() }
         } else {
             runCatching { rootFocus.requestFocus() }
@@ -375,20 +379,19 @@ fun PlayerScreen(
                         interaction++
                         false
                     }
-                    // Channel up/down works whether or not the bar is showing — this remote has no
-                    // CH+/CH- keys, so up/down IS the channel changer. Each zap flashes the bar as a
-                    // channel banner, then it auto-hides.
-                    event.key == Key.DirectionUp || event.key == Key.ChannelUp -> { zapBy(-1); reveal(); true }
-                    event.key == Key.DirectionDown || event.key == Key.ChannelDown -> { zapBy(1); reveal(); true }
-                    // With the bar up, left/right drive its buttons; let them through.
+                    // Dedicated channel keys still zap. Ordinary arrow keys are reserved
+                    // for transport control focus, matching the VOD player.
+                    event.key == Key.ChannelUp -> { zapBy(-1); reveal(); true }
+                    event.key == Key.ChannelDown -> { zapBy(1); reveal(); true }
                     controlsVisible -> {
+                        // Let D-pad focus move between pause, quality, list and other chips.
                         interaction++
                         false
                     }
-                    // Immersive: left opens the channel list, right the quality picker.
-                    event.key == Key.DirectionLeft -> { if (queue.isNotEmpty()) channelListVisible = true; true }
-                    event.key == Key.DirectionRight -> {
-                        if (variants.size > 1) { reveal(); panel = Panel.QUALITY }; true
+                    event.key == Key.DirectionLeft || event.key == Key.DirectionRight ||
+                        event.key == Key.DirectionUp || event.key == Key.DirectionDown -> {
+                        reveal()
+                        true
                     }
                     else -> { reveal(); true }
                 }
@@ -415,6 +418,26 @@ fun PlayerScreen(
             },
             update = { it.resizeMode = resizeMode },
         )
+
+        AnimatedVisibility(
+            visible = controlsVisible && !inPip,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.TopStart),
+        ) {
+            IconButton(
+                onClick = { controller.stop(); onBack() },
+                modifier = Modifier
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(
+                        WindowInsetsSides.Horizontal + WindowInsetsSides.Top,
+                    ))
+                    .padding(12.dp)
+                    .background(Color.Black.copy(alpha = 0.62f), RoundedCornerShape(12.dp)),
+            ) {
+                Icon(Icons.Filled.ArrowBack, contentDescription = "Back to channels",
+                    tint = Color.White)
+            }
+        }
 
         // The channel number as you type it, top-right, until it resolves.
         if (numberEntry.isNotEmpty() && !inPip) {
@@ -522,10 +545,14 @@ fun PlayerScreen(
                     Spacer(Modifier.height(12.dp))
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     if (controller.isSeekable) {
-                        BarChip(Icons.Filled.FastRewind, stringResource(R.string.player_rewind), false) {
-                            controller.seekBackward(); interaction++
+                        BarChip(Icons.Filled.FastRewind, "-10s", false) {
+                            controller.player.seekTo((controller.player.currentPosition - 10_000L).coerceAtLeast(0L))
+                            interaction++
                         }
                         Spacer(Modifier.width(10.dp))
                     }
@@ -541,8 +568,11 @@ fun PlayerScreen(
                     }
                     if (controller.isSeekable) {
                         Spacer(Modifier.width(10.dp))
-                        BarChip(Icons.Filled.FastForward, stringResource(R.string.player_forward), false) {
-                            controller.seekForward(); interaction++
+                        BarChip(Icons.Filled.FastForward, "+10s", false) {
+                            val target = controller.player.currentPosition + 10_000L
+                            val duration = controller.player.duration
+                            controller.player.seekTo(if (duration > 0) target.coerceAtMost(duration) else target)
+                            interaction++
                         }
                     }
 
@@ -894,11 +924,11 @@ private fun BarChip(
     ) {
         Icon(icon, contentDescription = label, tint = if (focused) content else (iconTint ?: content))
         Spacer(Modifier.width(6.dp))
-        Text(label, style = MaterialTheme.typography.labelLarge, color = content)
+        Text(label, style = MaterialTheme.typography.labelLarge, color = content, maxLines = 1,
+            softWrap = false, overflow = TextOverflow.Ellipsis)
     }
 }
 
-private const val CONTROLS_TIMEOUT_MILLIS = 5_000L
 private const val NUMBER_ENTRY_TIMEOUT_MILLIS = 2_000L
 
 /** Maps a remote's number keys (top row and numeric keypad) to a digit, or null for other keys. */

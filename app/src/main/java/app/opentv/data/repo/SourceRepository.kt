@@ -10,14 +10,19 @@ import app.opentv.data.model.Source
 import app.opentv.data.model.SourceKind
 import app.opentv.data.remote.StalkerApi
 import app.opentv.data.remote.XtreamApi
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 class SourceRepository(
     private val dao: SourceDao,
     private val api: XtreamApi,
     private val stalkerApi: StalkerApi,
+    private val http: OkHttpClient,
 ) {
     fun observeAll(): Flow<List<Source>> = dao.observeAll()
 
@@ -34,29 +39,52 @@ class SourceRepository(
         }
     }
 
-    /** Checks the details work before the user is committed to them. */
-    suspend fun test(source: Source): Result<String> = withContext(Dispatchers.IO) {
-        runCatching {
-            when (source.kind) {
+    data class ConnectionCheck(val message: String, val expiryMillis: Long? = null)
+
+    suspend fun test(source: Source): Result<String> =
+        testDetailed(source).map { it.message }
+
+    /** Checks connection and carries account expiry without exposing login details. */
+    suspend fun testDetailed(source: Source): Result<ConnectionCheck> = withContext(Dispatchers.IO) {
+        try {
+            val checked = source.copy(url = normaliseUrl(source.url, source.kind))
+            val check = when (checked.kind) {
                 SourceKind.XTREAM -> {
-                    val info = api.authenticate(
-                        source.copy(url = normaliseUrl(source.url, source.kind)),
+                    val info = api.authenticate(checked)
+                    ConnectionCheck(
+                        message = buildString {
+                            append("Connection verified")
+                            info.maxConnections?.let { append(" · $it connection(s)") }
+                            info.expiryMillis?.let {
+                                append(" · expires ${java.text.DateFormat.getDateInstance().format(java.util.Date(it))}")
+                            }
+                        },
+                        expiryMillis = info.expiryMillis?.takeIf { it > 0L },
                     )
-                    buildString {
-                        append("Connected")
-                        info.username?.let { append(" as $it") }
-                        info.maxConnections?.let { append(" · $it connection(s)") }
-                        info.expiryMillis?.let {
-                            append(" · expires ${java.text.DateFormat.getDateInstance().format(java.util.Date(it))}")
-                        }
+                }
+                SourceKind.M3U -> {
+                    val address = checked.url.toHttpUrlOrNull()
+                        ?: throw IllegalArgumentException("Invalid playlist URL.")
+                    val request = Request.Builder().url(address)
+                        .header("User-Agent", checked.userAgent).build()
+                    http.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful)
+                            throw IllegalStateException("Playlist server returned HTTP ${response.code}.")
+                        // Reachability only. A full playlist is validated by the streaming M3U
+                        // parser during sync, not downloaded twice by Test Connection.
+                        ConnectionCheck("Playlist server is reachable. Content will be checked during import.")
                     }
                 }
-                SourceKind.M3U -> "Playlist address looks valid. It will be checked on first sync."
                 SourceKind.STALKER -> {
-                    stalkerApi.handshakeTest(source.copy(url = normaliseUrl(source.url, source.kind)))
-                    "Portal accepted the MAC address. Loading channels…"
+                    stalkerApi.handshakeTest(checked)
+                    ConnectionCheck("Portal connection verified. Loading channels…")
                 }
             }
+            Result.success(check)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 

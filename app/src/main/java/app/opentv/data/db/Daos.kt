@@ -148,6 +148,34 @@ interface ChannelDao {
     )
     fun search(query: String, limit: Int = 200): Flow<List<Channel>>
 
+    /** Search without leaving the selected Live category/EPG layout. Bound the result set. */
+    @Query("""
+        SELECT * FROM channels
+        WHERE hidden = 0
+          AND (:sourceId IS NULL OR sourceId = :sourceId)
+          AND (:onlyFavourites = 0 OR favourite = 1)
+          AND (displayName LIKE '%' || :query || '%'
+               OR name LIKE '%' || :query || '%'
+               OR customName LIKE '%' || :query || '%')
+        ORDER BY favourite DESC, sortIndex, displayName
+        LIMIT 1000
+    """)
+    fun searchScoped(query: String, sourceId: Long?, onlyFavourites: Boolean): Flow<List<Channel>>
+
+    @Query("""
+        SELECT * FROM channels
+        WHERE hidden = 0
+          AND (:sourceId IS NULL OR sourceId = :sourceId)
+          AND categoryId IN (:categoryIds)
+          AND (displayName LIKE '%' || :query || '%'
+               OR name LIKE '%' || :query || '%'
+               OR customName LIKE '%' || :query || '%')
+        ORDER BY favourite DESC, sortIndex, displayName
+        LIMIT 1000
+    """)
+    fun searchInCategoriesScoped(query: String, sourceId: Long?,
+        categoryIds: List<String>): Flow<List<Channel>>
+
     /** Like [search] but keeps hidden channels in — the channel manager needs them to unhide. */
     @Query(
         """
@@ -429,6 +457,17 @@ interface MovieDao {
     )
     fun observe(categoryId: String?): Flow<List<Movie>>
 
+    /** Bounded Room cursor avoids exhausting memory when a provider category has 20k+ films. */
+    @Query("""
+        SELECT * FROM movies
+        WHERE (:categoryId IS NULL OR categoryId = :categoryId)
+          AND (:sourceId IS NULL OR sourceId = :sourceId)
+          AND (:filter = '' OR name LIKE '%' || :filter || '%')
+        ORDER BY addedMillis DESC, id DESC
+        LIMIT :limit OFFSET :offset
+    """)
+    fun observePage(categoryId: String?, sourceId: Long?, filter: String, limit: Int, offset: Int): Flow<List<Movie>>
+
     @Query("SELECT * FROM movies WHERE favourite = 1 ORDER BY name")
     fun observeFavourites(): Flow<List<Movie>>
 
@@ -520,6 +559,9 @@ interface MovieDao {
 
 @Dao
 interface SeriesDao {
+    @Query("SELECT * FROM series WHERE sourceId = :sourceId AND seriesId = :seriesId LIMIT 1")
+    suspend fun byProviderKey(sourceId: Long, seriesId: String): Series?
+
     @Query(
         """
         SELECT * FROM series
@@ -528,6 +570,16 @@ interface SeriesDao {
         """
     )
     fun observe(categoryId: String?): Flow<List<Series>>
+
+    @Query("""
+        SELECT * FROM series
+        WHERE (:categoryId IS NULL OR categoryId = :categoryId)
+        AND (:sourceId IS NULL OR sourceId = :sourceId)
+        AND (:filter = '' OR name LIKE '%' || :filter || '%')
+        ORDER BY addedMillis DESC, id DESC
+        LIMIT :limit OFFSET :offset
+    """)
+    fun observePage(categoryId: String?, sourceId: Long?, filter: String, limit: Int, offset: Int): Flow<List<Series>>
 
     @Query("SELECT * FROM series WHERE name LIKE '%' || :query || '%' ORDER BY name LIMIT :limit")
     fun search(query: String, limit: Int = 200): Flow<List<Series>>
@@ -630,6 +682,12 @@ interface PlaybackPositionDao {
     @Query("DELETE FROM playback_positions WHERE profileId = :profileId AND mediaKey = :key")
     suspend fun delete(profileId: Long, key: String)
 
+    /** A zero-position tombstone, so NAS sync cannot resurrect cleared progress. */
+    @Query("UPDATE playback_positions SET positionMillis = 0, durationMillis = 0, " +
+           "updatedAtMillis = MAX(updatedAtMillis + 1, :resetAtMillis) " +
+           "WHERE profileId = :profileId AND mediaKey = :key")
+    suspend fun resetPosition(profileId: Long, key: String, resetAtMillis: Long): Int
+
     /**
      * Set all episodes in a profile back to the start, preserving their rows as sync tombstones.
      * Movies, other profiles, IPTV provider credentials and favourites are untouched.
@@ -679,6 +737,10 @@ interface ProfileDao {
     /** Removing a profile takes its watch history with it. */
     @Query("DELETE FROM playback_positions WHERE profileId = :id")
     suspend fun deletePositions(id: Long)
+
+    /** Keep past and scheduled recordings when their viewing profile is deleted. */
+    @Query("UPDATE recordings SET profileId = NULL WHERE profileId = :id")
+    suspend fun detachRecordings(id: Long)
 }
 
 @Dao

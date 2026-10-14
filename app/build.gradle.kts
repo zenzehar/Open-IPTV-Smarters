@@ -9,13 +9,15 @@ plugins {
 android {
     namespace = "app.opentv"
     compileSdk = 35
+    // Instrument isolated QA package, never overwrite the user's Debug install.
+    testBuildType = "qa"
 
     defaultConfig {
         applicationId = "app.opentv"
         minSdk = 23
         targetSdk = 35
-        versionCode = 20
-        versionName = "0.11.8"
+        versionCode = 44
+        versionName = "0.12.22"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -42,24 +44,11 @@ android {
                 "proguard-rules.pro",
             )
 
-            /*
-             * Falls back to the debug key when no keystore is configured.
-             *
-             * An *unsigned* APK cannot be installed on Android at all — it is rejected before
-             * the user sees anything, with an error that explains nothing. For an early
-             * project that means every tester is blocked on the maintainer setting up signing
-             * infrastructure first.
-             *
-             * The trade-off is real and is written up in docs/RELEASING.md: moving to a
-             * proper keystore later changes the signature, and Android will refuse to upgrade
-             * over a debug-signed install. Set up real signing before announcing publicly.
-             */
-            signingConfig =
-                if (providers.environmentVariable("KEYSTORE_PATH").orNull != null) {
-                    signingConfigs.getByName("upload")
-                } else {
-                    signingConfigs.getByName("debug")
-                }
+            // A release without a configured permanent key is intentionally unsigned.
+            // The release workflow rejects absent MYIPTV secrets before packaging.
+            if (providers.environmentVariable("KEYSTORE_PATH").orNull != null) {
+                signingConfig = signingConfigs.getByName("upload")
+            }
         }
         debug {
             applicationIdSuffix = ".debug"
@@ -69,6 +58,13 @@ android {
             if (providers.environmentVariable("KEYSTORE_PATH").orNull != null) {
                 signingConfig = signingConfigs.getByName("upload")
             }
+        }
+        // A data-safe smoke-test install: never replaces the user's existing .debug app.
+        // Temporary QA keys are acceptable because no existing app data is migrated.
+        create("qa") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".qa"
+            matchingFallbacks += listOf("debug")
         }
     }
 
@@ -161,5 +157,14 @@ dependencies {
     testImplementation(libs.robolectric)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.room.testing)
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     testImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test:core:1.6.1")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
+    androidTestImplementation(libs.junit)
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

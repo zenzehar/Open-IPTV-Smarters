@@ -230,6 +230,16 @@ private fun NasPane(viewModel: SyncViewModel) {
             }
 
             Spacer(Modifier.height(20.dp))
+            Text(
+                "Automatic background NAS sync checks approximately every 15 minutes " +
+                    "when this device has network access. Devices can exchange progress even " +
+                    "if they are online at different times, because the NAS stores each device's " +
+                    "bundle. Both devices must configure the same accessible SMB share. " +
+                    "Without always-available shared storage, asynchronous sync is impossible.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(10.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     stringResource(R.string.sync_nas_auto),

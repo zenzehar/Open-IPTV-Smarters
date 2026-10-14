@@ -65,14 +65,19 @@ fun MobileLiveScreen(
     onPlayChannel: (Channel) -> Unit,
     onAddSource: () -> Unit,
     onRefresh: () -> Unit,
+    search: String = "",
+    onSearchChange: (String) -> Unit = {},
     viewModel: ChannelsViewModel = viewModel(),
 ) {
     val groups by viewModel.visibleCategoryGroups.collectAsState()
+    var categoryFilter by remember { mutableStateOf("") }
+    val matchingGroups = remember(groups, categoryFilter) {
+        groups.filter { it.label.contains(categoryFilter.trim(), ignoreCase = true) }
+    }
     val rows by viewModel.rows.collectAsState()
     val selected by viewModel.selectedCategory.collectAsState()
     val favOnly by viewModel.favouritesOnly.collectAsState()
     val channelsPresent by viewModel.channelsPresent.collectAsState()
-    var search by remember { mutableStateOf("") }
 
     Column(Modifier.fillMaxSize().background(Color(0xFF0A1023))) {
         Row(
@@ -86,9 +91,9 @@ fun MobileLiveScreen(
             }
         }
         OutlinedTextField(
-            value = search,
-            onValueChange = { search = it; viewModel.search(it) },
-            label = { Text("Search channels") },
+            value = categoryFilter,
+            onValueChange = { categoryFilter = it },
+            placeholder = { Text("Search live categories") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
         )
@@ -103,7 +108,7 @@ fun MobileLiveScreen(
             item(key = "favs") {
                 CategoryPill("Favourites", favOnly) { viewModel.selectFavourites() }
             }
-            items(groups, key = { it.key }) { group ->
+            items(matchingGroups, key = { it.key }) { group ->
                 CategoryPill(group.label, group.key == selected && !favOnly) { viewModel.selectCategory(group.key) }
             }
         }

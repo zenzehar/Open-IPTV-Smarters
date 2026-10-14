@@ -5,6 +5,7 @@
  */
 package app.opentv.ui.vod
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -24,16 +25,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -46,6 +50,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -89,8 +94,10 @@ fun MovieDetailScreen(
     onPlayUrl: (key: String, url: String, title: String) -> Unit,
     onOpenMovie: (Movie) -> Unit,
     onOpenPerson: (String) -> Unit,
+    onBack: () -> Unit,
     viewModel: VodViewModel = viewModel(),
 ) {
+    BackHandler(onBack = onBack)
     var movie by remember(movieId) { mutableStateOf<Movie?>(null) }
     var moreLike by remember(movieId) { mutableStateOf<List<Movie>>(emptyList()) }
     var resumeExists by remember(movieId) { mutableStateOf(false) }
@@ -110,7 +117,13 @@ fun MovieDetailScreen(
         }
     }
 
-    val m = movie ?: run { LoadingDetail(); return }
+    val m = movie ?: run {
+        Column(Modifier.fillMaxSize()) {
+            DetailBackBar(onBack = onBack, label = "Back to movies")
+            LoadingDetail()
+        }
+        return
+    }
 
     // Land focus on the primary action once the page is up, so a d-pad has somewhere to be.
     LaunchedEffect(m.id) {
@@ -118,7 +131,9 @@ fun MovieDetailScreen(
         runCatching { playFocus.requestFocus() }
     }
 
-    LazyColumn(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize()) {
+        DetailBackBar(onBack = onBack, label = "Back to movies")
+        LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
         item(key = "header") {
             DetailBackdrop(title = m.displayTitle, backdropUrl = m.backdropUrl, posterUrl = m.posterUrl, meta = movieMeta(m)) {
                 DetailButton(
@@ -163,6 +178,7 @@ fun MovieDetailScreen(
                 Spacer(Modifier.height(4.dp))
                 MoviePosterRow(stringResource(R.string.vod_more_like_this), moreLike, onOpenMovie)
             }
+        }
         }
     }
 
@@ -217,7 +233,7 @@ private fun AddonStreamPicker(
                 )
                 else -> LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.height(360.dp),
+                    modifier = Modifier.height(310.dp),
                 ) {
                     items(streams, key = { it.url }) { stream -> AddonStreamRow(stream, onPick) }
                 }
@@ -270,8 +286,10 @@ fun SeriesDetailScreen(
     onPlayEpisode: (mediaKey: String, url: String, title: String) -> Unit,
     onOpenSeries: (Series) -> Unit,
     onOpenPerson: (String) -> Unit,
+    onBack: () -> Unit,
     viewModel: VodViewModel = viewModel(),
 ) {
+    BackHandler(onBack = onBack)
     var series by remember(seriesId) { mutableStateOf<Series?>(null) }
     var moreLike by remember(seriesId) { mutableStateOf<List<Series>>(emptyList()) }
     var showResetConfirmation by remember(seriesId) { mutableStateOf(false) }
@@ -292,7 +310,13 @@ fun SeriesDetailScreen(
     val episodes by (s?.let { viewModel.episodes(it) } ?: viewModel.noEpisodes)
         .collectAsState(initial = emptyList())
 
-    if (s == null) { LoadingDetail(); return }
+    if (s == null) {
+        Column(Modifier.fillMaxSize()) {
+            DetailBackBar(onBack = onBack, label = "Back to series")
+            LoadingDetail()
+        }
+        return
+    }
 
     LaunchedEffect(s.id) {
         delay(60)
@@ -301,13 +325,48 @@ fun SeriesDetailScreen(
 
     // Group episodes by season (seasons ascending, episodes ordered within each) — the classic
     // "episode-by-season" list.
+    var selectedSeason by rememberSaveable(seriesId) { mutableStateOf<Int?>(null) }
+    var lastPlayedEpisodeId by rememberSaveable(seriesId) { mutableStateOf<Long?>(null) }
+    val lastEpisodeFocus = remember(seriesId) { FocusRequester() }
+    val episodesScrollState = rememberLazyListState()
     val seasons = remember(episodes) {
         episodes.groupBy { it.season }
             .mapValues { (_, eps) -> eps.sortedBy { it.episodeNumber } }
             .toSortedMap()
     }
 
-    LazyColumn(Modifier.fillMaxSize()) {
+    val activeSeason = selectedSeason?.takeIf { it in seasons } ?: seasons.keys.firstOrNull()
+    LaunchedEffect(lastPlayedEpisodeId, activeSeason, episodes) {
+        val id = lastPlayedEpisodeId ?: return@LaunchedEffect
+        val active = seasons[activeSeason] ?: return@LaunchedEffect
+        val index = active.indexOfFirst { it.id == id }
+        if (index < 0) return@LaunchedEffect
+        // Header and info take two rows, then the current season heading.
+        episodesScrollState.scrollToItem(index + 3)
+        delay(120L)
+        runCatching { lastEpisodeFocus.requestFocus() }
+    }
+    Column(Modifier.fillMaxSize()) {
+        DetailBackBar(onBack = onBack, label = "Back to series")
+        if (seasons.size > 1) {
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    seasons.keys.forEach { season ->
+                        OutlinedButton(
+                            onClick = { selectedSeason = season },
+                            modifier = Modifier.padding(horizontal = 4.dp),
+                        ) {
+                            Text(if (season == activeSeason) "● Season $season" else "Season $season")
+                        }
+                    }
+                }
+            }
+        }
+        LazyColumn(Modifier.fillMaxWidth().weight(1f), state = episodesScrollState) {
         item(key = "header") {
             DetailBackdrop(title = s.displayTitle, backdropUrl = s.backdropUrl, posterUrl = s.posterUrl, meta = seriesMeta(s)) {
                 DetailButton(
@@ -344,13 +403,22 @@ fun SeriesDetailScreen(
                 )
             }
         } else {
-            seasons.forEach { (season, eps) ->
+            seasons.filterKeys { it == activeSeason }.forEach { (season, eps) ->
                 item(key = "season:$season") {
                     Spacer(Modifier.height(8.dp))
                     SectionHeader(stringResource(R.string.vod_season, season))
                 }
                 items(eps, key = { it.id }) { ep ->
-                    EpisodeRow(ep, onPlayEpisode)
+                    EpisodeRow(
+                        ep = ep,
+                        onPlay = { key, url, title ->
+                            selectedSeason = ep.season
+                            lastPlayedEpisodeId = ep.id
+                            onPlayEpisode(key, url, title)
+                        },
+                        modifier = if (lastPlayedEpisodeId == ep.id) Modifier.focusRequester(lastEpisodeFocus)
+                            else Modifier,
+                    )
                 }
             }
         }
@@ -360,6 +428,7 @@ fun SeriesDetailScreen(
                 Spacer(Modifier.height(12.dp))
                 SeriesPosterRow(stringResource(R.string.vod_more_like_this), moreLike, onOpenSeries)
             }
+        }
         }
     }
 
@@ -387,6 +456,31 @@ fun SeriesDetailScreen(
                 }
             },
         )
+    }
+}
+
+/** Fixed, remote-focusable navigation affordance; remains visible while scrolling episodes. */
+@Composable
+private fun DetailBackBar(onBack: () -> Unit, label: String) {
+    var focused by remember { mutableStateOf(false) }
+    Row(
+        Modifier.fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        OutlinedButton(
+            onClick = onBack,
+            modifier = Modifier.onFocusChanged { focused = it.isFocused },
+            border = androidx.compose.foundation.BorderStroke(
+                if (focused) 3.dp else 1.dp,
+                if (focused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+            ),
+        ) {
+            Icon(Icons.Filled.ArrowBack, contentDescription = null)
+            Spacer(Modifier.width(6.dp))
+            Text(label, maxLines = 1)
+        }
     }
 }
 
@@ -418,20 +512,16 @@ private fun DetailBackdrop(
             .height(360.dp)
             .background(MaterialTheme.colorScheme.surfaceVariant),
     ) {
-        // Background: try the backdrop, fall back to the poster on load error, then to the gradient
-        // alone. Coil silently renders nothing on a failed load, so we drive the fallback from the
-        // error callback rather than trusting a non-null URL to actually resolve.
-        val bgCandidates = remember(backdropUrl, posterUrl) { listOfNotNull(backdropUrl, posterUrl).distinct() }
-        var bgIndex by remember(bgCandidates) { mutableStateOf(0) }
-        bgCandidates.getOrNull(bgIndex)?.let { model ->
-            AsyncImage(
-                model = model,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.matchParentSize(),
-                onError = { if (bgIndex < bgCandidates.lastIndex) bgIndex++ },
-            )
-        }
+        // A provider's "backdrop" can actually be a tall poster. Never stretch or
+        // crop that art across an ultra-wide hero: retain the separate, fitted poster.
+        // A restrained gradient makes the title and remote-focusable buttons legible.
+        Box(
+            Modifier.matchParentSize().background(
+                Brush.horizontalGradient(
+                    listOf(Color(0xFF13192E), Color(0xFF27315A), Color(0xFF111725)),
+                ),
+            ),
+        )
         // Scrim: keeps text readable over any art, and — with no art at all — is itself the tasteful
         // gradient the hero falls back to.
         Box(
@@ -509,9 +599,10 @@ private fun HeroPosterCard(posterUrl: String?, title: String) {
     var posterFailed by remember(posterUrl) { mutableStateOf(false) }
     Box(
         Modifier
-            .width(128.dp)
-            .height(192.dp)
+            .width(144.dp)
+            .height(214.dp)
             .shadow(12.dp, RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center,
     ) {
@@ -519,7 +610,7 @@ private fun HeroPosterCard(posterUrl: String?, title: String) {
             AsyncImage(
                 model = posterUrl,
                 contentDescription = title,
-                contentScale = ContentScale.Crop,
+                contentScale = ContentScale.Fit,
                 modifier = Modifier.matchParentSize(),
                 onError = { posterFailed = true },
             )
@@ -712,10 +803,14 @@ private fun DetailButton(
 
 /** One episode row: season/episode marker, title, and a focus highlight; plays on click. */
 @Composable
-private fun EpisodeRow(ep: Episode, onPlay: (mediaKey: String, url: String, title: String) -> Unit) {
+private fun EpisodeRow(
+    ep: Episode,
+    onPlay: (mediaKey: String, url: String, title: String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     var focused by remember { mutableStateOf(false) }
     Row(
-        Modifier
+        modifier
             .fillMaxWidth()
             .padding(horizontal = 24.dp, vertical = 3.dp)
             .onFocusChanged { focused = it.isFocused }

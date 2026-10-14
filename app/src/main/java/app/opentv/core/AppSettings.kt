@@ -23,13 +23,80 @@ import kotlinx.serialization.json.Json
  */
 class AppSettings private constructor(context: Context) {
 
+    private val appContext = context.applicationContext
     private val prefs =
-        context.applicationContext.getSharedPreferences("opentv_settings", Context.MODE_PRIVATE)
+        appContext.getSharedPreferences("opentv_settings", Context.MODE_PRIVATE)
 
     private val addonJson = Json { ignoreUnknownKeys = true }
 
     /** How the app chooses light vs dark. TV defaults to dark under [ThemeMode.SYSTEM]. */
     enum class ThemeMode { SYSTEM, DARK, LIGHT }
+
+    enum class DeviceMode { AUTO, TV, MOBILE }
+
+    /** Phones use the IPTV dashboard in landscape, but other screens can rotate normally. */
+    private val _landscapeHome = MutableStateFlow(prefs.getBoolean("landscape_home", true))
+    val landscapeHome: StateFlow<Boolean> = _landscapeHome.asStateFlow()
+    fun setLandscapeHome(enabled: Boolean) {
+        prefs.edit().putBoolean("landscape_home", enabled).apply()
+        _landscapeHome.value = enabled
+    }
+
+    // Account expiry is provider metadata, not a Room schema change. Keep it by source ID
+    // in private preferences and expose a revision Flow so Compose updates immediately.
+    private val _providerExpiryRevision = MutableStateFlow(0L)
+    val providerExpiryRevision: StateFlow<Long> = _providerExpiryRevision.asStateFlow()
+    fun providerExpiryFor(sourceId: Long): Long? =
+        prefs.getLong("expiry_for_$sourceId", 0L).takeIf { it > 0L }
+
+    fun expiryLastChecked(sourceId: Long): Long =
+        prefs.getLong("expiry_checked_$sourceId", 0L)
+
+    fun recordExpiryCheckAttempt(sourceId: Long) {
+        prefs.edit().putLong("expiry_checked_$sourceId", System.currentTimeMillis()).apply()
+    }
+
+    fun recordProviderExpiry(sourceId: Long, expiryMillis: Long?) {
+        prefs.edit()
+            .putLong("expiry_for_$sourceId", expiryMillis?.takeIf { it > 0L } ?: 0L)
+            .putLong("expiry_checked_$sourceId", System.currentTimeMillis())
+            .apply()
+        _providerExpiryRevision.value++
+    }
+
+    private fun timestampFlow(key: String) = MutableStateFlow(prefs.getLong(key, 0L))
+    private val _liveUpdated = timestampFlow("live_catalogue_updated")
+    val liveUpdated: StateFlow<Long> = _liveUpdated.asStateFlow()
+    private val _moviesUpdated = timestampFlow("movies_catalogue_updated")
+    val moviesUpdated: StateFlow<Long> = _moviesUpdated.asStateFlow()
+    private val _seriesUpdated = timestampFlow("series_catalogue_updated")
+    val seriesUpdated: StateFlow<Long> = _seriesUpdated.asStateFlow()
+
+    fun recordCatalogueUpdated(stage: String, timestamp: Long = System.currentTimeMillis()) {
+        val target = when (stage) {
+            "live" -> _liveUpdated
+            "movies" -> _moviesUpdated
+            "series" -> _seriesUpdated
+            else -> return
+        }
+        val key = when (stage) {
+            "live" -> "live_catalogue_updated"
+            "movies" -> "movies_catalogue_updated"
+            else -> "series_catalogue_updated"
+        }
+        prefs.edit().putLong(key, timestamp).apply()
+        target.value = timestamp
+    }
+    private val _deviceMode = MutableStateFlow(
+        runCatching { DeviceMode.valueOf(prefs.getString("device_mode", "AUTO") ?: "AUTO") }
+            .getOrDefault(DeviceMode.AUTO),
+    )
+    val deviceMode: StateFlow<DeviceMode> = _deviceMode.asStateFlow()
+
+    fun setDeviceMode(value: DeviceMode) {
+        prefs.edit().putString("device_mode", value.name).apply()
+        _deviceMode.value = value
+    }
 
     private val _themeMode = MutableStateFlow(readThemeMode())
     val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
@@ -140,12 +207,48 @@ class AppSettings private constructor(context: Context) {
     }
 
     /** Autoplay the next available episode when a series episode reaches its end. */
-    private val _autoplayNextEpisode = MutableStateFlow(prefs.getBoolean(KEY_AUTOPLAY_NEXT_EPISODE, false))
+    private val _autoplayNextEpisode = MutableStateFlow(prefs.getBoolean(KEY_AUTOPLAY_NEXT_EPISODE, true))
     val autoplayNextEpisode: StateFlow<Boolean> = _autoplayNextEpisode.asStateFlow()
 
     fun setAutoplayNextEpisode(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_AUTOPLAY_NEXT_EPISODE, enabled).apply()
         _autoplayNextEpisode.value = enabled
+    }
+
+    enum class PosterSize(val cardDp: Int, val gridMinDp: Int) {
+        SMALL(92, 96), MEDIUM(108, 112), LARGE(124, 128)
+    }
+
+    private val _posterSize = MutableStateFlow(
+        runCatching { PosterSize.valueOf(prefs.getString("poster_size", "MEDIUM") ?: "MEDIUM") }
+            .getOrDefault(PosterSize.MEDIUM)
+    )
+    val posterSize: StateFlow<PosterSize> = _posterSize.asStateFlow()
+    fun setPosterSize(value: PosterSize) {
+        prefs.edit().putString("poster_size", value.name).apply()
+        _posterSize.value = value
+    }
+
+    /** Auto-hide all video-player controls. Zero disables auto-hide. */
+    private val _controlsTimeoutSeconds = MutableStateFlow(
+        prefs.getInt("controls_timeout_seconds", 3).takeIf { it in listOf(0, 2, 3, 5, 8, 10, 15) } ?: 3
+    )
+    val controlsTimeoutSeconds: StateFlow<Int> = _controlsTimeoutSeconds.asStateFlow()
+    fun setControlsTimeoutSeconds(seconds: Int) {
+        require(seconds in listOf(0, 2, 3, 5, 8, 10, 15))
+        prefs.edit().putInt("controls_timeout_seconds", seconds).apply()
+        _controlsTimeoutSeconds.value = seconds
+    }
+
+    /** Scheduled background catalogue and EPG refresh (0 = manual only). */
+    private val _catalogueUpdateHours = MutableStateFlow(
+        prefs.getInt("catalogue_update_hours", 6).takeIf { it in listOf(0, 1, 3, 6, 12, 24) } ?: 6
+    )
+    val catalogueUpdateHours: StateFlow<Int> = _catalogueUpdateHours.asStateFlow()
+    fun setCatalogueUpdateHours(hours: Int) {
+        require(hours in listOf(0, 1, 3, 6, 12, 24))
+        prefs.edit().putInt("catalogue_update_hours", hours).apply()
+        _catalogueUpdateHours.value = hours
     }
 
     /** Whether launching the app jumps straight back to the last channel you watched. */
@@ -371,6 +474,9 @@ class AppSettings private constructor(context: Context) {
     fun setNasAutoSync(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_NAS_AUTO_SYNC, enabled).apply()
         _nasAutoSync.value = enabled
+        // This is distinct from the LAN "Share/Receive" and manually triggered NAS sync.
+        // WorkManager persists scheduled peer-file exchanges across process death and reboots.
+        app.opentv.data.work.NasAutoSyncWorker.schedule(appContext, enabled)
     }
 
     // ---- Catalogue freshness & TMDB ----------------------------------------------------------

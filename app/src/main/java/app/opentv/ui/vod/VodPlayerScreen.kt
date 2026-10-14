@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -89,6 +90,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.C
+import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
@@ -98,6 +100,7 @@ import app.opentv.data.model.Episode
 import app.opentv.core.SleepTimer
 import app.opentv.core.findActivity
 import app.opentv.player.PlayerController
+import app.opentv.player.VodSeekTimeline
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -129,9 +132,47 @@ fun VodPlayerScreen(
     val view = LocalView.current
     val graph = remember { ServiceLocator.get(context) }
     val settings = remember { graph.settings }
+    var catalogueDurationMs by remember(mediaKey) { mutableLongStateOf(0L) }
+    var savedDurationMs by remember(mediaKey) { mutableLongStateOf(0L) }
+    LaunchedEffect(mediaKey, streamUrl) {
+        val profileId = settings.activeProfileId.value
+        savedDurationMs = graph.playbackPositions.get(profileId, mediaKey)
+            ?.durationMillis?.coerceAtLeast(0L) ?: 0L
+        catalogueDurationMs = when {
+            mediaKey.startsWith("movie:") -> {
+                val id = mediaKey.substringAfter("movie:").toLongOrNull()
+                val movie = id?.let { graph.catalogRepository.movie(it) }
+                // get_vod_info may contain duration_secs even when the list did not.
+                val detailed = if (movie?.durationSeconds == null && id != null)
+                    graph.catalogRepository.movieDetail(id) else movie
+                VodSeekTimeline.catalogueMillis(detailed?.durationSeconds)
+            }
+            mediaKey.startsWith("ep:") ->
+                VodSeekTimeline.catalogueMillis(
+                    mediaKey.substringAfter("ep:").toLongOrNull()
+                        ?.let { graph.catalogRepository.episode(it) }?.durationSeconds)
+            else -> 0L
+        }
+    }
+    var leavingPlayer by remember { mutableStateOf(false) }
+    var vlcInitialSeekMs by remember(mediaKey) { mutableStateOf<Long?>(null) }
+    fun requestPlayerExit() {
+        if (!leavingPlayer) {
+            leavingPlayer = true
+        }
+    }
+    LaunchedEffect(leavingPlayer) {
+        if (leavingPlayer) {
+            // Detach the native video surface before route disposal destroys the codec.
+            delay(48L)
+            onBack()
+        }
+    }
     val autoplayNext by settings.autoplayNextEpisode.collectAsState()
+    val controlsTimeoutSeconds by settings.controlsTimeoutSeconds.collectAsState()
     var nextEpisode by remember(mediaKey) { mutableStateOf<Episode?>(null) }
-    var everPlayed by remember(mediaKey) { mutableStateOf(false) }
+    var media3Ended by remember(mediaKey) { mutableStateOf(false) }
+    var completionHandled by remember(mediaKey) { mutableStateOf(false) }
     var advanced by remember(mediaKey) { mutableStateOf(false) }
     LaunchedEffect(mediaKey) {
         val id = mediaKey.takeIf { it.startsWith("ep:") }?.substringAfter("ep:")?.toLongOrNull()
@@ -162,36 +203,76 @@ fun VodPlayerScreen(
             growingDataSourceFactory =
                 app.opentv.player.GrowingRecordingDataSource.Factory(context.applicationContext),
             liveRecording = growingRec,
+            quickVodStart = !growingRec,
         )
     }
-    // Skip forward/back within the recorded portion. For a growing recording ExoPlayer won't report
-    // the item as seekable (no fixed length), so we seek directly, clamped to what's on disk.
-    fun seekRelative(deltaMs: Long) {
+    var useVlc by remember(mediaKey) { mutableStateOf(false) }
+    var pendingSeek by remember(mediaKey) { mutableStateOf<Long?>(null) }
+    var pendingSeekStartedAt by remember(mediaKey) { androidx.compose.runtime.mutableLongStateOf(0L) }
+    var seekFailure by remember(mediaKey) { mutableStateOf(false) }
+    var durationContradicted by remember(mediaKey) { mutableStateOf(false) }
+    // A request may not immediately move ExoPlayer's currentPosition; keep the slider
+    // at the requested position while the decoder/buffer catches up.
+    fun seekToMs(requested: Long) {
         val p = controller.player
-        val ceiling = if (growingRec) p.bufferedPosition.coerceAtLeast(0L)
-        else (p.duration.takeIf { it > 0 } ?: Long.MAX_VALUE)
-        p.seekTo((p.currentPosition + deltaMs).coerceIn(0L, ceiling))
+        val maximum = if (growingRec) p.bufferedPosition.coerceAtLeast(0L)
+            else if (durationContradicted) 0L
+            else VodSeekTimeline.durationMillis(p.duration, catalogueDurationMs, savedDurationMs)
+        val target = VodSeekTimeline.clampTarget(requested, maximum)
+        // A briefly unavailable Media3 seekability flag is not a verdict on the
+        // provider's VOD content. Movies and episodes both get a normal seek.
+        pendingSeek = target
+        pendingSeekStartedAt = android.os.SystemClock.uptimeMillis()
+        vlcInitialSeekMs = target // Remember this if user manually chooses VLC.
+        seekFailure = false
+        controller.seekToVod(target)
+    }
+    fun seekRelative(deltaMs: Long) {
+        seekToMs((pendingSeek ?: controller.player.currentPosition) + deltaMs)
     }
     val state by controller.state.collectAsState()
-    var useVlc by remember(mediaKey) { mutableStateOf(false) }
+    var beganPlayback by remember(mediaKey) { mutableStateOf(false) }
+    LaunchedEffect(state) {
+        if (state is PlayerController.State.Playing) beganPlayback = true
+    }
+    // A slow first frame is NOT evidence of an unsupported container/codec.
+    // Previously 25 seconds of buffering silently switched every kind of stream into
+    // LibVLC, which caused intermittent VLC errors and complicated native shutdown.
+    // Keep Media3 alive; offer a deliberate VLC option rather than forcing it.
+    var slowStartup by remember(mediaKey) { mutableStateOf(false) }
+    LaunchedEffect(state, useVlc, beganPlayback) {
+        slowStartup = false
+        if (!useVlc && !beganPlayback && state is PlayerController.State.Buffering) {
+            delay(25_000L)
+            if (!useVlc && !beganPlayback &&
+                controller.state.value is PlayerController.State.Buffering) {
+                slowStartup = true
+            }
+        }
+    }
     LaunchedEffect(state) {
         val error = state as? PlayerController.State.Error ?: return@LaunchedEffect
-        if (error.message.contains("PARSING_CONTAINER_UNSUPPORTED", ignoreCase = true) ||
-            error.message.contains("DECODING_FAILED", ignoreCase = true) ||
-            error.message.contains("container", ignoreCase = true) && error.message.contains("unsupported", ignoreCase = true)
+        if (error.errorCode?.let(app.opentv.player.PlaybackErrors::requiresAlternativeDecoder) == true ||
+            error.message.contains("PARSING_CONTAINER_UNSUPPORTED", ignoreCase = true) ||
+            error.message.contains("DECODING_FAILED", ignoreCase = true)
         ) {
             // Do not retry forever with the same demuxer that has rejected the container.
-            controller.player.stop()
+            android.util.Log.w("KokyTV/VOD", "Media3 unsupported decoder code=${error.errorCode}; VLC fallback mediaKey=$mediaKey")
+            controller.stop()
             useVlc = true
         }
     }
     val tracks by controller.tracks.collectAsState()
-    LaunchedEffect(state, autoplayNext, nextEpisode, useVlc) {
-        if (useVlc) return@LaunchedEffect
-        if (state is PlayerController.State.Playing) everPlayed = true
-        if (everPlayed && state is PlayerController.State.Idle && autoplayNext && nextEpisode != null) {
-            advance()
+    // Only Media3 STATE_ENDED means an episode completed. Idle can also occur after stop,
+    // decoder errors and lifecycle changes; never autoplay on those transitions.
+    DisposableEffect(controller, mediaKey) {
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_ENDED) media3Ended = true
+            }
         }
+        controller.player.addListener(listener)
+        onDispose { controller.player.removeListener(listener) }
     }
 
     var paused by remember { mutableStateOf(false) }
@@ -202,14 +283,67 @@ fun VodPlayerScreen(
     var scrubbing by remember { mutableStateOf(false) }
     var scrubValue by remember { mutableFloatStateOf(0f) }
 
+    LaunchedEffect(media3Ended, useVlc) {
+        if (!media3Ended || useVlc) return@LaunchedEffect
+        val profileId = settings.activeProfileId.value
+        val previous = graph.playbackPositions.get(profileId, mediaKey)
+        val duration = maxOf(
+            controller.player.duration,
+            durationMs,
+            previous?.durationMillis ?: 0L,
+        )
+        if (duration > 0L) {
+            graph.playbackPositions.upsert(
+                app.opentv.data.model.PlaybackPosition(
+                    profileId = profileId,
+                    mediaKey = mediaKey,
+                    positionMillis = duration,
+                    durationMillis = duration,
+                    updatedAtMillis = System.currentTimeMillis(),
+                ),
+            )
+        }
+        // Persist the watched state before navigating to the next episode.
+        completionHandled = true
+    }
+    LaunchedEffect(media3Ended, completionHandled, autoplayNext, nextEpisode, useVlc) {
+        if (!useVlc && canAutoplayAfterCompletion(
+                media3Ended, completionHandled, autoplayNext, nextEpisode,
+            )) {
+            advance()
+        }
+    }
+
     var controlsVisible by remember { mutableStateOf(true) }
+    var rootHasFocus by remember { mutableStateOf(false) }
     var interaction by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     val barFocus = remember { FocusRequester() }
+    val seekFocus = remember { FocusRequester() }
+    val backFocus = remember { FocusRequester() }
+    var seekHasFocus by remember { mutableStateOf(false) }
+    var backHasFocus by remember { mutableStateOf(false) }
     val rootFocus = remember { FocusRequester() }
 
     fun reveal() { controlsVisible = true; interaction++ }
+    // Root owns arrows only while the controls are hidden or the background has focus.
+    // Once a chip has focus, native D-pad traversal reaches the actual buttons.
+    fun revealAndSeek(key: Key, repeats: Int): Boolean = when (key) {
+        Key.DirectionLeft -> {
+            reveal()
+            seekRelative(-if (repeats >= 12) 60_000L else if (repeats >= 4) 20_000L else 10_000L)
+            true
+        }
+        Key.DirectionRight -> {
+            reveal()
+            seekRelative(if (repeats >= 12) 60_000L else if (repeats >= 4) 20_000L else 10_000L)
+            true
+        }
+        Key.DirectionUp, Key.DirectionDown -> { reveal(); true }
+        else -> false
+    }
 
     suspend fun savePosition() {
+        if (media3Ended) return
         val player = controller.player
         val pos = player.currentPosition
         val dur = player.duration.takeIf { it > 0 } ?: return
@@ -228,6 +362,7 @@ fun VodPlayerScreen(
 
     // Keep an updated snapshot so disposal does not overwrite a newer VLC resume position.
     val latestVlc = rememberUpdatedState(useVlc)
+    val latestEnded = rememberUpdatedState(media3Ended)
 
     // Keep the screen awake during playback — see the note in PlayerScreen; a film is exactly when
     // the screensaver must not fire. Window flag is the reliable path; keepScreenOn is a backstop.
@@ -242,7 +377,7 @@ fun VodPlayerScreen(
             // so the final position survives navigation away from the video.
             val pos = controller.player.currentPosition
             val duration = controller.player.duration
-            if (!latestVlc.value && pos > 5_000L && duration > 0L) {
+            if (!latestVlc.value && !latestEnded.value && pos > 5_000L && duration > 0L) {
                 val snapshot = app.opentv.data.model.PlaybackPosition(
                     profileId = settings.activeProfileId.value,
                     mediaKey = mediaKey,
@@ -254,8 +389,14 @@ fun VodPlayerScreen(
                     graph.playbackPositions.upsert(snapshot)
                 }
             }
-            controller.release()
+            // Decoder release must happen on its creating (main) looper. Do not block
+            // Compose navigation teardown while Android reattaches the detail screen.
+            // Keep the old controller isolated until the delayed release completes.
             scope.cancel()
+            val oldController = controller
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                runCatching { oldController.release() }
+            }, 160L)
         }
     }
 
@@ -285,18 +426,40 @@ fun VodPlayerScreen(
         val wait = d - System.currentTimeMillis()
         if (wait > 0) delay(wait)
         SleepTimer.clear()
-        onBack()
+        requestPlayerExit()
     }
 
     // Poll position/duration for the seek bar while the film plays.
     LaunchedEffect(Unit) {
         while (isActive) {
             if (!scrubbing) {
-                positionMs = controller.player.currentPosition.coerceAtLeast(0)
+                val actual = controller.player.currentPosition.coerceAtLeast(0L)
+                val target = pendingSeek
+                if (target != null && VodSeekTimeline.reachedTarget(actual, target)) {
+                    pendingSeek = null
+                    seekFailure = false
+                } else if (target != null &&
+                    android.os.SystemClock.uptimeMillis() - pendingSeekStartedAt > 15_000L) {
+                    // Do not switch to another decoder on an arbitrary timer. Leave
+                    // VLC as an explicit option when playback genuinely fails to seek.
+                    pendingSeek = null
+                    seekFailure = true
+                }
+                positionMs = (pendingSeek ?: actual).coerceAtLeast(0L)
                 // A growing recording has no fixed length; the recorded-so-far extent (how far you
                 // can skip ahead) is what's been read into the buffer.
-                durationMs = if (growingRec) controller.player.bufferedPosition.coerceAtLeast(0)
-                else controller.player.duration.takeIf { it > 0 } ?: 0
+                val reportedDuration = if (growingRec) {
+                    controller.player.bufferedPosition.coerceAtLeast(0L)
+                } else {
+                    VodSeekTimeline.durationMillis(
+                        controller.player.duration, catalogueDurationMs, savedDurationMs,
+                    )
+                }
+                if (!growingRec && VodSeekTimeline.contradictsDuration(reportedDuration, actual)) {
+                    durationContradicted = true
+                }
+                durationMs = if (durationContradicted && !growingRec) 0L
+                    else reportedDuration
             }
             delay(500)
         }
@@ -305,31 +468,38 @@ fun VodPlayerScreen(
     // Auto-hide when playing and not paused/scrubbing and no picker open. A growing recording dips in
     // and out of Buffering as it rides the write head, so for that case Buffering counts as "playing"
     // here — otherwise a single hiccup would pin the transport bar on screen for the rest of the watch.
-    LaunchedEffect(controlsVisible, interaction, state, paused, scrubbing, vodPanel) {
+    LaunchedEffect(controlsVisible, interaction, state, paused, scrubbing, seekHasFocus,
+        vodPanel, controlsTimeoutSeconds) {
         val activelyPlaying = state is PlayerController.State.Playing ||
             (growingRec && state is PlayerController.State.Buffering)
-        if (controlsVisible && !paused && !scrubbing && vodPanel == VodPanel.NONE && activelyPlaying) {
-            delay(5_000)
+        if (controlsVisible && controlsTimeoutSeconds > 0 && !paused && !scrubbing &&
+            !seekHasFocus && vodPanel == VodPanel.NONE && activelyPlaying) {
+            delay(controlsTimeoutSeconds * 1_000L)
             controlsVisible = false
         }
     }
 
     LaunchedEffect(controlsVisible, vodPanel) {
         if (controlsVisible) {
-            delay(40)
-            runCatching { if (vodPanel != VodPanel.NONE) panelFocus.requestFocus() else barFocus.requestFocus() }
+            delay(110L)
+            runCatching {
+                if (vodPanel != VodPanel.NONE) panelFocus.requestFocus()
+                else barFocus.requestFocus()
+            }
         } else {
             runCatching { rootFocus.requestFocus() }
         }
     }
 
-    BackHandler(enabled = !useVlc) {
-        val activelyPlaying = state is PlayerController.State.Playing ||
-            (growingRec && state is PlayerController.State.Buffering)
+    BackHandler(enabled = !useVlc || leavingPlayer) {
         when {
+            leavingPlayer -> Unit // Consume repeated Back until the Navigation pop finishes.
             vodPanel != VodPanel.NONE -> vodPanel = VodPanel.NONE
-            controlsVisible && activelyPlaying && !paused -> controlsVisible = false
-            else -> onBack()
+            controlsVisible -> {
+                controlsVisible = false
+                interaction++
+            }
+            else -> requestPlayerExit()
         }
     }
 
@@ -339,25 +509,66 @@ fun VodPlayerScreen(
             .background(Color.Black)
             .onPreviewKeyEvent { event ->
                 when {
+                    event.type != KeyEventType.KeyDown -> false
                     event.key == Key.Back || event.key == Key.Escape -> false
-                    event.type == KeyEventType.KeyDown && !controlsVisible -> { reveal(); true }
-                    event.type == KeyEventType.KeyDown -> { interaction++; false }
-                    else -> false
+                    useVlc -> false
+                    controlsVisible && vodPanel == VodPanel.NONE && event.key == Key.DirectionUp -> {
+                        // Up from the transport row enters the timeline; from the timeline
+                        // it goes to the top-left Back button.
+                        runCatching {
+                            if (seekHasFocus) backFocus.requestFocus()
+                            else seekFocus.requestFocus()
+                        }
+                        interaction++
+                        true
+                    }
+                    controlsVisible && vodPanel == VodPanel.NONE &&
+                        event.key == Key.DirectionDown && (seekHasFocus || backHasFocus) -> {
+                        runCatching {
+                            if (backHasFocus) seekFocus.requestFocus()
+                            else barFocus.requestFocus()
+                        }
+                        interaction++
+                        true
+                    }
+                    controlsVisible && seekHasFocus &&
+                        (event.key == Key.DirectionLeft || event.key == Key.DirectionRight) -> {
+                        // Each tap moves by five seconds, even when the native Slider
+                        // implementation does not forward D-pad seek on an Android TV.
+                        val amount = when {
+                            event.nativeKeyEvent.repeatCount >= 12 -> 60_000L
+                            event.nativeKeyEvent.repeatCount >= 4 -> 20_000L
+                            else -> 5_000L
+                        }
+                        seekRelative(if (event.key == Key.DirectionLeft) -amount else amount)
+                        positionMs = pendingSeek ?: controller.player.currentPosition.coerceAtLeast(0L)
+                        scrubbing = false
+                        interaction++
+                        true
+                    }
+                    (!controlsVisible || rootHasFocus) &&
+                        revealAndSeek(event.key, event.nativeKeyEvent.repeatCount) -> true
+                    else -> { interaction++; false }
                 }
             }
             .focusRequester(rootFocus)
+            .onFocusChanged { rootHasFocus = it.isFocused }
             .focusable()
             .pointerInput(Unit) {
                 detectTapGestures { if (controlsVisible) controlsVisible = false else reveal() }
             },
     ) {
-        if (useVlc) {
+        if (leavingPlayer && !useVlc) {
+            Box(Modifier.fillMaxSize().background(Color.Black))
+        } else if (useVlc) {
             VlcVodFallback(
+                exitRequested = leavingPlayer,
+                initialSeekMs = vlcInitialSeekMs,
                 mediaKey = mediaKey,
                 streamUrl = streamUrl,
                 title = title,
                 userAgent = userAgent,
-                onBack = onBack,
+                onBack = ::requestPlayerExit,
                 nextEpisode = nextEpisode,
                 autoplayNext = autoplayNext,
                 onAutoplayChange = settings::setAutoplayNextEpisode,
@@ -378,7 +589,27 @@ fun VodPlayerScreen(
                     )
                 }
             },
+            onRelease = { playerView -> playerView.player = null },
         )
+
+        AnimatedVisibility(
+            visible = controlsVisible || paused,
+            enter = fadeIn(), exit = fadeOut(),
+            modifier = Modifier.align(Alignment.TopStart),
+        ) {
+            androidx.compose.material3.IconButton(
+                onClick = ::requestPlayerExit,
+                modifier = Modifier
+                    .focusRequester(backFocus)
+                    .onFocusChanged { backHasFocus = it.isFocused }
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(
+                        WindowInsetsSides.Horizontal + WindowInsetsSides.Top))
+                    .padding(12.dp)
+                    .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(10.dp)),
+            ) {
+                Icon(Icons.Filled.ArrowBack, contentDescription = "Back to library", tint = Color.White)
+            }
+        }
 
         when (val current = state) {
             is PlayerController.State.Buffering ->
@@ -387,6 +618,17 @@ fun VodPlayerScreen(
                         CircularProgressIndicator()
                         Spacer(Modifier.height(16.dp))
                         Text(current.title, color = Color.White)
+                        if (slowStartup) {
+                            Spacer(Modifier.height(10.dp))
+                            Text("Stream is taking longer to load", color = Color.White)
+                            Spacer(Modifier.height(12.dp))
+                            Button(onClick = {
+                                vlcInitialSeekMs = pendingSeek ?: controller.player.currentPosition
+                                    .coerceAtLeast(0L)
+                                controller.stop()
+                                useVlc = true
+                            }) { Text("Try VLC instead") }
+                        }
                     }
                 }
 
@@ -405,7 +647,12 @@ fun VodPlayerScreen(
                         Spacer(Modifier.height(24.dp))
                         Button(onClick = { controller.retry() }) { Text(stringResource(R.string.common_try_again)) }
                         Spacer(Modifier.height(12.dp))
-                        Button(onClick = { controller.player.stop(); useVlc = true }) {
+                        Button(onClick = {
+                            vlcInitialSeekMs = pendingSeek ?: vlcInitialSeekMs ?:
+                                controller.player.currentPosition.coerceAtLeast(0L)
+                            controller.stop()
+                            useVlc = true
+                        }) {
                             Text("Try VLC decoder")
                         }
                     }
@@ -467,30 +714,46 @@ fun VodPlayerScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(formatDuration(if (scrubbing) scrubValue.toLong() else positionMs), color = Color.White)
                     Spacer(Modifier.width(12.dp))
+                    val sliderMaximum = VodSeekTimeline.seekBarMaxMillis(
+                        durationMs, positionMs, maxOf(pendingSeek ?: 0L, scrubValue.toLong()))
                     Slider(
-                        value = if (scrubbing) scrubValue else positionMs.toFloat(),
-                        valueRange = 0f..(durationMs.takeIf { it > 0 }?.toFloat() ?: 1f),
+                        value = (if (scrubbing) scrubValue else positionMs.toFloat())
+                            .coerceIn(0f, sliderMaximum.toFloat()),
+                        valueRange = 0f..sliderMaximum.toFloat(),
                         onValueChange = { scrubbing = true; scrubValue = it; interaction++ },
                         onValueChangeFinished = {
-                            controller.player.seekTo(scrubValue.toLong())
-                            positionMs = scrubValue.toLong()
+                            seekToMs(scrubValue.toLong())
+                            positionMs = pendingSeek ?: scrubValue.toLong()
                             scrubbing = false
                             interaction++
                         },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f)
+                            .focusRequester(seekFocus)
+                            .onFocusChanged { seekHasFocus = it.isFocused }
+                            .then(if (seekHasFocus) Modifier.border(
+                                2.dp, MaterialTheme.colorScheme.primary,
+                                RoundedCornerShape(7.dp)) else Modifier),
                     )
                     Spacer(Modifier.width(12.dp))
-                    Text(formatDuration(durationMs), color = Color.White)
+                    Text(if (durationMs > 0L) formatDuration(durationMs) else "–:–", color = Color.White)
                 }
 
+                if (seekFailure) {
+                    Text("Seek did not finish. Retry, or try VLC.", color = Color(0xFFFFD89E),
+                        style = MaterialTheme.typography.bodySmall)
+                    Button(onClick = {
+                        controller.stop()
+                        useVlc = true
+                    }) { Text("Try VLC seeking") }
+                }
                 Spacer(Modifier.height(10.dp))
 
                 Row(
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    VodChip(Icons.Filled.FastRewind, stringResource(R.string.player_rewind)) {
-                        if (growingRec) seekRelative(-15_000) else controller.seekBackward(); interaction++
+                    VodChip(Icons.Filled.FastRewind, "-10s") {
+                        seekRelative(-10_000L); interaction++
                     }
                     Spacer(Modifier.width(10.dp))
                     VodChip(
@@ -503,8 +766,8 @@ fun VodPlayerScreen(
                         interaction++
                     }
                     Spacer(Modifier.width(10.dp))
-                    VodChip(Icons.Filled.FastForward, stringResource(R.string.player_forward)) {
-                        if (growingRec) seekRelative(15_000) else controller.seekForward(); interaction++
+                    VodChip(Icons.Filled.FastForward, "+10s") {
+                        seekRelative(10_000L); interaction++
                     }
                     Spacer(Modifier.width(20.dp))
                     VodChip(Icons.Filled.ClosedCaption, stringResource(R.string.player_subtitles)) {
