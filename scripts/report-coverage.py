@@ -16,7 +16,9 @@ restart = "PASS process_alive: relaunch" in smoke
 checks = set()
 if passed:
     # These specific assertions appear in MockProviderIntegrationTest.
-    checks = {18, 21, 29, 34, 39, 40, 41, 42, 44}
+    checks = {18, 21, 29, 34, 39, 40, 44}
+    # Category-local UI searches (41/42) are NOT validated by the all-category
+    # repository query. Keep them unverified until selected-category assertions exist.
 rows = []
 with Path("tests/requirements-coverage.csv").open(newline="") as f:
     source = list(csv.DictReader(f))
