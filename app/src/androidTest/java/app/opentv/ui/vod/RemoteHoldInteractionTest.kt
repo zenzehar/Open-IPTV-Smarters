@@ -38,9 +38,14 @@ class RemoteHoldInteractionTest {
         compose.onNodeWithTag("continue:movie:77")
             .performSemanticsAction(SemanticsActions.RequestFocus)
         val instrumentation = InstrumentationRegistry.getInstrumentation()
-        instrumentation.sendKeySync(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_CENTER))
+        // ACTION_UP needs the same downTime as ACTION_DOWN to simulate a hold.
+        val downTime = android.os.SystemClock.uptimeMillis()
+        instrumentation.sendKeySync(KeyEvent(downTime, downTime,
+            KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_CENTER, 0))
         Thread.sleep(680L)
-        instrumentation.sendKeySync(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_CENTER))
+        instrumentation.sendKeySync(KeyEvent(downTime,
+            android.os.SystemClock.uptimeMillis(), KeyEvent.ACTION_UP,
+            KeyEvent.KEYCODE_DPAD_CENTER, 0))
         compose.waitForIdle()
         compose.onNodeWithText("Continue Watching options").assertIsDisplayed()
         compose.runOnIdle { assertEquals("Long OK must not start playback", 0, resumed) }
