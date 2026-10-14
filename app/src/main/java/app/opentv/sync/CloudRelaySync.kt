@@ -39,7 +39,7 @@ internal class CloudRelaySync(
     suspend fun sync(): Result = withContext(Dispatchers.IO) {
         val credentials = CloudCredentialVault(context).load()
             ?: return@withContext Result.NotConfigured
-        runCatching {
+        runCatching<Result> {
             val root = davRoot(credentials)
             val folder = root + "KokySosyTV/"
             val syncFolder = folder + "sync/"

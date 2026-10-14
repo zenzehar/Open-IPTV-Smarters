@@ -60,6 +60,9 @@ class OpenTvApp : Application(), ImageLoaderFactory {
         super.onCreate()
         val graph = ServiceLocator.get(this)
         SyncWorker.schedule(this)
+        // Only schedules when an authorised cloud drive is already saved on this device.
+        // Keeps the existing NAS/manual sync independent.
+        app.opentv.sync.CloudSyncWorker.schedule(this)
 
         // When the normaliser has moved on since the catalogue was last processed, re-clean
         // the stored channels and re-run the guide matcher — locally, no re-download. This
