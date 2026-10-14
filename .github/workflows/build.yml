@@ -58,6 +58,25 @@ jobs:
       - name: Unit tests
         run: ./gradlew test --stacktrace
 
+      - name: Generate actual synthetic MP4 for Android decoder and seek tests
+        run: |
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y ffmpeg
+          fi
+          mkdir -p app/src/androidTest/assets
+          python3 - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          spec=importlib.util.spec_from_file_location("koky_mock","scripts/mock-xtream-server.py")
+          module=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          path=Path("app/src/androidTest/assets/qa_seek_fixture.mp4")
+          if not module.make_video(path):
+              raise SystemExit("FAIL: synthetic media was not generated")
+          print("QA fixture generated:", path.stat().st_size, "bytes")
+          PY
+
       - name: Compile Android QA integration tests
         run: ./gradlew assembleQaAndroidTest --stacktrace
 
@@ -80,6 +99,7 @@ jobs:
             app/build/outputs/apk/debug/*.apk
             app/build/outputs/apk/qa/*.apk
             app/build/outputs/apk/androidTest/qa/*.apk
+            app/src/androidTest/assets/qa_seek_fixture.mp4
             signing-fingerprint.txt
           if-no-files-found: error
 

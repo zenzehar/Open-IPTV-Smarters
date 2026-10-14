@@ -18,13 +18,22 @@ trap on_exit EXIT
 apk="$(find emulator-apks -type f -name '*qa*.apk' ! -iname '*androidtest*' | head -1)"
 testapk="$(find emulator-apks -type f -iname '*androidtest*.apk' | head -1)"
 test -s "$apk" && test -s "$testapk"
+media="$(find emulator-apks -type f -name qa_seek_fixture.mp4 | head -1)"
+test -s "$media" || { echo "FAIL synthetic_media_missing" | tee -a emulator-smoke-results.txt; exit 1; }
+cp "$media" "$RUNNER_TEMP/koky-fixture.mp4"
 python3 scripts/mock-xtream-server.py --media-file "$RUNNER_TEMP/koky-fixture.mp4" > emulator-fixture.log 2>&1 &
 fixture_pid=$!
 for retry in {1..30}; do
   if python3 -c 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:18080/health", timeout=1)' 2>/dev/null; then break; fi
   sleep 1
 done
-python3 -c 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:18080/health", timeout=3)'
+python3 - <<'PY'
+import json, urllib.request
+with urllib.request.urlopen("http://127.0.0.1:18080/health", timeout=5) as response:
+    health=json.load(response)
+if health.get("ok") is not True or health.get("media") is not True:
+    raise SystemExit("FAIL: provider did not start with valid seekable media")
+PY
 echo "PASS fixture_http" | tee emulator-smoke-results.txt
 adb install -r "$apk"
 adb install -r "$testapk"

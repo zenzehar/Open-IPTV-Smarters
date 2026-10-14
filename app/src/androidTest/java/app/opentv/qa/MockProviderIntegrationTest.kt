@@ -66,7 +66,7 @@ class MockProviderIntegrationTest {
         val request = Request.Builder().url("http://10.0.2.2:18080/movie/fixture/testonly/1.mp4")
             .header("Range", "bytes=400-499").build()
         OkHttpClient().newCall(request).execute().use { response ->
-            assumeTrue("Synthetic MP4 unavailable; codec test skipped", response.code != 503)
+            assertTrue("Synthetic MP4 must exist; don't silently skip media tests", response.code != 503)
             assertEquals(206, response.code)
             assertEquals(100L, response.body?.contentLength())
             assertEquals("bytes", response.header("Accept-Ranges"))
