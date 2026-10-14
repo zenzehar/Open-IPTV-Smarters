@@ -11,6 +11,7 @@ package app.opentv.ui.vod
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
+import android.os.SystemClock
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -31,6 +32,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.focusable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.FastForward
@@ -59,13 +61,23 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.nativeKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import app.opentv.core.ServiceLocator
+import app.opentv.player.VodSeekPolicy
 import app.opentv.data.model.PlaybackPosition
 import app.opentv.data.model.Episode
 import kotlinx.coroutines.CoroutineScope
@@ -99,6 +111,8 @@ fun VlcVodFallback(
     val context = LocalContext.current
     val graph = remember { ServiceLocator.get(context) }
     val profileId by graph.settings.activeProfileId.collectAsState()
+    val controlsTimeout by graph.settings.playerControlsTimeoutSeconds.collectAsState()
+    val seekFocus = remember { FocusRequester() }
     val scope = rememberCoroutineScope()
     var layout by remember { mutableStateOf<VLCVideoLayout?>(null) }
     var attachedLayout by remember { mutableStateOf<VLCVideoLayout?>(null) }
@@ -112,6 +126,12 @@ fun VlcVodFallback(
     var controlsVisible by remember { mutableStateOf(true) }
     var movingSlider by remember { mutableStateOf(false) }
     var sliderValue by remember { mutableStateOf(0f) }
+    var badDuration by remember(mediaKey) { mutableStateOf(false) }
+    var seekTargetMs by remember(mediaKey) { mutableStateOf<Long?>(null) }
+    var seekStartedMs by remember(mediaKey) { mutableLongStateOf(0L) }
+    var seekNotice by remember(mediaKey) { mutableStateOf<String?>(null) }
+    var lastHeldAtMs by remember(mediaKey) { mutableLongStateOf(0L) }
+    var lastControlActivity by remember(mediaKey) { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     var initialized by remember(mediaKey, streamUrl) { mutableStateOf(false) }
     var finished by remember(mediaKey) { mutableStateOf(false) }
     var nextRequested by remember(mediaKey) { mutableStateOf(false) }
@@ -159,7 +179,41 @@ fun VlcVodFallback(
         }
     }
 
-    BackHandler { onBack() }
+    fun revealControls() {
+        controlsVisible = true
+        lastControlActivity = SystemClock.elapsedRealtime()
+    }
+    fun seekToRequest(timeMs: Long) {
+        val target = VodSeekPolicy.target(timeMs, durationMs, badDuration)
+        seekTargetMs = target
+        seekStartedMs = SystemClock.elapsedRealtime()
+        seekNotice = null
+        lastControlActivity = seekStartedMs
+        runCatching { player.setTime(target) }.onFailure {
+            seekTargetMs = null
+            seekNotice = "VLC could not send this seek request."
+        }
+    }
+    fun stepSeek(deltaMs: Long) {
+        seekToRequest((seekTargetMs ?: positionMs) + deltaMs)
+    }
+
+    // First Back dismisses the transport even when paused or buffering.
+    BackHandler { if (controlsVisible) controlsVisible = false else onBack() }
+    LaunchedEffect(controlsVisible) {
+        if (controlsVisible) {
+            delay(80)
+            runCatching { seekFocus.requestFocus() }
+        }
+    }
+    LaunchedEffect(controlsVisible, lastControlActivity, playing, buffering,
+        movingSlider, seekTargetMs, controlsTimeout) {
+        if (controlsVisible && playing && !buffering && !movingSlider &&
+            seekTargetMs == null && controlsTimeout > 0) {
+            delay(controlsTimeout * 1_000L)
+            controlsVisible = false
+        }
+    }
 
     LaunchedEffect(mediaKey, streamUrl) {
         delay(700L)
@@ -264,8 +318,19 @@ fun VlcVodFallback(
             delay(1_000L)
             val p = runCatching { player.time }.getOrDefault(0L)
             val d = runCatching { player.length }.getOrDefault(0L)
-            positionMs = p.coerceAtLeast(0L)
-            durationMs = d.coerceAtLeast(0L)
+            val realPosition = p.coerceAtLeast(0L)
+            if (VodSeekPolicy.contradictsDuration(d, realPosition)) badDuration = true
+            positionMs = realPosition
+            durationMs = if (badDuration) 0L else d.coerceAtLeast(0L)
+            val target = seekTargetMs
+            if (target != null) {
+                if (VodSeekPolicy.acknowledged(realPosition, target) && !buffering) {
+                    seekTargetMs = null
+                } else if (SystemClock.elapsedRealtime() - seekStartedMs > 18_000L) {
+                    seekTargetMs = null
+                    seekNotice = "Seek not confirmed by VLC. This stream may not be seekable."
+                }
+            }
         }
     }
     LaunchedEffect(mediaKey) {
@@ -287,17 +352,33 @@ fun VlcVodFallback(
                     ))
                 }
             }
+            // Stop native callbacks before releasing the surface. No background native teardown.
+            runCatching { player.setEventListener(null) }
             runCatching { player.stop() }
-            runCatching { player.detachViews() }
+            runCatching {
+                if (player.vlcVout.areViewsAttached()) player.detachViews()
+            }
             attachedLayout = null
             runCatching { player.release() }
             runCatching { libVlc.release() }
         }
     }
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    Box(
+        Modifier.fillMaxSize().background(Color.Black)
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown && !controlsVisible &&
+                    event.key != Key.Back && event.key != Key.Escape) {
+                    revealControls()
+                    true
+                } else false
+            }
+            .focusable(),
+    ) {
         AndroidView(
-            modifier = Modifier.fillMaxSize().clickable { controlsVisible = !controlsVisible },
+            modifier = Modifier.fillMaxSize().clickable {
+                if (controlsVisible) controlsVisible = false else revealControls()
+            },
             factory = { ctx -> VLCVideoLayout(ctx).also { layout = it } },
         )
         // Show a small startup indicator only until the first playback/video-output event.
@@ -326,45 +407,83 @@ fun VlcVodFallback(
             }
         }
         if (controlsVisible) {
-            IconButton(
-                onClick = onBack,
-                modifier = Modifier.align(Alignment.TopStart)
+            Row(
+                modifier = Modifier.align(Alignment.TopStart).fillMaxWidth()
+                    .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.68f), Color.Transparent)))
                     .windowInsetsPadding(WindowInsets.safeDrawing.only(
                         WindowInsetsSides.Horizontal + WindowInsetsSides.Top))
-                    .padding(12.dp).background(Color.Black.copy(alpha = .65f), RoundedCornerShape(10.dp)),
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(Icons.Filled.ArrowBack, contentDescription = "Back to library", tint = Color.White)
+                IconButton(onClick = onBack) {
+                    Icon(Icons.Filled.ArrowBack, contentDescription = "Back to library", tint = Color.White)
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(title, color = Color.White, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.titleMedium)
             }
             Column(
                 modifier = Modifier.align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .background(Color.Black.copy(alpha = 0.88f))
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.88f))))
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(
+                        WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
+                    .padding(horizontal = 18.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
-                    }
-                    Text(title, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                    Text("VLC", color = Color(0xFF68D6CD))
-                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(displayTime(positionMs), color = Color.White)
                     Spacer(Modifier.width(10.dp))
                     Slider(
-                        value = if (movingSlider) sliderValue else positionMs.toFloat(),
-                        onValueChange = { sliderValue = it; movingSlider = true },
+                        value = (if (movingSlider) sliderValue else positionMs.toFloat())
+                            .coerceIn(0f, VodSeekPolicy.displayMaximum(
+                                durationMs, positionMs, badDuration).toFloat()),
+                        onValueChange = {
+                            sliderValue = it
+                            movingSlider = true
+                            revealControls()
+                        },
                         onValueChangeFinished = {
-                            runCatching { player.setTime(sliderValue.toLong()) }
+                            seekToRequest(sliderValue.toLong())
                             movingSlider = false
                         },
-                        valueRange = 0f..durationMs.coerceAtLeast(1L).toFloat(),
-                        modifier = Modifier.weight(1f),
+                        valueRange = 0f..VodSeekPolicy.displayMaximum(
+                            durationMs, positionMs, badDuration).toFloat(),
+                        modifier = Modifier.weight(1f)
+                            .focusRequester(seekFocus)
+                            .onPreviewKeyEvent { event ->
+                                if (event.type != KeyEventType.KeyDown ||
+                                    (event.key != Key.DirectionLeft && event.key != Key.DirectionRight)) {
+                                    false
+                                } else {
+                                    val repeat = event.nativeKeyEvent.repeatCount
+                                    val now = SystemClock.elapsedRealtime()
+                                    if (repeat == 0 || now - lastHeldAtMs >= 500L) {
+                                        val delta = VodSeekPolicy.remoteStep(repeat) *
+                                            if (event.key == Key.DirectionLeft) -1 else 1
+                                        stepSeek(delta)
+                                        lastHeldAtMs = now
+                                    }
+                                    revealControls()
+                                    true
+                                }
+                            },
                     )
                     Spacer(Modifier.width(10.dp))
-                    Text(displayTime(durationMs), color = Color.White)
+                    Text(if (durationMs > 0L) displayTime(durationMs) else "—", color = Color.White)
+                }
+                if (seekTargetMs != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.width(20.dp).height(20.dp),
+                            color = Color.White, strokeWidth = 2.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Seeking and buffering…", color = Color.White)
+                    }
+                }
+                seekNotice?.let {
+                    Text(it, color = Color(0xFFFFD48C),
+                        style = MaterialTheme.typography.bodySmall)
                 }
                 Row(
                     Modifier.fillMaxWidth(),
@@ -372,7 +491,7 @@ fun VlcVodFallback(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     IconButton(onClick = {
-                        runCatching { player.setTime((player.time - 10_000L).coerceAtLeast(0L)) }
+                        stepSeek(-VodSeekPolicy.SHORT_STEP_MS)
                     }) {
                         Icon(Icons.Filled.FastRewind, contentDescription = "Back 10 seconds", tint = Color.White)
                     }
@@ -381,7 +500,7 @@ fun VlcVodFallback(
                             contentDescription = if (playing) "Pause" else "Play", tint = Color.White)
                     }
                     IconButton(onClick = {
-                        runCatching { player.setTime((player.time + 10_000L).coerceAtMost(durationMs.coerceAtLeast(0L))) }
+                        stepSeek(VodSeekPolicy.SHORT_STEP_MS)
                     }) {
                         Icon(Icons.Filled.FastForward, contentDescription = "Forward 10 seconds", tint = Color.White)
                     }
