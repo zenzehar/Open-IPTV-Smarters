@@ -871,6 +871,8 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
         val posterUrl: String?,
         val streamUrl: String,
         val progress: Float,
+        val positionMillis: Long = 0L,
+        val durationMillis: Long = 0L,
         val historyGroupKey: String = mediaKey,
         val episodeLabel: String? = null,
         val updatedAtMillis: Long = 0,
@@ -922,6 +924,8 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
                     posterUrl = it.posterUrl,
                     streamUrl = it.streamUrl,
                     progress = progress,
+                    positionMillis = pos.positionMillis,
+                    durationMillis = pos.durationMillis,
                     historyGroupKey = "movie:${it.displayTitle.trim().lowercase(java.util.Locale.ROOT)}:${it.year ?: ""}",
                     updatedAtMillis = pos.updatedAtMillis,
                     isFinished = pos.isFinished,
@@ -935,6 +939,8 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
                     posterUrl = show?.posterUrl ?: episode.stillUrl,
                     streamUrl = episode.streamUrl,
                     progress = progress,
+                    positionMillis = pos.positionMillis,
+                    durationMillis = pos.durationMillis,
                     historyGroupKey = "series:${episode.sourceId}:${episode.seriesId}",
                     episodeLabel = "S${episode.season}:E${episode.episodeNumber}",
                     updatedAtMillis = pos.updatedAtMillis,
@@ -943,6 +949,18 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
             }
             else -> null
         }
+    }
+
+    /** A single title reset leaves other profiles and content untouched and syncs as a tombstone. */
+    suspend fun resetMovieProgress(movieId: Long) {
+        val key = "movie:$movieId"
+        val profileId = settings.activeProfileId.value
+        val existing = graph.playbackPositions.get(profileId, key)
+        val now = maxOf(System.currentTimeMillis(), (existing?.updatedAtMillis ?: 0L) + 1L)
+        graph.playbackPositions.upsert(PlaybackPosition(
+            profileId = profileId, mediaKey = key, positionMillis = 0L,
+            durationMillis = 0L, updatedAtMillis = now,
+        ))
     }
 
     private val movieCategory = MutableStateFlow<String?>(null)

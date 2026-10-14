@@ -142,6 +142,14 @@ fun MovieDetailScreen(
                     primary = true,
                     modifier = Modifier.focusRequester(playFocus),
                 ) { onPlay(m) }
+                if (resumeExists) {
+                    DetailButton(icon = Icons.Filled.Refresh, label = "Reset movie progress") {
+                        scope.launch {
+                            viewModel.resetMovieProgress(m.id)
+                            resumeExists = false
+                        }
+                    }
+                }
                 DetailButton(
                     icon = if (m.favourite) Icons.Filled.Star else Icons.Outlined.StarOutline,
                     label = stringResource(if (m.favourite) R.string.common_remove_favourite else R.string.common_favourite),
