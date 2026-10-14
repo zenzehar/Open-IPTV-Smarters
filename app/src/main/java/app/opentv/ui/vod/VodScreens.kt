@@ -9,6 +9,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -48,6 +50,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,6 +63,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
@@ -67,6 +71,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.opentv.R
+import app.opentv.core.ServiceLocator
 import app.opentv.data.model.Movie
 import app.opentv.data.model.Series
 import app.opentv.data.model.Source
@@ -91,6 +96,16 @@ fun MoviesScreen(
     isTelevision: Boolean = false,
     viewModel: VodViewModel = viewModel(),
 ) {
+    val openDetailsScope = rememberCoroutineScope()
+    val detailsContext = LocalContext.current
+    val detailsRepo = remember { ServiceLocator.get(detailsContext).catalogRepository }
+    val openResumeDetails: (VodViewModel.ResumeItem) -> Unit = { item ->
+        val movieId = item.mediaKey.takeIf { it.startsWith("movie:") }
+            ?.substringAfter("movie:")?.toLongOrNull()
+        if (movieId != null) openDetailsScope.launch {
+            detailsRepo.movie(movieId)?.let(onOpenMovie)
+        }
+    }
     val categories by viewModel.movieCategories.collectAsState()
     val resume by viewModel.continueWatchingMovies.collectAsState()
     val recommended by viewModel.recommendedMovies.collectAsState()
@@ -155,7 +170,7 @@ fun MoviesScreen(
                         VodLoadFailure("Movies are unavailable", loadState.message, viewModel::refreshVod)
                     loadState.phase == VodLoadPhase.READY && allMovies.isEmpty() ->
                         LoadingVod("Preparing movie catalogue…")
-                    browseCategory == CONTINUE_WATCHING_CATEGORY -> ContinueWatchingGrid(resume, onResume, isTelevision)
+                    browseCategory == CONTINUE_WATCHING_CATEGORY -> ContinueWatchingGrid(resume, onResume, openResumeDetails, isTelevision)
                     browseCategory == FAVOURITES_CATEGORY -> MovieCategoryGrid(scopedMovies.filter { it.favourite }, viewModel, onOpenMovie)
                     browseCategory == RECENTLY_ADDED_CATEGORY -> MovieCategoryGrid(recentlyAdded, viewModel, onOpenMovie)
                     browseCategory != null -> MovieCategoryGrid(categoryMovies.filter { selectedSource == null || it.sourceId == selectedSource }, viewModel, onOpenMovie)
@@ -170,7 +185,7 @@ fun MoviesScreen(
                         verticalArrangement = Arrangement.spacedBy(14.dp),
                         modifier = Modifier.fillMaxSize(),
                     ) {
-                        if (resume.isNotEmpty()) item(key = "cw") { ContinueWatchingRow(resume, onResume) }
+                        if (resume.isNotEmpty()) item(key = "cw") { ContinueWatchingRow(resume, onResume, openResumeDetails) }
                         if (recommended.isNotEmpty()) item(key = "rec") {
                             MoviePosterRow(stringResource(R.string.vod_recommended), recommended, onOpenMovie)
                         }
@@ -198,6 +213,18 @@ fun SeriesScreen(
     isTelevision: Boolean = false,
     viewModel: VodViewModel = viewModel(),
 ) {
+    val openDetailsScope = rememberCoroutineScope()
+    val detailsContext = LocalContext.current
+    val detailsRepo = remember { ServiceLocator.get(detailsContext).catalogRepository }
+    val openResumeDetails: (VodViewModel.ResumeItem) -> Unit = { item ->
+        val epId = item.mediaKey.takeIf { it.startsWith("ep:") }
+            ?.substringAfter("ep:")?.toLongOrNull()
+        if (epId != null) openDetailsScope.launch {
+            val ep = detailsRepo.episode(epId)
+            val show = ep?.let { detailsRepo.seriesByProviderKey(it.sourceId, it.seriesId) }
+            show?.let(onOpenSeries)
+        }
+    }
     val categories by viewModel.seriesCategories.collectAsState()
     val resume by viewModel.continueWatchingSeries.collectAsState()
     val recentlyAdded by viewModel.recentlyAddedSeries.collectAsState()
@@ -260,7 +287,7 @@ fun SeriesScreen(
                         VodLoadFailure("Series are unavailable", loadState.message, viewModel::refreshVod)
                     loadState.phase == VodLoadPhase.READY && allSeries.isEmpty() ->
                         LoadingVod("Preparing series catalogue…")
-                    browseCategory == CONTINUE_WATCHING_CATEGORY -> ContinueWatchingGrid(resume, onResume, isTelevision)
+                    browseCategory == CONTINUE_WATCHING_CATEGORY -> ContinueWatchingGrid(resume, onResume, openResumeDetails, isTelevision)
                     browseCategory == FAVOURITES_CATEGORY -> SeriesCategoryGrid(scopedSeries.filter { it.favourite }, onOpenSeries)
                     browseCategory == RECENTLY_ADDED_CATEGORY -> SeriesCategoryGrid(recentlyAdded, onOpenSeries)
                     browseCategory != null -> SeriesCategoryGrid(categorySeries.filter { selectedSource == null || it.sourceId == selectedSource }, onOpenSeries)
@@ -275,7 +302,7 @@ fun SeriesScreen(
                         verticalArrangement = Arrangement.spacedBy(14.dp),
                         modifier = Modifier.fillMaxSize(),
                     ) {
-                        if (resume.isNotEmpty()) item(key = "cw") { ContinueWatchingRow(resume, onResume) }
+                        if (resume.isNotEmpty()) item(key = "cw") { ContinueWatchingRow(resume, onResume, openResumeDetails) }
                         if (recentlyAdded.isNotEmpty()) item(key = "recent") {
                             SeriesPosterRow(stringResource(R.string.vod_recently_added), recentlyAdded, onOpenSeries)
                         }
@@ -308,6 +335,7 @@ private fun vodSections() = listOf(
 private fun ContinueWatchingGrid(
     items: List<VodViewModel.ResumeItem>,
     onResume: (mediaKey: String, url: String, title: String) -> Unit,
+    onOpenDetails: (VodViewModel.ResumeItem) -> Unit,
     isTelevision: Boolean,
 ) {
     if (items.isEmpty()) {
@@ -335,7 +363,8 @@ private fun ContinueWatchingGrid(
                 gridItems(items, key = { it.historyGroupKey }) { item ->
                     ResumeCard(item, onClick = {
                         onResume(item.mediaKey, item.streamUrl, item.title)
-                    }, onFocus = { focusedResume = item.mediaKey })
+                    }, onLongClick = { onOpenDetails(item) },
+                        onFocus = { focusedResume = item.mediaKey })
                 }
             }
             if (isTelevision) {
@@ -756,6 +785,7 @@ private fun Badge(text: String, modifier: Modifier = Modifier, highlight: Boolea
 internal fun ContinueWatchingRow(
     items: List<VodViewModel.ResumeItem>,
     onResume: (mediaKey: String, url: String, title: String) -> Unit,
+    onOpenDetails: (VodViewModel.ResumeItem) -> Unit,
 ) {
     Column(Modifier.fillMaxWidth()) {
         SectionHeader(stringResource(R.string.vod_continue_watching))
@@ -764,17 +794,21 @@ internal fun ContinueWatchingRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             items(items, key = { it.mediaKey }) { item ->
-                ResumeCard(item) { onResume(item.mediaKey, item.streamUrl, item.title) }
+                ResumeCard(item, onLongClick = { onOpenDetails(item) }) {
+                    onResume(item.mediaKey, item.streamUrl, item.title)
+                }
             }
         }
     }
 }
 
-/** Portrait series/movie art, with a clear episode identifier and persisted progress. */
+/** Watched-time cards: TV long-held OK opens series/movie details instead of playing. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ResumeCard(
     item: VodViewModel.ResumeItem,
     onFocus: () -> Unit = {},
+    onLongClick: () -> Unit,
     onClick: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -788,7 +822,7 @@ private fun ResumeCard(
                 if (it.isFocused) onFocus()
             }
             .clip(RoundedCornerShape(7.dp))
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(3.dp),
     ) {
         Box(
@@ -832,6 +866,12 @@ private fun ResumeCard(
         Spacer(Modifier.height(5.dp))
         Text(item.title, color = Color.White, style = MaterialTheme.typography.bodySmall,
             maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(
+            "${formatWatchMillis(item.positionMillis)} / " +
+                if (item.durationMillis > 0L) formatWatchMillis(item.durationMillis) else "—",
+            color = Color(0xFFB3D7E8), style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+        )
     }
 }
 
@@ -1010,3 +1050,10 @@ private val POSTER_WIDTH = 140.dp
 
 /** Rating to one decimal place, locale-independent (the "★" is drawn beside it). */
 internal fun formatRating(rating: Double): String = String.format(java.util.Locale.US, "%.1f", rating)
+
+private fun formatWatchMillis(ms: Long): String {
+    val seconds = ms.coerceAtLeast(0L) / 1_000L
+    val hours = seconds / 3_600L
+    return if (hours > 0L) "%d:%02d:%02d".format(hours, seconds / 60L % 60L, seconds % 60L)
+    else "%d:%02d".format(seconds / 60L, seconds % 60L)
+}
