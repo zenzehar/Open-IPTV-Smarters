@@ -48,6 +48,8 @@ import androidx.compose.ui.unit.dp
 import android.content.Context
 import android.widget.Toast
 import app.opentv.R
+import app.opentv.ui.TvKeyboardGate
+import app.opentv.isRunningOnTelevision
 import app.opentv.core.AppSettings
 import app.opentv.core.SleepTimer
 import app.opentv.core.ServiceLocator
@@ -336,6 +338,7 @@ fun AppSettingsScreen(onBack: () -> Unit) {
 @Composable
 private fun TmdbKeySection(settings: AppSettings) {
     val context = LocalContext.current
+    val isTelevision = remember(context) { isRunningOnTelevision(context) }
     val savedKey by settings.tmdbApiKey.collectAsState()
     var field by remember(savedKey) { mutableStateOf(savedKey) }
     val savedMessage = stringResource(R.string.settings_tmdb_saved)
@@ -347,13 +350,17 @@ private fun TmdbKeySection(settings: AppSettings) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(8.dp))
-        OutlinedTextField(
-            value = field,
-            onValueChange = { field = it.trim() },
-            singleLine = true,
-            label = { Text(stringResource(R.string.settings_tmdb_key_label)) },
-            modifier = Modifier.fillMaxWidth(),
-        )
+        TvKeyboardGate(
+            isTelevision, field, "TMDB API key", modifier = Modifier.fillMaxWidth(),
+        ) { gated ->
+            OutlinedTextField(
+                value = field,
+                onValueChange = { field = it.trim() },
+                singleLine = true,
+                label = { Text(stringResource(R.string.settings_tmdb_key_label)) },
+                modifier = gated,
+            )
+        }
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedButton(onClick = {

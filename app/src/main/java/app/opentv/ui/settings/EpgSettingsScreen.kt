@@ -33,10 +33,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.opentv.R
+import app.opentv.ui.TvKeyboardGate
+import app.opentv.isRunningOnTelevision
 import app.opentv.data.model.EpgFeed
 import app.opentv.ui.EpgViewModel
 
@@ -55,6 +58,8 @@ fun EpgSettingsScreen(
     viewModel: EpgViewModel = viewModel(),
 ) {
     val ui by viewModel.ui.collectAsState()
+    val context = LocalContext.current
+    val isTelevision = remember(context) { isRunningOnTelevision(context) }
     var showAdd by remember { mutableStateOf(false) }
     var newName by remember { mutableStateOf("") }
     var newUrl by remember { mutableStateOf("") }
@@ -108,21 +113,27 @@ fun EpgSettingsScreen(
                 } else {
                     Card {
                         Column(Modifier.padding(16.dp)) {
-                            OutlinedTextField(
-                                value = newName,
-                                onValueChange = { newName = it },
-                                label = { Text(stringResource(R.string.epg_name_optional)) },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
-                            )
+                            TvKeyboardGate(isTelevision, newName, "Guide name",
+                                modifier = Modifier.fillMaxWidth()) { gated ->
+                                OutlinedTextField(
+                                    value = newName,
+                                    onValueChange = { newName = it },
+                                    label = { Text(stringResource(R.string.epg_name_optional)) },
+                                    singleLine = true,
+                                    modifier = gated,
+                                )
+                            }
                             Spacer(Modifier.height(8.dp))
-                            OutlinedTextField(
-                                value = newUrl,
-                                onValueChange = { newUrl = it },
-                                label = { Text(stringResource(R.string.epg_xmltv_url)) },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
-                            )
+                            TvKeyboardGate(isTelevision, newUrl, "XMLTV URL",
+                                modifier = Modifier.fillMaxWidth()) { gated ->
+                                OutlinedTextField(
+                                    value = newUrl,
+                                    onValueChange = { newUrl = it },
+                                    label = { Text(stringResource(R.string.epg_xmltv_url)) },
+                                    singleLine = true,
+                                    modifier = gated,
+                                )
+                            }
                             Spacer(Modifier.height(12.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Button(

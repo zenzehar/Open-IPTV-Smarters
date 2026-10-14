@@ -52,6 +52,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.opentv.R
+import app.opentv.ui.TvKeyboardGate
+import app.opentv.isRunningOnTelevision
 import app.opentv.sync.SyncServer
 import app.opentv.sync.CloudCredentialVault
 import app.opentv.sync.CloudCredentials
@@ -343,6 +345,7 @@ private fun NumKey(label: String, onClick: () -> Unit) {
 @Composable
 private fun CloudPane() {
     val context = LocalContext.current
+    val isTelevision = remember(context) { isRunningOnTelevision(context) }
     val graph = remember { ServiceLocator.get(context) }
     val vault = remember(context) { CloudCredentialVault(context) }
     val scope = rememberCoroutineScope()
@@ -393,19 +396,25 @@ private fun CloudPane() {
                 Text("Automatic cloud checks run about every 15 minutes when Android permits.",
                     style = MaterialTheme.typography.bodySmall)
             } else if (pending == null) {
-                OutlinedTextField(
-                    value = server, onValueChange = { server = it.take(300) },
-                    singleLine = true,
-                    label = { Text("Nextcloud server (HTTPS)") },
-                    modifier = Modifier.widthIn(max = 620.dp),
-                )
-                OutlinedTextField(
-                    value = passphrase, onValueChange = { passphrase = it.take(200) },
-                    singleLine = true,
-                    label = { Text("Family sync passphrase (12+ characters)") },
-                    visualTransformation = PasswordVisualTransformation(),
-                    modifier = Modifier.widthIn(max = 620.dp),
-                )
+                TvKeyboardGate(isTelevision, server, "Nextcloud HTTPS server",
+                    modifier = Modifier.widthIn(max = 620.dp)) { gated ->
+                    OutlinedTextField(
+                        value = server, onValueChange = { server = it.take(300) },
+                        singleLine = true,
+                        label = { Text("Nextcloud server (HTTPS)") },
+                        modifier = gated,
+                    )
+                }
+                TvKeyboardGate(isTelevision, passphrase, "Cloud sync passphrase",
+                    masked = true, modifier = Modifier.widthIn(max = 620.dp)) { gated ->
+                    OutlinedTextField(
+                        value = passphrase, onValueChange = { passphrase = it.take(200) },
+                        singleLine = true,
+                        label = { Text("Family sync passphrase (12+ characters)") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = gated,
+                    )
+                }
                 Text(
                     "Use the SAME sync passphrase on every phone or TV. Your cloud provider " +
                         "cannot read the encrypted media-history snapshot without it.",
