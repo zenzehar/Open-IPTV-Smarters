@@ -160,6 +160,10 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           script: bash scripts/emulator-smoke.sh
 
+      - name: Generate per-requirement evidence report
+        if: always()
+        run: python3 scripts/report-coverage.py --device ${{ matrix.device }}
+
       - name: Upload Android emulator diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -173,4 +177,5 @@ jobs:
             emulator-ui.xml
             emulator-screenshots/
             emulator-fixture.log
+            emulator-quality/
           if-no-files-found: ignore
