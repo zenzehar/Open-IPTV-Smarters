@@ -24,18 +24,20 @@ for row in source:
     number = int(row["id"])
     status = "NOT_AUTOMATED"
     evidence = "No automated end-to-end assertion for this requirement"
-    if row["unit_logic_test"] == "True":
+    if row["unit_logic_test"].strip().lower() == "true":
         status = "UNIT_LOGIC_ONLY"
         evidence = "JVM/Robolectric test exercises related logic; UI/device outcome not established"
     if number == 1:
         status, evidence = "BUILD_PASS", "QA APK and test APK compiled before dependent job"
     elif number == 2 and args.device == "phone":
-        status, evidence = ("PASS" if cold and restart else "FAIL_OR_NOT_RUN"), "Phone app process survived launch and relaunch" 
+        status, evidence = ("PASS" if cold and restart else
+            "FAIL" if cold else "NOT_RUN_ENVIRONMENT"), "Phone cold launch and relaunch process liveness" 
     elif number == 3 and args.device == "android-tv":
-        status, evidence = ("PASS" if cold and restart else "FAIL_OR_NOT_RUN"), "TV app process survived launch and relaunch"
+        status, evidence = ("PASS" if cold and restart else
+            "FAIL" if cold else "NOT_RUN_ENVIRONMENT"), "TV cold launch and relaunch process liveness"
     elif number in checks:
         status, evidence = "PASS", "On-device Android instrumentation assertions against synthetic Xtream/Room"
-    elif row["android_integration_test"] == "True" and number not in (2,3):
+    elif row["android_integration_test"].strip().lower() == "true" and number not in (2,3):
         status, evidence = "NOT_RUN_OR_FAILED", "Android test suite not confirmed passing"
     if row["last_reported_failure"] == "True":
         status = "OPEN_REAL_DEVICE_REGRESSION"

@@ -34,9 +34,10 @@ only, bound to **127.0.0.1:18080** on the host. Android emulator routing uses
 
 The fixture includes two categories per media kind, 12 Live entries, 2,305 movie
 entries, nine series, two seasons, an XMLTV feed, M3U data, account expiry,
-and deterministic HTTP status/range responses. If `ffmpeg` is available on the
-runner, it generates an 18-second video with known timestamps. If not, the
-video-specific Android test explicitly skips rather than reporting a false pass.
+and deterministic HTTP status/range responses. The build installs `ffmpeg` when needed and **requires**
+generation of an 18-second MP4 with known timestamps. Both the Android test
+package and mock-provider emulator job receive this same media file. If it
+cannot be generated or served, the relevant job **fails, never passes by skip**.
 
 The Android emulator is erased only within its **QA test package**. Test runs
 must never point the fixture tests at a non-emulator or personal production device.
@@ -52,6 +53,11 @@ python3 scripts/test-mock-xtream-server.py
 ./gradlew test assembleQa assembleQaAndroidTest
 python3 scripts/mock-xtream-server.py --media-file /tmp/koky-fixture.mp4
 ```
+
+Generate the required fixture before compiling instrumentation tests. CI does
+this automatically; local builds can call the `make_video` function from
+`scripts/mock-xtream-server.py` with a path under
+`app/src/androidTest/assets/qa_seek_fixture.mp4`.
 
 With the emulator booted, in another terminal:
 
