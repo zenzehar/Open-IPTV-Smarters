@@ -98,8 +98,8 @@ jobs:
           git tag --list
           TAG="qa-v0.13.0-rebuild1-${HEAD_SHA:0:8}"
           gh release create "$TAG" direct-apks/*.apk --prerelease --target "$HEAD_SHA" \
-            --title "Koky & Sosy TV v0.13.0-rebuild1 (PR #6, unmerged QA)" \
-            --notes "UNMERGED QA BUILD. For real-device testing only. Debug certificates are temporary and not upgrade compatible across runs. The separate MyIPTV QA package does not overwrite the original MyIPTV installation. Keep saved data and keys backed up. See PR #6."
+            --title "Koky & Sosy TV v0.13.0-rebuild1 (isolated QA rebuild)" \
+            --notes "ISOLATED QA REBUILD from v0.12.7. Debug certificates may change across runs, so ordinary in-place updates are not guaranteed. QA package app.opentv.qa is separate from existing installations. Experimental playback and Nextcloud functionality require real-device validation. Do not uninstall a working app to try this pre-release."
           echo "Direct APKs published at release tag: $TAG"
 
       - name: Upload test reports

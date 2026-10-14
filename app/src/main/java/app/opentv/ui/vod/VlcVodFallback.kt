@@ -275,8 +275,9 @@ fun VlcVodFallback(
                             buffering = false
                         }
                         MediaPlayer.Event.Buffering, MediaPlayer.Event.Opening -> {
-                            // VLC can emit buffering updates long after video is visible.
-                            if (!startedVideo) buffering = true
+                            // Buffering after a user seek is meaningful even once the original
+                            // video output appeared. Keep the seek spinner visible until ready.
+                            if (!startedVideo || seekTargetMs != null) buffering = true
                         }
                         MediaPlayer.Event.EncounteredError -> {
                             errorText = "VLC could not play this stream. It may be a provider, network, or codec issue."

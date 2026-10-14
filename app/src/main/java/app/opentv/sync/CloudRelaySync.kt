@@ -61,6 +61,7 @@ internal class CloudRelaySync(
                     .take(MAX_PEERS)
                 var merged = SyncEngine.MergeResult()
                 var validPeers = 0
+                var unreadablePeers = 0
                 for (name in peers) {
                     val bytes = try {
                         download(syncFolder + name, auth)
@@ -74,10 +75,16 @@ internal class CloudRelaySync(
                     } catch (c: CancellationException) {
                         throw c
                     } catch (_: Exception) {
+                        unreadablePeers++
                         continue
                     }
                     merged += engine.apply(snapshot)
                     validPeers++
+                }
+                if (validPeers == 0 && unreadablePeers > 0) {
+                    return@runCatching Result.Failed(
+                        "Unable to decrypt other device snapshots. Check the family sync passphrase.",
+                    )
                 }
                 // 3. Republish converged local state to avoid waiting for another periodic run.
                 if (validPeers > 0) publish(syncFolder + ownName, auth,

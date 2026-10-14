@@ -5,14 +5,19 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * In-process navigation handoff between episode playback and its series page.
- * This does not change the persisted per-profile resume database or store credentials.
+ * Transient TV episode highlight and navigation handoff. Must be keyed by profile,
+ * otherwise switching profiles leaks one person's watch selection into another.
  */
 internal object EpisodeReturnTracker {
-    private val _recent = MutableStateFlow<Map<Pair<Long, String>, Long>>(emptyMap())
-    val recent: StateFlow<Map<Pair<Long, String>, Long>> = _recent
+    private val _recent = MutableStateFlow<Map<Triple<Long, Long, String>, Long>>(emptyMap())
+    val recent: StateFlow<Map<Triple<Long, Long, String>, Long>> = _recent
 
-    fun record(episode: Episode) {
-        _recent.value = _recent.value + ((episode.sourceId to episode.seriesId) to episode.id)
+    fun record(episode: Episode, profileId: Long) {
+        _recent.value = _recent.value +
+            (Triple(profileId, episode.sourceId, episode.seriesId) to episode.id)
+    }
+
+    fun clear(profileId: Long, sourceId: Long, seriesId: String) {
+        _recent.value = _recent.value - Triple(profileId, sourceId, seriesId)
     }
 }

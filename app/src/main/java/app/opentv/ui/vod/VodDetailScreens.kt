@@ -70,6 +70,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.opentv.R
+import app.opentv.core.AppSettings
 import android.widget.Toast
 import app.opentv.data.model.Episode
 import app.opentv.data.model.Movie
@@ -304,6 +305,7 @@ fun SeriesDetailScreen(
     var showResetConfirmation by remember(seriesId) { mutableStateOf(false) }
     val resetScope = rememberCoroutineScope()
     val context = LocalContext.current
+    val activeProfile by remember(context) { AppSettings.get(context) }.activeProfileId.collectAsState()
     val favFocus = remember { FocusRequester() }
 
     LaunchedEffect(seriesId) {
@@ -340,7 +342,7 @@ fun SeriesDetailScreen(
             .toSortedMap()
     }
     val lastPlayed by EpisodeReturnTracker.recent.collectAsState()
-    val lastEpisodeId = lastPlayed[s.sourceId to s.seriesId]
+    val lastEpisodeId = lastPlayed[Triple(activeProfile, s.sourceId, s.seriesId)]
     var selectedSeason by rememberSaveable(seriesId) { mutableIntStateOf(Int.MIN_VALUE) }
     LaunchedEffect(lastEpisodeId, episodes) {
         val resumed = episodes.firstOrNull { it.id == lastEpisodeId }
@@ -424,7 +426,7 @@ fun SeriesDetailScreen(
                     highlighted = ep.id == lastEpisodeId,
                     focusRequester = lastEpisodeFocus.takeIf { ep.id == lastEpisodeId },
                 ) { key, url, title ->
-                    EpisodeReturnTracker.record(ep)
+                    EpisodeReturnTracker.record(ep, activeProfile)
                     selectedSeason = ep.season
                     onPlayEpisode(key, url, title)
                 }
@@ -450,6 +452,7 @@ fun SeriesDetailScreen(
                     showResetConfirmation = false
                     resetScope.launch {
                         val count = viewModel.resetSeriesProgress(s)
+                        EpisodeReturnTracker.clear(activeProfile, s.sourceId, s.seriesId)
                         Toast.makeText(
                             context,
                             context.getString(R.string.history_reset_complete, count),

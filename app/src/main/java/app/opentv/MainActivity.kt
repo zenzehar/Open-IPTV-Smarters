@@ -587,7 +587,7 @@ private fun OpenTvApp(isTelevision: Boolean) {
                         navController.popBackStack()
                         return
                     }
-                    EpisodeReturnTracker.record(episode)
+                    EpisodeReturnTracker.record(episode, activeProfileId)
                     // A series detail entry already on the stack must be reused, not duplicated.
                     if (navController.popBackStack(Routes.SERIES_DETAIL, false)) return
                     navController.popBackStack()
@@ -614,7 +614,7 @@ private fun OpenTvApp(isTelevision: Boolean) {
                     },
                     onEpisodes = { episode -> returnToSeriesOrPrevious(episode) },
                     onNextEpisode = { episode ->
-                        EpisodeReturnTracker.record(episode)
+                        EpisodeReturnTracker.record(episode, activeProfileId)
                         // Replace the active episode in navigation, don't grow the backstack
                         // every time autoplay moves through a season.
                         navController.navigate(
