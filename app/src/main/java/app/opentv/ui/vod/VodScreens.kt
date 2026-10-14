@@ -79,6 +79,7 @@ import app.opentv.data.parser.displayTitle
 import app.opentv.ui.VodViewModel
 import app.opentv.ui.VodLoadPhase
 import coil.compose.AsyncImage
+import kotlinx.coroutines.launch
 
 /**
  * Movies: a modern, row-based home — Continue Watching, Recommended, Recently added and a row per
