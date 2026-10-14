@@ -148,6 +148,29 @@ interface ChannelDao {
     )
     fun search(query: String, limit: Int = 200): Flow<List<Channel>>
 
+    /** Search all locally imported channels, scoped in SQL before applying a page limit.
+     * Fetch limit+1 so the UI can offer another page without loading the entire catalogue.
+     */
+    @Query("""
+        SELECT * FROM channels
+        WHERE hidden = 0
+          AND (displayName LIKE '%' || :query || '%' OR name LIKE '%' || :query || '%'
+               OR customName LIKE '%' || :query || '%')
+          AND (:sourceId IS NULL OR sourceId = :sourceId)
+          AND (:allCategories OR categoryId IN (:categoryIds))
+          AND (NOT :favouritesOnly OR favourite = 1)
+        ORDER BY favourite DESC, sortIndex, displayName
+        LIMIT :limit
+    """)
+    fun searchScoped(
+        query: String,
+        sourceId: Long?,
+        categoryIds: List<String>,
+        allCategories: Boolean,
+        favouritesOnly: Boolean,
+        limit: Int,
+    ): Flow<List<Channel>>
+
     /** Like [search] but keeps hidden channels in — the channel manager needs them to unhide. */
     @Query(
         """

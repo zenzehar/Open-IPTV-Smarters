@@ -180,6 +180,18 @@ class CatalogRepository(
 
     fun searchChannels(query: String): Flow<List<Channel>> = channelDao.search(query)
 
+    /** A bounded window into the full provider catalogue. Match/filter is performed by SQL. */
+    fun searchChannelsScoped(
+        query: String,
+        sourceId: Long?,
+        categoryIds: List<String>,
+        allCategories: Boolean,
+        favouritesOnly: Boolean,
+        limit: Int,
+    ): Flow<List<Channel>> = channelDao.searchScoped(
+        query, sourceId, categoryIds, allCategories, favouritesOnly, limit,
+    )
+
     fun searchChannelsIncludingHidden(query: String): Flow<List<Channel>> =
         channelDao.searchIncludingHidden(query)
 

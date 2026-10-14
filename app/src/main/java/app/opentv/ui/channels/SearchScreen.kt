@@ -10,6 +10,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -43,6 +45,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.text.KeyboardOptions
@@ -84,6 +87,7 @@ fun SearchScreen(
 ) {
     var query by remember { mutableStateOf("") }
     val channelResults by viewModel.searchResults.collectAsState()
+    val moreLiveResults by viewModel.searchHasMore.collectAsState()
     val movieResults by vodViewModel.movieResults.collectAsState()
     val seriesResults by vodViewModel.seriesResults.collectAsState()
     val anyResults = channelResults.isNotEmpty() || movieResults.isNotEmpty() || seriesResults.isNotEmpty()
@@ -92,9 +96,11 @@ fun SearchScreen(
         viewModel.setSearchQuery(query)
         vodViewModel.setVodSearchQuery(query)
     }
-    BackHandler { onBack() }
-
     val keyboard = LocalSoftwareKeyboardController.current
+    val density = LocalDensity.current
+    val keyboardVisible = WindowInsets.ime.getBottom(density) > 0
+    BackHandler { if (keyboardVisible) keyboard?.hide() else onBack() }
+
     val fieldFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         delay(100)
@@ -136,6 +142,13 @@ fun SearchScreen(
                         item { SectionHeader(stringResource(R.string.common_channels)) }
                         items(channelResults, key = { "c${it.key}" }) { row ->
                             SearchResultRow(row = row, onClick = { onPlayChannel(row.primary) })
+                        }
+                        if (moreLiveResults) {
+                            item(key = "live-load-more") {
+                                OutlinedButton(onClick = viewModel::loadMoreSearchResults) {
+                                    Text("Show more matching channels")
+                                }
+                            }
                         }
                     }
                     if (movieResults.isNotEmpty()) {

@@ -665,25 +665,59 @@ class ChannelsViewModel(app: Application) : AndroidViewModel(app) {
     fun search(text: String) { query.value = text }
 
     // ---- Dedicated channel search --------------------------------------------------------------
-    // Kept separate from the guide's `rows` on purpose: `rows` loads the entire 12-hour EPG
-    // window, which is far too heavy to run on every keystroke (that was the ~30s search lag).
-    // This path is channel-only — no programme window — debounced, and capped by the DAO's LIMIT.
+    // Search the entire imported catalogue *inside SQL*. Only one UI page (and one extra row
+    // indicating more matches) enters memory. The guide's expensive EPG window is excluded.
     private val searchInput = MutableStateFlow("")
+    private val searchLimit = MutableStateFlow(200)
+    private val _searchHasMore = MutableStateFlow(false)
+    val searchHasMore: StateFlow<Boolean> = _searchHasMore.asStateFlow()
 
-    fun setSearchQuery(text: String) { searchInput.value = text }
+    fun setSearchQuery(text: String) {
+        if (searchInput.value != text) {
+            searchLimit.value = 200
+            searchInput.value = text
+        }
+    }
+
+    fun loadMoreSearchResults() {
+        searchLimit.value = (searchLimit.value.toLong() + 200L)
+            .coerceAtMost(Int.MAX_VALUE - 1L).toInt()
+    }
+
+    private data class ChannelSearchScope(
+        val categoryId: String?,
+        val sourceId: Long?,
+        val groupIds: List<String>,
+        val favouritesOnly: Boolean,
+        val limit: Int,
+    )
+
+    private val channelSearchScope = combine(
+        selectedCategory, selectedSource, categoryGroups, favouritesOnly, searchLimit,
+    ) { category, source, groups, favs, limit ->
+        ChannelSearchScope(category, source,
+            groups.firstOrNull { it.key == category }?.ids.orEmpty(), favs, limit)
+    }
 
     @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
     val searchResults: StateFlow<List<Row>> =
-        searchInput
-            .map { it.trim() }
-            .debounce(200)
-            .distinctUntilChanged()
-            .flatMapLatest { q ->
-                if (q.length < 2) flowOf(emptyList())
-                else graph.catalogRepository.searchChannels(q)
-                    // No EPG here — group channels into rows with no now/next. Finding and
-                    // playing the channel is the job; guide detail would cost the slow query.
-                    .map { channels -> buildRows(channels, emptyMap(), System.currentTimeMillis()) }
+        combine(searchInput.map { it.trim() }.debounce(200).distinctUntilChanged(),
+            channelSearchScope) { q, scope -> q to scope }
+            .flatMapLatest { (q, search) ->
+                if (q.length < 2 || (search.categoryId != null && search.groupIds.isEmpty())) {
+                    _searchHasMore.value = false
+                    flowOf(emptyList())
+                } else graph.catalogRepository.searchChannelsScoped(
+                    query = q,
+                    sourceId = search.sourceId,
+                    categoryIds = search.groupIds,
+                    allCategories = search.categoryId == null,
+                    favouritesOnly = search.favouritesOnly,
+                    limit = (search.limit + 1).coerceAtMost(Int.MAX_VALUE),
+                ).map { channels ->
+                    _searchHasMore.value = channels.size > search.limit
+                    buildRows(channels.take(search.limit), emptyMap(), System.currentTimeMillis())
+                }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 

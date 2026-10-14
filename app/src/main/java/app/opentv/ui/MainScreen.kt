@@ -129,6 +129,7 @@ fun MainScreen(
     providerName: String,
     providerExpiryMillis: Long?,
     vodViewModel: VodViewModel,
+    channelsViewModel: ChannelsViewModel,
 ) {
     val context = LocalContext.current
     val settings = remember { AppSettings.get(context) }
@@ -244,12 +245,14 @@ fun MainScreen(
                     )
                     DashboardTab.LIVE -> {
                         if (compact) MobileLiveScreen(
+                            viewModel = channelsViewModel,
                             hasSources = hasSources,
                             isSyncing = isSyncing,
                             onPlayChannel = onPlayChannel,
                             onAddSource = onAddSource,
                             onRefresh = onRefresh,
                         ) else HomeScreen(
+                            viewModel = channelsViewModel,
                             isTelevision = true,
                             hasSources = hasSources,
                             isSyncing = isSyncing,

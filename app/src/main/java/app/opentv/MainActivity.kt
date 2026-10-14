@@ -66,6 +66,7 @@ import app.opentv.ui.SourcesViewModel
 import app.opentv.ui.channels.ChannelManagerScreen
 import app.opentv.ui.channels.SearchScreen
 import app.opentv.ui.VodViewModel
+import app.opentv.ui.ChannelsViewModel
 import app.opentv.ui.onboarding.AddSourceScreen
 import app.opentv.ui.player.PlayerScreen
 import app.opentv.ui.settings.AboutScreen
@@ -239,6 +240,7 @@ private fun OpenTvApp(isTelevision: Boolean) {
     val navigationScope = rememberCoroutineScope()
     val sourcesViewModel: SourcesViewModel = viewModel()
     val vodViewModel: VodViewModel = viewModel()
+    val channelsViewModel: ChannelsViewModel = viewModel()
     val profilesViewModel: ProfilesViewModel = viewModel()
     val sourcesUi by sourcesViewModel.ui.collectAsState()
     val profiles by profilesViewModel.profiles.collectAsState()
@@ -415,6 +417,7 @@ private fun OpenTvApp(isTelevision: Boolean) {
                     providerName = primarySource?.name ?: "No playlist",
                     providerExpiryMillis = providerExpiryMillis,
                     vodViewModel = vodViewModel,
+                    channelsViewModel = channelsViewModel,
                 )
             }
 
@@ -427,6 +430,8 @@ private fun OpenTvApp(isTelevision: Boolean) {
 
             composable(Routes.SEARCH) {
                 SearchScreen(
+                    viewModel = channelsViewModel,
+                    vodViewModel = vodViewModel,
                     onPlayChannel = { channel -> navController.navigate(Routes.player(channel.id)) },
                     onPlayMovie = { movie ->
                         navController.navigate(
