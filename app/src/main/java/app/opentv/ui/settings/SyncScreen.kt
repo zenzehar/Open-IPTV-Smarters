@@ -5,7 +5,11 @@
  */
 package app.opentv.ui.settings
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -20,19 +24,26 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
@@ -42,6 +53,15 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.opentv.R
 import app.opentv.sync.SyncServer
+import app.opentv.sync.CloudCredentialVault
+import app.opentv.sync.CloudCredentials
+import app.opentv.sync.CloudRelaySync
+import app.opentv.sync.CloudSyncWorker
+import app.opentv.sync.NextcloudLogin
+import app.opentv.core.ServiceLocator
+import app.opentv.pairing.QrCodes
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import app.opentv.ui.SyncViewModel
 
 /**
@@ -74,10 +94,12 @@ fun SyncScreen(
         )
 
         Spacer(Modifier.height(16.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             ModeChip(stringResource(R.string.sync_share_from_here), mode == Mode.SHARE) { mode = Mode.SHARE }
             ModeChip(stringResource(R.string.sync_receive), mode == Mode.RECEIVE) { mode = Mode.RECEIVE }
             ModeChip(stringResource(R.string.sync_nas), mode == Mode.NAS) { mode = Mode.NAS }
+            ModeChip("Cloud drive", mode == Mode.CLOUD) { mode = Mode.CLOUD }
         }
         Spacer(Modifier.height(20.dp))
 
@@ -85,11 +107,12 @@ fun SyncScreen(
             Mode.SHARE -> SharePane(viewModel)
             Mode.RECEIVE -> ReceivePane(viewModel)
             Mode.NAS -> NasPane(viewModel)
+            Mode.CLOUD -> CloudPane()
         }
     }
 }
 
-private enum class Mode { SHARE, RECEIVE, NAS }
+private enum class Mode { SHARE, RECEIVE, NAS, CLOUD }
 
 @Composable
 private fun SharePane(viewModel: SyncViewModel) {
@@ -307,4 +330,174 @@ private fun NumKey(label: String, onClick: () -> Unit) {
     ) {
         Text(label, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = fg)
     }
+}
+
+/**
+ * Phone-authorised Nextcloud login using Login Flow v2. The QR contains only a short-lived
+ * HTTPS browser login URL, never the cloud app password or the family's sync passphrase.
+ * The cloud snapshot is AES-GCM encrypted before it reaches the user's Nextcloud storage.
+ */
+@Composable
+private fun CloudPane() {
+    val context = LocalContext.current
+    val graph = remember { ServiceLocator.get(context) }
+    val vault = remember(context) { CloudCredentialVault(context) }
+    val scope = rememberCoroutineScope()
+    var connected by remember { mutableStateOf(vault.load() != null) }
+    var server by remember { mutableStateOf("https://") }
+    var passphrase by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf("") }
+    var loading by remember { mutableStateOf(false) }
+    var confirmDisconnect by remember { mutableStateOf(false) }
+    var pending by remember { mutableStateOf<NextcloudLogin.Pending?>(null) }
+
+    Card {
+        Column(
+            modifier = Modifier.widthIn(max = 720.dp).verticalScroll(rememberScrollState())
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Encrypted cloud-drive sync", style = MaterialTheme.typography.titleLarge)
+            Text(
+                "Sync favourites, Continue Watching and saved profiles when your devices " +
+                    "aren't online together. Supports Nextcloud HTTPS accounts. " +
+                    "Existing local network and NAS sync are unchanged.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+
+            if (connected) {
+                Text("Nextcloud linked on this device", color = MaterialTheme.colorScheme.primary)
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Button(enabled = !loading, onClick = {
+                        loading = true
+                        scope.launch {
+                            val result = CloudRelaySync(context, graph).sync()
+                            status = when (result) {
+                                is CloudRelaySync.Result.Success ->
+                                    "Cloud sync complete: ${result.merged} merged from " +
+                                        "${result.peerDevices} other devices."
+                                is CloudRelaySync.Result.Failed -> result.reason
+                                CloudRelaySync.Result.NotConfigured -> "Cloud account not configured."
+                            }
+                            loading = false
+                        }
+                    }) { Text(if (loading) "Syncing…" else "Sync now") }
+                    OutlinedButton(onClick = { confirmDisconnect = true }) {
+                        Text("Disconnect cloud")
+                    }
+                }
+                Text("Automatic cloud checks run about every 15 minutes when Android permits.",
+                    style = MaterialTheme.typography.bodySmall)
+            } else if (pending == null) {
+                OutlinedTextField(
+                    value = server, onValueChange = { server = it.take(300) },
+                    singleLine = true,
+                    label = { Text("Nextcloud server (HTTPS)") },
+                    modifier = Modifier.widthIn(max = 620.dp),
+                )
+                OutlinedTextField(
+                    value = passphrase, onValueChange = { passphrase = it.take(200) },
+                    singleLine = true,
+                    label = { Text("Family sync passphrase (12+ characters)") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.widthIn(max = 620.dp),
+                )
+                Text(
+                    "Use the SAME sync passphrase on every phone or TV. Your cloud provider " +
+                        "cannot read the encrypted media-history snapshot without it.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Button(enabled = !loading && passphrase.length >= 12 &&
+                        server.startsWith("https://"), onClick = {
+                    loading = true
+                    status = "Contacting Nextcloud…"
+                    scope.launch {
+                        val login = NextcloudLogin()
+                        val session = runCatching { login.begin(server) }
+                            .getOrElse {
+                                status = "Unable to start Nextcloud login. Check the HTTPS server address."
+                                loading = false
+                                return@launch
+                            }
+                        pending = session
+                        status = "Scan the QR with your phone, sign in and approve Koky & Sosy TV."
+                        var granted = false
+                        repeat(180) {
+                            delay(5_000)
+                            val result = runCatching { login.poll(session) }
+                            if (result.isFailure) {
+                                status = "Cloud authorisation failed. Check the server or restart login."
+                                pending = null
+                                loading = false
+                                return@launch
+                            }
+                            val credential = result.getOrNull()
+                            if (credential != null) {
+                                val save = runCatching {
+                                    vault.save(CloudCredentials(
+                                        credential.server, credential.username,
+                                        credential.appPassword, passphrase,
+                                    ))
+                                }
+                                if (save.isFailure) {
+                                    status = "Android secure credential storage was unavailable."
+                                    pending = null
+                                    loading = false
+                                    return@launch
+                                }
+                                connected = true
+                                granted = true
+                                pending = null
+                                passphrase = ""
+                                CloudSyncWorker.schedule(context)
+                                CloudSyncWorker.syncNow(context)
+                                status = "Authorised. First encrypted cloud sync scheduled."
+                                loading = false
+                                return@launch
+                            }
+                        }
+                        if (!granted) {
+                            pending = null
+                            loading = false
+                            status = "Cloud login timed out. Please start again."
+                        }
+                    }
+                }) { Text(if (loading) "Connecting…" else "Log in using phone QR") }
+            }
+
+            pending?.let { login ->
+                val bitmap = remember(login.loginUrl) {
+                    QrCodes.render(login.loginUrl, 310)?.asImageBitmap()
+                }
+                if (bitmap != null) Image(
+                    bitmap = bitmap, contentDescription = "Scan with phone to authorise Nextcloud",
+                    modifier = Modifier.size(260.dp),
+                )
+                Text("Open the QR link on your phone and approve access in Nextcloud.",
+                    style = MaterialTheme.typography.bodyMedium)
+                OutlinedButton(onClick = { pending = null; loading = false }) {
+                    Text("Cancel login")
+                }
+            }
+            if (status.isNotBlank()) Text(status, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+    if (confirmDisconnect) AlertDialog(
+        onDismissRequest = { confirmDisconnect = false },
+        title = { Text("Disconnect cloud sync?") },
+        text = { Text("Only this device's cloud authorisation is removed. " +
+            "Manual LAN/NAS sync, profiles and local history remain untouched.") },
+        confirmButton = {
+            TextButton(onClick = {
+                vault.clear()
+                CloudSyncWorker.schedule(context)
+                connected = false
+                status = "Cloud disconnected on this device."
+                confirmDisconnect = false
+            }) { Text("Disconnect") }
+        },
+        dismissButton = {
+            TextButton(onClick = { confirmDisconnect = false }) { Text("Cancel") }
+        },
+    )
 }
