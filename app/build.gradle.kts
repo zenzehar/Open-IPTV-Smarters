@@ -87,6 +87,9 @@ android {
         }
     }
 
+    // Exercise the side-by-side QA package on emulator, preserving users' normal installs.
+    testBuildType = "qa"
+
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
@@ -149,6 +152,10 @@ dependencies {
     // SMB/CIFS client for recording to a NAS (Synology etc.) and playing those recordings
     // back in-app over the network. Pure-Java SMB2/3, no native bits.
     implementation("com.hierynomus:smbj:0.12.2")
+
+    androidTestImplementation("androidx.test:core:1.6.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
 
     testImplementation(libs.junit)
     testImplementation(libs.truth)

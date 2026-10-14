@@ -1,0 +1,62 @@
+name: Android phone and TV emulator smoke
+on:
+  workflow_dispatch:
+  push:
+    branches: ['feature/koky-sosy-rebuild-v0127']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: emulator-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  emulator:
+    name: ${{ matrix.device }} API ${{ matrix.api }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - device: phone
+            api: 34
+            target: google_apis
+            profile: pixel_6
+          - device: tv
+            api: 33
+            target: android-tv
+            profile: tv_1080p
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+      - name: Enable KVM acceleration
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+      - name: Start emulator and run QA instrumentation
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          target: ${{ matrix.target }}
+          arch: x86_64
+          profile: ${{ matrix.profile }}
+          avd-name: koky-sosy-${{ matrix.device }}
+          emulator-boot-timeout: 600
+          disable-animations: true
+          script: ./gradlew connectedQaAndroidTest --no-daemon --stacktrace
+      - name: Upload instrumented test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-test-${{ matrix.device }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+          if-no-files-found: ignore
