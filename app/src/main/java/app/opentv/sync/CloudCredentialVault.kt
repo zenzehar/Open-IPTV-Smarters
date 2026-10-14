@@ -6,7 +6,6 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import java.nio.charset.StandardCharsets
 import java.security.KeyStore
-import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -62,12 +61,17 @@ internal class CloudCredentialVault(context: Context) {
             put("appPassword", credentials.appPassword)
             put("passphrase", credentials.syncPassphrase)
         }.toString().toByteArray(StandardCharsets.UTF_8)
-        val nonce = ByteArray(12).also(SecureRandom()::nextBytes)
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, key(), GCMParameterSpec(128, nonce))
-        val encrypted = nonce + cipher.doFinal(plaintext)
-        plaintext.fill(0)
-        prefs.edit().putString("encrypted", Base64.encodeToString(encrypted, Base64.NO_WRAP)).apply()
+        try {
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            // Android Keystore requires randomized encryption: NEVER supply our own IV.
+            cipher.init(Cipher.ENCRYPT_MODE, key())
+            val iv = cipher.iv
+            require(iv.size == 12) { "Unsupported Keystore GCM nonce size." }
+            val encrypted = iv + cipher.doFinal(plaintext)
+            prefs.edit().putString("encrypted", Base64.encodeToString(encrypted, Base64.NO_WRAP)).apply()
+        } finally {
+            plaintext.fill(0)
+        }
     }
 
     fun clear() {
