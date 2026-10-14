@@ -44,7 +44,7 @@ class LargeCatalogueRoomTest {
         addedMillis = i.toLong(),
     )
 
-    @Test fun moviePagesCoverBeyondOldTwoThousandLimitWithNoDuplicates() = runBlocking {
+    @Test fun moviePagesCoverBeyondOldTwoThousandLimitWithNoDuplicates() = runBlocking<Unit> {
         (1..2505).chunked(200).forEach { chunk -> db.movies().upsertAll(chunk.map(::movie)) }
         val observed = mutableListOf<Movie>()
         var offset = 0
@@ -60,7 +60,7 @@ class LargeCatalogueRoomTest {
         assertThat(db.movies().observePage(null, 1L, "", 160, 2400).first()).hasSize(105)
     }
 
-    @Test fun fullCategorySearchDoesNotLeakToOtherCategoriesOrProviders() = runBlocking {
+    @Test fun fullCategorySearchDoesNotLeakToOtherCategoriesOrProviders() = runBlocking<Unit> {
         db.movies().upsertAll((1..2505).map(::movie) + movie(2506, source = 2))
         val drama = db.movies().observePage("drama", 1L, "QA Movie", 160, 960).first()
         assertThat(drama).hasSize(160)
@@ -70,7 +70,7 @@ class LargeCatalogueRoomTest {
         assertThat(exact.map { it.name }).containsExactly("QA Movie 2505")
     }
 
-    @Test fun seriesPagesAndSearchWorkBeyondTwoThousandRows() = runBlocking {
+    @Test fun seriesPagesAndSearchWorkBeyondTwoThousandRows() = runBlocking<Unit> {
         (1..2505).chunked(200).forEach { chunk -> db.series().upsertAll(chunk.map(::show)) }
         assertThat(db.series().observePage(null, 1L, "", 160, 2400).first()).hasSize(105)
         assertThat(db.series().observePage("comedy", 1L, "QA Series 2505", 160, 0)
@@ -79,7 +79,7 @@ class LargeCatalogueRoomTest {
             .first()).isEmpty()
     }
 
-    @Test fun failedRefreshCannotWipeCachedMovieAndSeriesWithoutExplicitDeletion() = runBlocking {
+    @Test fun failedRefreshCannotWipeCachedMovieAndSeriesWithoutExplicitDeletion() = runBlocking<Unit> {
         db.movies().upsertAll(listOf(movie(1), movie(2)))
         db.series().upsertAll(listOf(show(1)))
         assertThat(db.movies().count()).isEqualTo(2)
