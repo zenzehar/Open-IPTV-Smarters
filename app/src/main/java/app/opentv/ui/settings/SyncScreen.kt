@@ -62,6 +62,9 @@ import app.opentv.core.ServiceLocator
 import app.opentv.pairing.QrCodes
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
 import app.opentv.ui.SyncViewModel
 
 /**
@@ -350,6 +353,7 @@ private fun CloudPane() {
     var loading by remember { mutableStateOf(false) }
     var confirmDisconnect by remember { mutableStateOf(false) }
     var pending by remember { mutableStateOf<NextcloudLogin.Pending?>(null) }
+    var loginJob by remember { mutableStateOf<Job?>(null) }
 
     Card {
         Column(
@@ -411,7 +415,7 @@ private fun CloudPane() {
                         server.startsWith("https://"), onClick = {
                     loading = true
                     status = "Contacting Nextcloud…"
-                    scope.launch {
+                    loginJob = scope.launch {
                         val login = NextcloudLogin()
                         val session = runCatching { login.begin(server) }
                             .getOrElse {
@@ -433,6 +437,7 @@ private fun CloudPane() {
                             }
                             val credential = result.getOrNull()
                             if (credential != null) {
+                                coroutineContext.ensureActive()
                                 val save = runCatching {
                                     vault.save(CloudCredentials(
                                         credential.server, credential.username,
@@ -475,7 +480,13 @@ private fun CloudPane() {
                 )
                 Text("Open the QR link on your phone and approve access in Nextcloud.",
                     style = MaterialTheme.typography.bodyMedium)
-                OutlinedButton(onClick = { pending = null; loading = false }) {
+                OutlinedButton(onClick = {
+                    loginJob?.cancel()
+                    loginJob = null
+                    pending = null
+                    loading = false
+                    status = "Cloud login cancelled."
+                }) {
                     Text("Cancel login")
                 }
             }

@@ -8,6 +8,7 @@ import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
 import okhttp3.Credentials
 import okhttp3.MediaType.Companion.toMediaType
@@ -61,11 +62,20 @@ internal class CloudRelaySync(
                 var merged = SyncEngine.MergeResult()
                 var validPeers = 0
                 for (name in peers) {
-                    val bytes = runCatching { download(syncFolder + name, auth) }
-                        .getOrNull() ?: continue
-                    val snapshot = runCatching {
+                    val bytes = try {
+                        download(syncFolder + name, auth)
+                    } catch (c: CancellationException) {
+                        throw c
+                    } catch (_: Exception) {
+                        continue
+                    }
+                    val snapshot = try {
                         engine.decode(CloudBundleCipher.decrypt(bytes, password))
-                    }.getOrNull() ?: continue
+                    } catch (c: CancellationException) {
+                        throw c
+                    } catch (_: Exception) {
+                        continue
+                    }
                     merged += engine.apply(snapshot)
                     validPeers++
                 }
@@ -76,7 +86,8 @@ internal class CloudRelaySync(
             } finally {
                 password.fill('\u0000')
             }
-        }.getOrElse {
+        }.getOrElse { error ->
+            if (error is CancellationException) throw error
             // Deliberately suppress exception messages: endpoints or URLs could carry private data.
             Result.Failed("Cloud relay unavailable. Check HTTPS login, server access and sync passphrase.")
         }

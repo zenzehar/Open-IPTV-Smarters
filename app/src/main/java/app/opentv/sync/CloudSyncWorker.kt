@@ -37,6 +37,7 @@ internal class CloudSyncWorker(context: Context, params: WorkerParameters) :
             val work = WorkManager.getInstance(context)
             if (CloudCredentialVault(context).load() == null) {
                 work.cancelUniqueWork(PERIODIC_NAME)
+                work.cancelUniqueWork(ON_DEMAND_NAME)
                 return
             }
             val request = PeriodicWorkRequestBuilder<CloudSyncWorker>(15, TimeUnit.MINUTES)
