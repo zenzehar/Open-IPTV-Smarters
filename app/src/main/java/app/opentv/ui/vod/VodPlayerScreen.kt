@@ -277,7 +277,7 @@ fun VodPlayerScreen(
         if (media3Ended) return
         val player = controller.player
         val pos = player.currentPosition
-        val dur = player.duration.takeIf { it > 0 } ?: return
+        val dur = VodSeekPolicy.safeDuration(player.duration, pos, badDuration)
         if (pos > 5_000) {
             graph.playbackPositions.upsert(
                 app.opentv.data.model.PlaybackPosition(
@@ -294,6 +294,7 @@ fun VodPlayerScreen(
     // Keep an updated snapshot so disposal does not overwrite a newer VLC resume position.
     val latestVlc = rememberUpdatedState(useVlc)
     val latestEnded = rememberUpdatedState(media3Ended)
+    val latestUntrustedDuration = rememberUpdatedState(badDuration)
 
     // Keep the screen awake during playback — see the note in PlayerScreen; a film is exactly when
     // the screensaver must not fire. Window flag is the reliable path; keepScreenOn is a backstop.
@@ -307,8 +308,10 @@ fun VodPlayerScreen(
             // The controller's coroutine scope is cancelled here. Persist independently
             // so the final position survives navigation away from the video.
             val pos = controller.player.currentPosition
-            val duration = controller.player.duration
-            if (!latestVlc.value && !latestEnded.value && pos > 5_000L && duration > 0L) {
+            val duration = VodSeekPolicy.safeDuration(
+                controller.player.duration, pos, latestUntrustedDuration.value,
+            )
+            if (!latestVlc.value && !latestEnded.value && pos > 5_000L) {
                 val snapshot = app.opentv.data.model.PlaybackPosition(
                     profileId = settings.activeProfileId.value,
                     mediaKey = mediaKey,

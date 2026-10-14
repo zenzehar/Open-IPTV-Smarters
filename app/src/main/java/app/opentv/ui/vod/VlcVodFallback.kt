@@ -172,8 +172,8 @@ fun VlcVodFallback(
     suspend fun persistPosition() {
         if (finished) return // Never overwrite the completed episode with an end-of-stream zero.
         val pos = player.time.coerceAtLeast(0L)
-        val duration = player.length.coerceAtLeast(0L)
-        if (pos > 5_000L && duration > 0L) {
+        val duration = VodSeekPolicy.safeDuration(player.length, pos, badDuration)
+        if (pos > 5_000L) {
             graph.playbackPositions.upsert(PlaybackPosition(
                 profileId = profileId,
                 mediaKey = mediaKey,
@@ -349,8 +349,10 @@ fun VlcVodFallback(
         onDispose {
             // Use a separate IO scope: composition scope is cancelled on navigation.
             val p = runCatching { player.time }.getOrDefault(0L)
-            val d = runCatching { player.length }.getOrDefault(0L)
-            if (!finished && p > 5_000L && d > 0L) {
+            val d = VodSeekPolicy.safeDuration(
+                runCatching { player.length }.getOrDefault(0L), p, badDuration,
+            )
+            if (!finished && p > 5_000L) {
                 CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
                     graph.playbackPositions.upsert(PlaybackPosition(
                         profileId, mediaKey, p, d, System.currentTimeMillis(),

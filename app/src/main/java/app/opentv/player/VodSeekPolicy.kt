@@ -32,6 +32,11 @@ internal object VodSeekPolicy {
     fun acknowledged(decodedPositionMs: Long, targetMs: Long): Boolean =
         kotlin.math.abs(decodedPositionMs - targetMs) <= TARGET_TOLERANCE_MS
 
+    /** Persist unknown duration rather than falsely declaring playback complete. */
+    fun safeDuration(reportedMs: Long, positionMs: Long, metadataUntrusted: Boolean): Long =
+        if (metadataUntrusted || contradictsDuration(reportedMs, positionMs)) 0L
+        else reportedMs.coerceAtLeast(0L)
+
     fun remoteStep(repeatCount: Int): Long =
         if (repeatCount > 0) HELD_STEP_MS else SHORT_STEP_MS
 }

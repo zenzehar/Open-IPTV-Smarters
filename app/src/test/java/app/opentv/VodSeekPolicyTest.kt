@@ -26,6 +26,14 @@ class VodSeekPolicyTest {
         assertThat(VodSeekPolicy.target(180_000L, 120_000L, true)).isEqualTo(180_000L)
     }
 
+    @Test fun wrongProviderDurationMustNotMarkUnfinishedMovieAsCompleted() {
+        val elapsed = 44L * 60_000L + 14_000L
+        val incorrectlyReported = 44L * 60_000L
+        assertThat(VodSeekPolicy.safeDuration(incorrectlyReported, elapsed, false)).isEqualTo(0L)
+        assertThat(VodSeekPolicy.safeDuration(incorrectlyReported, 20_000L, true)).isEqualTo(0L)
+        assertThat(VodSeekPolicy.safeDuration(120_000L, 60_000L, false)).isEqualTo(120_000L)
+    }
+
     @Test fun remoteRepeatUsesTwoMinuteStepsAndSeekRequiresAcknowledgement() {
         assertThat(VodSeekPolicy.remoteStep(0)).isEqualTo(10_000L)
         assertThat(VodSeekPolicy.remoteStep(1)).isEqualTo(120_000L)
