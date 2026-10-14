@@ -577,7 +577,7 @@ private fun MovieCategoryGrid(movies: List<Movie>, viewModel: VodViewModel, onOp
     if (movies.isEmpty()) { LoadingVod(stringResource(R.string.vod_loading_movies)); return }
     val groups = remember(movies) { viewModel.collapseVariants(movies) }
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 140.dp),
+        columns = GridCells.Adaptive(minSize = LocalArtworkWidth.current),
         contentPadding = PaddingValues(16.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -608,7 +608,7 @@ private fun MovieCategoryGrid(movies: List<Movie>, viewModel: VodViewModel, onOp
 private fun SeriesCategoryGrid(series: List<Series>, onOpenSeries: (Series) -> Unit) {
     if (series.isEmpty()) { LoadingVod(stringResource(R.string.vod_loading_shows)); return }
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 140.dp),
+        columns = GridCells.Adaptive(minSize = LocalArtworkWidth.current),
         contentPadding = PaddingValues(16.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -706,7 +706,7 @@ internal fun PosterCard(
     val scale by animateFloatAsState(if (focused) 1.06f else 1f, label = "posterScale")
     Column(
         modifier
-            .width(POSTER_WIDTH)
+            .width(LocalArtworkWidth.current)
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .onFocusChanged { focused = it.isFocused }
             .clip(RoundedCornerShape(10.dp))
@@ -824,7 +824,7 @@ private fun ResumeCard(
     val scale by animateFloatAsState(if (focused) 1.04f else 1f, label = "resumeScale")
     Column(
         Modifier
-            .width(154.dp)
+            .width(LocalArtworkWidth.current + 14.dp)
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .onFocusChanged {
                 focused = it.isFocused
@@ -1055,7 +1055,7 @@ private fun VodLoadFailure(title: String, message: String, onRetry: () -> Unit) 
 }
 
 /** Poster shelf card width; the grid uses an adaptive min size close to this. */
-private val POSTER_WIDTH = 140.dp
+// Poster width is defined by LocalArtworkWidth at the activity root.
 
 /** Rating to one decimal place, locale-independent (the "★" is drawn beside it). */
 internal fun formatRating(rating: Double): String = String.format(java.util.Locale.US, "%.1f", rating)

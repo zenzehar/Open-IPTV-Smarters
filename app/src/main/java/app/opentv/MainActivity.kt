@@ -39,6 +39,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.ui.Alignment
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -85,6 +86,7 @@ import app.opentv.ui.vod.MovieDetailScreen
 import app.opentv.ui.vod.PersonScreen
 import app.opentv.ui.vod.SeriesDetailScreen
 import app.opentv.ui.vod.VodPlayerScreen
+import app.opentv.ui.vod.LocalArtworkWidth
 import app.opentv.ui.vod.EpisodeReturnTracker
 import app.opentv.update.UpdateGate
 
@@ -106,6 +108,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val settings = remember { ServiceLocator.get(this).settings }
             val themeMode by settings.themeMode.collectAsState()
+            val artworkDp by settings.artworkWidthDp.collectAsState()
             val deviceMode by settings.deviceMode.collectAsState()
             val isTelevision = when (deviceMode) {
                 AppSettings.DeviceMode.TV -> true
@@ -119,11 +122,13 @@ class MainActivity : ComponentActivity() {
                 AppSettings.ThemeMode.SYSTEM -> isTelevision || isSystemInDarkTheme()
             }
             OpenTvTheme(darkTheme = darkTheme) {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background,
-                ) {
-                    OpenTvApp(isTelevision = isTelevision)
+                CompositionLocalProvider(LocalArtworkWidth provides artworkDp.dp) {
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = MaterialTheme.colorScheme.background,
+                    ) {
+                        OpenTvApp(isTelevision = isTelevision)
+                    }
                 }
             }
         }

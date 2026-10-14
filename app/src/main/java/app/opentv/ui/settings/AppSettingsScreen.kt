@@ -77,6 +77,7 @@ fun AppSettingsScreen(onBack: () -> Unit) {
     val autoplayNext by settings.autoplayNextEpisode.collectAsState()
     val controlsTimeout by settings.playerControlsTimeoutSeconds.collectAsState()
     val refreshHours by settings.catalogueRefreshHours.collectAsState()
+    val artWidthDp by settings.artworkWidthDp.collectAsState()
     val language by settings.languageTag.collectAsState()
     val liveEnabled by settings.liveEnabled.collectAsState()
     val moviesEnabled by settings.moviesEnabled.collectAsState()
@@ -142,6 +143,19 @@ fun AppSettingsScreen(onBack: () -> Unit) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+
+        Spacer(Modifier.height(16.dp))
+        SettingsSection("Poster and thumbnail size") {
+            Text("Adjust card width in Movies, Series and Continue Watching.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium)
+            listOf(110 to "Compact", 140 to "Normal",
+                170 to "Large", 200 to "Extra large").forEach { (width, label) ->
+                ThemeOption("$label · ${width}dp", artWidthDp == width) {
+                    settings.setArtworkWidthDp(width)
+                }
+            }
         }
 
         Spacer(Modifier.height(16.dp))

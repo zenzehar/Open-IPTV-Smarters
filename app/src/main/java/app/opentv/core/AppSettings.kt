@@ -98,6 +98,17 @@ class AppSettings private constructor(context: Context) {
         _catalogueRefreshHours.value = hours
     }
 
+    private val _artworkWidthDp = MutableStateFlow(
+        prefs.getInt("artwork_width_dp", 140).takeIf { it in setOf(110, 140, 170, 200) } ?: 140,
+    )
+    val artworkWidthDp: StateFlow<Int> = _artworkWidthDp.asStateFlow()
+
+    fun setArtworkWidthDp(value: Int) {
+        require(value in setOf(110, 140, 170, 200))
+        prefs.edit().putInt("artwork_width_dp", value).apply()
+        _artworkWidthDp.value = value
+    }
+
     private val _deviceMode = MutableStateFlow(
         runCatching { DeviceMode.valueOf(prefs.getString("device_mode", "AUTO") ?: "AUTO") }
             .getOrDefault(DeviceMode.AUTO),
