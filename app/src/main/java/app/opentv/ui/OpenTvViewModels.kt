@@ -1259,17 +1259,29 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
 
     @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
     val movieResults: StateFlow<List<Movie>> =
-        vodSearchInput.map { it.trim() }.debounce(200).distinctUntilChanged()
-            .flatMapLatest { q ->
-                if (q.length < 2) flowOf(emptyList()) else graph.catalogRepository.searchMovies(q)
+        combine(vodSearchInput.map { it.trim() }, movieCategory, selectedVodSource) { q, cat, source ->
+            Triple(q, cat, source)
+        }.debounce(200).distinctUntilChanged()
+            .flatMapLatest { (q, cat, source) ->
+                if (q.length < 2) flowOf(emptyList())
+                else graph.catalogRepository.searchMovies(q).map { all ->
+                    all.filter { (cat == null || it.categoryId == cat) &&
+                        (source == null || it.sourceId == source) }
+                }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
     val seriesResults: StateFlow<List<Series>> =
-        vodSearchInput.map { it.trim() }.debounce(200).distinctUntilChanged()
-            .flatMapLatest { q ->
-                if (q.length < 2) flowOf(emptyList()) else graph.catalogRepository.searchSeries(q)
+        combine(vodSearchInput.map { it.trim() }, seriesCategory, selectedVodSource) { q, cat, source ->
+            Triple(q, cat, source)
+        }.debounce(200).distinctUntilChanged()
+            .flatMapLatest { (q, cat, source) ->
+                if (q.length < 2) flowOf(emptyList())
+                else graph.catalogRepository.searchSeries(q).map { all ->
+                    all.filter { (cat == null || it.categoryId == cat) &&
+                        (source == null || it.sourceId == source) }
+                }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 

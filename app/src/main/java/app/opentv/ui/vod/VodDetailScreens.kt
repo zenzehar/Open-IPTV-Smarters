@@ -49,6 +49,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -328,6 +330,15 @@ fun SeriesDetailScreen(
             .mapValues { (_, eps) -> eps.sortedBy { it.episodeNumber } }
             .toSortedMap()
     }
+    val lastPlayed by EpisodeReturnTracker.recent.collectAsState()
+    val lastEpisodeId = lastPlayed[s.sourceId to s.seriesId]
+    var selectedSeason by rememberSaveable(seriesId) { mutableIntStateOf(Int.MIN_VALUE) }
+    LaunchedEffect(lastEpisodeId, episodes) {
+        val resumed = episodes.firstOrNull { it.id == lastEpisodeId }
+        if (resumed != null) selectedSeason = resumed.season
+        else if (selectedSeason !in seasons) selectedSeason = seasons.keys.firstOrNull() ?: Int.MIN_VALUE
+    }
+    val showingSeason = selectedSeason.takeIf { it in seasons } ?: seasons.keys.firstOrNull()
 
     Column(Modifier.fillMaxSize()) {
         DetailBackBar(onBack = onBack, label = "Back to series")
@@ -368,13 +379,29 @@ fun SeriesDetailScreen(
                 )
             }
         } else {
-            seasons.forEach { (season, eps) ->
-                item(key = "season:$season") {
-                    Spacer(Modifier.height(8.dp))
-                    SectionHeader(stringResource(R.string.vod_season, season))
+            item(key = "season-tabs") {
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 24.dp, vertical = 12.dp),
+                ) {
+                    seasons.keys.forEach { season ->
+                        OutlinedButton(
+                            onClick = { selectedSeason = season },
+                            modifier = Modifier.padding(end = 8.dp),
+                        ) {
+                            Text(
+                                "Season $season" + if (showingSeason == season) " ✓" else "",
+                            )
+                        }
+                    }
                 }
-                items(eps, key = { it.id }) { ep ->
-                    EpisodeRow(ep, onPlayEpisode)
+            }
+            val showing = showingSeason?.let { seasons[it] }.orEmpty()
+            items(showing, key = { it.id }) { ep ->
+                EpisodeRow(ep, highlighted = ep.id == lastEpisodeId) { key, url, title ->
+                    EpisodeReturnTracker.record(ep)
+                    selectedSeason = ep.season
+                    onPlayEpisode(key, url, title)
                 }
             }
         }
@@ -762,7 +789,11 @@ private fun DetailButton(
 
 /** One episode row: season/episode marker, title, and a focus highlight; plays on click. */
 @Composable
-private fun EpisodeRow(ep: Episode, onPlay: (mediaKey: String, url: String, title: String) -> Unit) {
+private fun EpisodeRow(
+    ep: Episode,
+    highlighted: Boolean,
+    onPlay: (mediaKey: String, url: String, title: String) -> Unit,
+) {
     var focused by remember { mutableStateOf(false) }
     Row(
         Modifier
@@ -775,7 +806,9 @@ private fun EpisodeRow(ep: Episode, onPlay: (mediaKey: String, url: String, titl
                 else MaterialTheme.colorScheme.surface,
             )
             .then(
-                if (focused) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
+                if (focused || highlighted) Modifier.border(
+                    if (focused) 3.dp else 2.dp,
+                    MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
                 else Modifier,
             )
             .clickable {
@@ -784,18 +817,32 @@ private fun EpisodeRow(ep: Episode, onPlay: (mediaKey: String, url: String, titl
             .padding(14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            "S${ep.season}E${ep.episodeNumber}",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.width(72.dp),
-        )
-        Text(
-            ep.title,
-            style = MaterialTheme.typography.bodyLarge,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Box(
+            modifier = Modifier.width(120.dp).height(68.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (!ep.stillUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = ep.stillUrl,
+                    contentDescription = "Episode preview",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Icon(Icons.Filled.PlayArrow, contentDescription = null)
+            }
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text("S${ep.season}E${ep.episodeNumber}" +
+                if (highlighted) " · Last watched" else "",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary)
+            Text(ep.title, style = MaterialTheme.typography.bodyLarge,
+                maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
     }
 }
 

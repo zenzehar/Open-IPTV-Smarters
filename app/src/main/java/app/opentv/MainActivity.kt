@@ -82,6 +82,7 @@ import app.opentv.ui.vod.MovieDetailScreen
 import app.opentv.ui.vod.PersonScreen
 import app.opentv.ui.vod.SeriesDetailScreen
 import app.opentv.ui.vod.VodPlayerScreen
+import app.opentv.ui.vod.EpisodeReturnTracker
 import app.opentv.update.UpdateGate
 
 class MainActivity : ComponentActivity() {
@@ -572,6 +573,7 @@ private fun OpenTvApp(isTelevision: Boolean) {
                     userAgent = arg("ua").ifEmpty { "OpenTV/0.1 (Android)" },
                     onBack = { navController.popBackStack() },
                     onNextEpisode = { episode ->
+                        EpisodeReturnTracker.record(episode)
                         // Replace the active episode in navigation, don't grow the backstack
                         // every time autoplay moves through a season.
                         navController.navigate(
