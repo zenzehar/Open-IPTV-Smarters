@@ -1,0 +1,89 @@
+id,requirement,unit_logic_test,android_integration_test,physical_device_required,last_reported_failure
+1,"APK assembles",false,false,false,false
+2,"App cold-launches on phone",false,true,false,false
+3,"App cold-launches on Android TV",false,true,false,false
+4,"Automatic device detection",false,false,false,false
+5,"Manual TV/phone mode override",false,false,false,false
+6,"Phone portrait/landscape layouts",false,false,false,false
+7,"No forced fullscreen/landscape",false,false,false,false
+8,"TV D-pad focus traversal",false,false,false,false
+9,"Remote OK activates focused item",false,false,false,false
+10,"Restore focus on layout changes",false,false,false,false
+11,"Dashboard fits without scrolling",false,false,false,false
+12,"Collapsible sidebar",false,false,false,false
+13,"Text alignment and wrapping",false,false,false,false
+14,"Poster sizing settings",false,false,false,false
+15,"Koky branding/icon/splash",false,false,false,false
+16,"Title detail back buttons",false,false,false,false
+17,"Home-level Back/exit sequence",false,false,false,false
+18,"Xtream provider authentication",true,true,false,false
+19,"M3U playlist parsing",true,false,false,false
+20,"Stalker/MAG provider",false,false,false,false
+21,"Test Connection real authentication",false,true,false,false
+22,"Wrong-credentials and network errors",false,false,false,false
+23,"TLS failure explanation",true,false,false,false
+24,"Explicit HTTP downgrade consent",false,false,false,false
+25,"Reject multiline login fields",true,false,false,false
+26,"Use native Android keyboard",false,false,false,false
+27,"TV keyboard only on OK",false,false,false,false
+28,"Edit existing provider",false,false,false,false
+29,"Provider account expiry",false,true,false,false
+30,"Profile add/rename/select/remove",true,false,false,false
+31,"Profile-specific history deletion",true,false,false,false
+32,"Two-stage factory reset",false,false,false,false
+33,"Stable in-place APK signing",false,false,false,false
+34,"Live catalogue imports",false,true,false,false
+35,"Live channels actually play",false,false,true,false
+36,"Scoped Live channel-title search",false,false,false,false
+37,"Independent Live category-name search",false,false,false,false
+38,"Guide/EPG parsing and matching",true,false,false,false
+39,"Movie catalogue imports",false,true,false,false
+40,"Series catalogue imports",false,true,false,false
+41,"Search entire selected movie category",false,true,false,false
+42,"Search entire selected series category",false,true,false,false
+43,"Preserve scoped search",false,false,false,false
+44,"Paging beyond 2,000 titles",false,true,false,false
+45,"Load more incremental entries",false,true,false,false
+46,"Cached catalogue during refresh",false,false,false,false
+47,"Refresh intervals off/1/3/6/12/24h",true,false,false,false
+48,"Skip premature launch refresh",true,false,false,false
+49,"Avoid duplicate startup Live refresh",false,false,false,false
+50,"No false UPDATING label",false,false,false,false
+51,"Catalogue progress/error reporting",false,false,false,false
+52,"Manual catalogue refresh",true,false,false,false
+53,"Movie actual playback",false,false,true,false
+54,"Episode actual playback",false,false,true,false
+55,"Movie seek cursor movement",false,false,true,true
+56,"Movie seek changes decoded position",false,false,true,true
+57,"Episode seeks correctly",false,false,true,false
+58,"10-second seek controls",false,false,false,false
+59,"Accelerated remote hold seeking",false,false,false,false
+60,"D-pad seekbar focus",false,false,false,false
+61,"Playback controls auto-hide",false,false,false,false
+62,"First Back hides player controls",false,false,false,false
+63,"Second Back returns to title",false,false,true,true
+64,"VLC Back does not exit app",false,false,true,true
+65,"Media3 unsupported format VLC fallback",false,false,true,false
+66,"No premature VLC on buffering",false,false,false,false
+67,"VLC error Retry button",false,false,true,false
+68,"Movies/Series Continue Watching sections",false,false,false,false
+69,"Resume from stored playback position",false,false,false,false
+70,"Watch time and progress labels",false,false,false,false
+71,"Deduplicate latest watched episode",true,false,false,false
+72,"TV remote long-press on Continue Watching",false,false,true,true
+73,"Long-press title details",false,false,false,false
+74,"Reset specific title progress",true,false,false,false
+75,"No duplicated Continue Watching preview",false,false,false,false
+76,"Restore previous season and episode focus",false,false,false,false
+77,"Autoplay next toggle",false,false,false,false
+78,"Next episode button",false,false,false,false
+79,"Advance correctly across seasons",true,false,false,false
+80,"Save playback progress on exit/crash",false,false,false,false
+81,"Safe native VLC shutdown",false,false,true,true
+82,"Manual LAN synchronization",false,false,false,false
+83,"Automatic unattended device synchronization",false,false,true,false
+84,"Independent run times via NAS relay",false,false,true,false
+85,"15-minute background sync cadence",false,false,true,false
+86,"Conflict-safe progress merging",false,false,true,false
+87,"Preserve data across normal upgrades",false,false,false,false
+88,"Maintain data across signing rotations",false,false,false,false
