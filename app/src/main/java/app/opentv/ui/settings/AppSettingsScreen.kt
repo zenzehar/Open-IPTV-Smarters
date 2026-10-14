@@ -74,6 +74,7 @@ fun AppSettingsScreen(onBack: () -> Unit) {
     val captions by settings.subtitlesEnabled.collectAsState()
     val resumeLast by settings.resumeLastChannel.collectAsState()
     val autoplayNext by settings.autoplayNextEpisode.collectAsState()
+    val controlsTimeout by settings.playerControlsTimeoutSeconds.collectAsState()
     val language by settings.languageTag.collectAsState()
     val liveEnabled by settings.liveEnabled.collectAsState()
     val moviesEnabled by settings.moviesEnabled.collectAsState()
@@ -232,10 +233,19 @@ fun AppSettingsScreen(onBack: () -> Unit) {
             )
             ToggleRow(
                 title = "Automatically play next series episode",
-                subtitle = "When an episode finishes, start the next one. Off by default.",
+                subtitle = "When an episode finishes, play the next automatically. On by default.",
                 checked = autoplayNext,
                 onToggle = settings::setAutoplayNextEpisode,
             )
+            Text("Player controls auto-hide", style = MaterialTheme.typography.titleMedium)
+            Row(Modifier.horizontalScroll(rememberScrollState())) {
+                listOf(0 to "Never", 3 to "3s", 5 to "5s", 10 to "10s", 15 to "15s")
+                    .forEach { (seconds, label) ->
+                        ThemeOption(label, controlsTimeout == seconds) {
+                            settings.setPlayerControlsTimeoutSeconds(seconds)
+                        }
+                    }
+            }
             ToggleRow(
                 title = stringResource(R.string.settings_resume_title),
                 subtitle = stringResource(R.string.settings_resume_subtitle),

@@ -205,6 +205,17 @@ class AppSettings private constructor(context: Context) {
         _guidePreviewSound.value = enabled
     }
 
+    // 0 = never hide, otherwise seconds. Stored locally and shared by VLC and Media3.
+    private val _playerControlsTimeoutSeconds =
+        MutableStateFlow(prefs.getInt("player_controls_timeout_s", 5).coerceIn(0, 30))
+    val playerControlsTimeoutSeconds: StateFlow<Int> = _playerControlsTimeoutSeconds.asStateFlow()
+
+    fun setPlayerControlsTimeoutSeconds(seconds: Int) {
+        val value = seconds.coerceIn(0, 30)
+        prefs.edit().putInt("player_controls_timeout_s", value).apply()
+        _playerControlsTimeoutSeconds.value = value
+    }
+
     /** Autoplay the next available episode when a series episode reaches its end. */
     private val _autoplayNextEpisode = MutableStateFlow(prefs.getBoolean(KEY_AUTOPLAY_NEXT_EPISODE, true))
     val autoplayNextEpisode: StateFlow<Boolean> = _autoplayNextEpisode.asStateFlow()

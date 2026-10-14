@@ -5,6 +5,7 @@
  */
 package app.opentv.ui.vod
 
+import android.os.SystemClock
 import android.view.ViewGroup
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
@@ -80,6 +81,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.nativeKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
@@ -100,6 +102,7 @@ import app.opentv.data.model.Episode
 import app.opentv.core.SleepTimer
 import app.opentv.core.findActivity
 import app.opentv.player.PlayerController
+import app.opentv.player.VodSeekPolicy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -167,13 +170,26 @@ fun VodPlayerScreen(
             liveRecording = growingRec,
         )
     }
-    // Skip forward/back within the recorded portion. For a growing recording ExoPlayer won't report
-    // the item as seekable (no fixed length), so we seek directly, clamped to what's on disk.
-    fun seekRelative(deltaMs: Long) {
+    // A seek request is not a successful decoder seek. Keep the pending target until the
+    // decoder acknowledges it, then hide the loading indicator. Don't fake progress.
+    var badDuration by remember(mediaKey) { mutableStateOf(false) }
+    var pendingSeek by remember(mediaKey) { mutableStateOf<Long?>(null) }
+    var seekStartedMs by remember(mediaKey) { mutableLongStateOf(0L) }
+    var seekNotice by remember(mediaKey) { mutableStateOf<String?>(null) }
+    var lastRemoteRepeatMs by remember(mediaKey) { mutableLongStateOf(0L) }
+    fun seekToRequested(requestMs: Long) {
         val p = controller.player
-        val ceiling = if (growingRec) p.bufferedPosition.coerceAtLeast(0L)
-        else (p.duration.takeIf { it > 0 } ?: Long.MAX_VALUE)
-        p.seekTo((p.currentPosition + deltaMs).coerceIn(0L, ceiling))
+        val extent = if (growingRec) p.bufferedPosition.coerceAtLeast(0L)
+            else p.duration.takeIf { it > 0 } ?: 0L
+        val request = VodSeekPolicy.target(requestMs, extent, badDuration && !growingRec)
+        pendingSeek = request
+        seekStartedMs = SystemClock.elapsedRealtime()
+        seekNotice = null
+        p.seekTo(request)
+    }
+    fun seekRelative(deltaMs: Long) {
+        val start = pendingSeek ?: controller.player.currentPosition.coerceAtLeast(0L)
+        seekToRequested(start + deltaMs)
     }
     val state by controller.state.collectAsState()
     var useVlc by remember(mediaKey) { mutableStateOf(false) }
@@ -329,27 +345,40 @@ fun VodPlayerScreen(
     }
 
     // Poll position/duration for the seek bar while the film plays.
-    LaunchedEffect(Unit) {
+    LaunchedEffect(mediaKey) {
         while (isActive) {
+            val position = controller.player.currentPosition.coerceAtLeast(0L)
+            val reported = if (growingRec) controller.player.bufferedPosition.coerceAtLeast(0L)
+                else controller.player.duration.takeIf { it > 0 } ?: 0L
+            if (!growingRec && VodSeekPolicy.contradictsDuration(reported, position)) badDuration = true
             if (!scrubbing) {
-                positionMs = controller.player.currentPosition.coerceAtLeast(0)
-                // A growing recording has no fixed length; the recorded-so-far extent (how far you
-                // can skip ahead) is what's been read into the buffer.
-                durationMs = if (growingRec) controller.player.bufferedPosition.coerceAtLeast(0)
-                else controller.player.duration.takeIf { it > 0 } ?: 0
+                positionMs = position
+                durationMs = if (badDuration && !growingRec) 0L else reported
             }
-            delay(500)
+            val request = pendingSeek
+            if (request != null) {
+                if (VodSeekPolicy.acknowledged(position, request) &&
+                    controller.player.playbackState == Player.STATE_READY) {
+                    pendingSeek = null
+                } else if (SystemClock.elapsedRealtime() - seekStartedMs >= 18_000L) {
+                    pendingSeek = null
+                    seekNotice = "Seek not confirmed. This stream may not support random access."
+                }
+            }
+            delay(250)
         }
     }
 
     // Auto-hide when playing and not paused/scrubbing and no picker open. A growing recording dips in
     // and out of Buffering as it rides the write head, so for that case Buffering counts as "playing"
     // here — otherwise a single hiccup would pin the transport bar on screen for the rest of the watch.
-    LaunchedEffect(controlsVisible, interaction, state, paused, scrubbing, vodPanel) {
+    val controlsTimeout by settings.playerControlsTimeoutSeconds.collectAsState()
+    LaunchedEffect(controlsVisible, interaction, state, paused, scrubbing, vodPanel, pendingSeek, controlsTimeout) {
         val activelyPlaying = state is PlayerController.State.Playing ||
             (growingRec && state is PlayerController.State.Buffering)
-        if (controlsVisible && !paused && !scrubbing && vodPanel == VodPanel.NONE && activelyPlaying) {
-            delay(5_000)
+        if (controlsVisible && !paused && !scrubbing && pendingSeek == null &&
+            vodPanel == VodPanel.NONE && activelyPlaying && controlsTimeout > 0) {
+            delay(controlsTimeout * 1_000L)
             controlsVisible = false
         }
     }
@@ -364,11 +393,9 @@ fun VodPlayerScreen(
     }
 
     BackHandler(enabled = !useVlc) {
-        val activelyPlaying = state is PlayerController.State.Playing ||
-            (growingRec && state is PlayerController.State.Buffering)
         when {
             vodPanel != VodPanel.NONE -> vodPanel = VodPanel.NONE
-            controlsVisible && activelyPlaying && !paused -> controlsVisible = false
+            controlsVisible -> controlsVisible = false
             else -> onBack()
         }
     }
@@ -425,15 +452,22 @@ fun VodPlayerScreen(
             enter = fadeIn(), exit = fadeOut(),
             modifier = Modifier.align(Alignment.TopStart),
         ) {
-            androidx.compose.material3.IconButton(
-                onClick = onBack,
-                modifier = Modifier
+            Row(
+                modifier = Modifier.fillMaxWidth()
+                    .background(Brush.verticalGradient(listOf(
+                        Color.Black.copy(alpha = 0.65f), Color.Transparent,
+                    )))
                     .windowInsetsPadding(WindowInsets.safeDrawing.only(
                         WindowInsetsSides.Horizontal + WindowInsetsSides.Top))
-                    .padding(12.dp)
-                    .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(10.dp)),
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(Icons.Filled.ArrowBack, contentDescription = "Back to library", tint = Color.White)
+                androidx.compose.material3.IconButton(onClick = onBack) {
+                    Icon(Icons.Filled.ArrowBack, contentDescription = "Back to library", tint = Color.White)
+                }
+                Spacer(Modifier.width(10.dp))
+                Text(title, color = Color.White, maxLines = 1,
+                    style = MaterialTheme.typography.titleMedium)
             }
         }
 
@@ -517,29 +551,55 @@ fun VodPlayerScreen(
                     }
                     Spacer(Modifier.height(4.dp))
                 }
-                Text(title, style = MaterialTheme.typography.headlineSmall, color = Color.White)
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(6.dp))
 
                 // Seek bar with times either side. Left/right on the remote scrubs.
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(formatDuration(if (scrubbing) scrubValue.toLong() else positionMs), color = Color.White)
                     Spacer(Modifier.width(12.dp))
                     Slider(
-                        value = if (scrubbing) scrubValue else positionMs.toFloat(),
-                        valueRange = 0f..(durationMs.takeIf { it > 0 }?.toFloat() ?: 1f),
+                        value = (if (scrubbing) scrubValue else positionMs.toFloat())
+                            .coerceIn(0f, VodSeekPolicy.displayMaximum(durationMs, positionMs, badDuration).toFloat()),
+                        valueRange = 0f..VodSeekPolicy.displayMaximum(durationMs, positionMs, badDuration).toFloat(),
                         onValueChange = { scrubbing = true; scrubValue = it; interaction++ },
                         onValueChangeFinished = {
-                            controller.player.seekTo(scrubValue.toLong())
-                            positionMs = scrubValue.toLong()
+                            seekToRequested(scrubValue.toLong())
                             scrubbing = false
                             interaction++
                         },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f)
+                            .focusRequester(barFocus)
+                            .onPreviewKeyEvent { event ->
+                                if (event.type != KeyEventType.KeyDown ||
+                                    (event.key != Key.DirectionLeft && event.key != Key.DirectionRight)) {
+                                    false
+                                } else {
+                                    val repeat = event.nativeKeyEvent.repeatCount
+                                    val now = SystemClock.elapsedRealtime()
+                                    if (repeat == 0 || now - lastRemoteRepeatMs >= 500L) {
+                                        seekRelative(VodSeekPolicy.remoteStep(repeat) *
+                                            if (event.key == Key.DirectionLeft) -1 else 1)
+                                        lastRemoteRepeatMs = now
+                                    }
+                                    interaction++
+                                    true
+                                }
+                            },
                     )
                     Spacer(Modifier.width(12.dp))
-                    Text(formatDuration(durationMs), color = Color.White)
+                    Text(if (durationMs > 0L) formatDuration(durationMs) else "—", color = Color.White)
                 }
 
+                if (pendingSeek != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp,
+                            color = Color.White)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Seeking and buffering…", color = Color.White)
+                    }
+                }
+                seekNotice?.let { Text(it, color = Color(0xFFFFD48C),
+                    style = MaterialTheme.typography.bodySmall) }
                 Spacer(Modifier.height(10.dp))
 
                 Row(
@@ -553,7 +613,6 @@ fun VodPlayerScreen(
                     VodChip(
                         icon = if (paused) Icons.Filled.PlayArrow else Icons.Filled.Pause,
                         label = if (paused) stringResource(R.string.common_play) else stringResource(R.string.player_pause),
-                        focusRequester = barFocus,
                     ) {
                         paused = !paused
                         controller.player.playWhenReady = !paused
