@@ -86,6 +86,18 @@ class AppSettings private constructor(context: Context) {
         prefs.edit().putLong(key, timestamp).apply()
         target.value = timestamp
     }
+    /** Auto-refresh cadence shared across Live/Movies/Series (0 disables scheduled refresh). */
+    private val _catalogueRefreshHours = MutableStateFlow(
+        prefs.getInt("catalogue_refresh_hours", 12).takeIf { it in setOf(0, 1, 3, 6, 12, 24) } ?: 12,
+    )
+    val catalogueRefreshHours: StateFlow<Int> = _catalogueRefreshHours.asStateFlow()
+
+    fun setCatalogueRefreshHours(hours: Int) {
+        require(hours in setOf(0, 1, 3, 6, 12, 24))
+        prefs.edit().putInt("catalogue_refresh_hours", hours).apply()
+        _catalogueRefreshHours.value = hours
+    }
+
     private val _deviceMode = MutableStateFlow(
         runCatching { DeviceMode.valueOf(prefs.getString("device_mode", "AUTO") ?: "AUTO") }
             .getOrDefault(DeviceMode.AUTO),

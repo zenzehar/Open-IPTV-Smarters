@@ -1147,7 +1147,9 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
     val vodLoading: StateFlow<Boolean> = _vodLoading.asStateFlow()
     @Volatile private var vodRequested = false
     private val vodSyncMutex = Mutex()
-    private val VOD_TTL_MILLIS = 12L * 60 * 60 * 1000
+    // 0 = manual-only refresh after an initial load.
+    private val vodTtlMillis: Long
+        get() = settings.catalogueRefreshHours.value * 3_600_000L
 
     fun ensureVodLoaded() {
         if (vodRequested) return
@@ -1203,7 +1205,9 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
             val now = System.currentTimeMillis()
             val initialMovies = graph.catalogRepository.movieCount()
             val initialSeries = graph.catalogRepository.seriesCount()
-            val fresh = settings.vodSyncedAtMillis.let { it > 0 && now - it < VOD_TTL_MILLIS }
+            val fresh = settings.vodSyncedAtMillis.let {
+                it > 0 && (vodTtlMillis == 0L || now - it < vodTtlMillis)
+            }
             // Warm-cache path must be immediate; never re-download a large library
             // when persisted rows are still fresh.
             if (!force && fresh &&

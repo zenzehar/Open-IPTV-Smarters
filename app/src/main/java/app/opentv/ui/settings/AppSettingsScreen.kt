@@ -76,6 +76,7 @@ fun AppSettingsScreen(onBack: () -> Unit) {
     val resumeLast by settings.resumeLastChannel.collectAsState()
     val autoplayNext by settings.autoplayNextEpisode.collectAsState()
     val controlsTimeout by settings.playerControlsTimeoutSeconds.collectAsState()
+    val refreshHours by settings.catalogueRefreshHours.collectAsState()
     val language by settings.languageTag.collectAsState()
     val liveEnabled by settings.liveEnabled.collectAsState()
     val moviesEnabled by settings.moviesEnabled.collectAsState()
@@ -173,6 +174,21 @@ fun AppSettingsScreen(onBack: () -> Unit) {
                 onToggle = settings::setSeriesEnabled,
                 onRefresh = onRefreshContent,
             )
+            Spacer(Modifier.height(12.dp))
+            Text("Automatic catalogue refresh", style = MaterialTheme.typography.titleMedium)
+            Text("Updates use cached titles while refreshing. The schedule is approximate.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Column {
+                listOf(0 to "Off", 1 to "Every hour", 3 to "Every 3 hours",
+                    6 to "Every 6 hours", 12 to "Every 12 hours", 24 to "Every 24 hours")
+                    .forEach { (hours, label) ->
+                        ThemeOption(label, refreshHours == hours) {
+                            settings.setCatalogueRefreshHours(hours)
+                            SyncWorker.schedule(context)
+                        }
+                    }
+            }
         }
 
         Spacer(Modifier.height(16.dp))

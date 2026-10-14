@@ -17,6 +17,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import app.opentv.core.ServiceLocator
+import app.opentv.core.AppSettings
 import app.opentv.data.repo.CatalogRepository
 import java.util.concurrent.TimeUnit
 
@@ -39,6 +40,12 @@ class SyncWorker(
         if (sources.isEmpty()) return Result.success()
 
         var anyFailed = false
+        val settings = graph.settings
+        val intervalHours = settings.catalogueRefreshHours.value
+        val manual = inputData.getBoolean("force_catalogue", false)
+        val vodDue = manual || settings.vodSyncedAtMillis == 0L ||
+            (intervalHours > 0 &&
+                now - settings.vodSyncedAtMillis >= intervalHours * 3_600_000L)
 
         for (source in sources) {
             when (val result = graph.catalogRepository.sync(source, now)) {
@@ -50,6 +57,24 @@ class SyncWorker(
                 }
             }
 
+        }
+
+        if (vodDue && (settings.moviesEnabled.value || settings.seriesEnabled.value)) {
+            var vodFailed = false
+            for (source in sources) {
+                val result = graph.catalogRepository.syncVod(
+                    source, now,
+                    includeMovies = settings.moviesEnabled.value,
+                    includeSeries = settings.seriesEnabled.value,
+                )
+                vodFailed = vodFailed || result.movieError != null || result.seriesError != null
+            }
+            if (vodFailed) anyFailed = true
+            else {
+                settings.vodSyncedAtMillis = now
+                if (settings.moviesEnabled.value) settings.recordCatalogueUpdated("movies", now)
+                if (settings.seriesEnabled.value) settings.recordCatalogueUpdated("series", now)
+            }
         }
 
         // Guides sync as one pass across every enabled feed — provider guides, built-in
@@ -82,6 +107,7 @@ class SyncWorker(
          */
         fun refreshNow(context: Context) {
             val request = OneTimeWorkRequestBuilder<SyncWorker>()
+                .setInputData(androidx.work.workDataOf("force_catalogue" to true))
                 .setConstraints(
                     Constraints.Builder()
                         .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -96,7 +122,13 @@ class SyncWorker(
         }
 
         fun schedule(context: Context) {
-            val request = PeriodicWorkRequestBuilder<SyncWorker>(6, TimeUnit.HOURS)
+            val hours = AppSettings.get(context).catalogueRefreshHours.value
+            val worker = WorkManager.getInstance(context)
+            if (hours == 0) {
+                worker.cancelUniqueWork(WORK_NAME)
+                return
+            }
+            val request = PeriodicWorkRequestBuilder<SyncWorker>(hours.toLong(), TimeUnit.HOURS)
                 .setConstraints(
                     Constraints.Builder()
                         .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -111,7 +143,7 @@ class SyncWorker(
 
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
                 WORK_NAME,
-                ExistingPeriodicWorkPolicy.KEEP,
+                ExistingPeriodicWorkPolicy.UPDATE,
                 request,
             )
         }
