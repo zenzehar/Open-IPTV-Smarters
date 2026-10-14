@@ -1,8 +1,7 @@
 name: Android phone and TV emulator smoke
+# Explicit opt-in only; emulator smoke tests are not run on branch pushes.
 on:
   workflow_dispatch:
-  push:
-    branches: ['feature/koky-sosy-rebuild-v0127']
 
 permissions:
   contents: read

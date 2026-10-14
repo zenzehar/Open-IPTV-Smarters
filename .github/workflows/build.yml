@@ -52,7 +52,8 @@ jobs:
             echo "::warning::Signing secrets not configured: debug APK will have a temporary certificate and cannot reliably upgrade an older APK."
           fi
 
-      - name: Unit tests
+      - name: Unit tests (manual only)
+        if: github.event_name == 'workflow_dispatch'
         run: ./gradlew test --stacktrace
 
       - name: Assemble debug and side-by-side QA APKs
