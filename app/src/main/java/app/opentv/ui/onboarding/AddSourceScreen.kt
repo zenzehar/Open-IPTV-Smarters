@@ -275,7 +275,7 @@ fun AddSourceScreen(
                 )
                 Spacer(Modifier.height(if (wide) 12.dp else 6.dp))
 
-                TvKeyboardGate(isTelevision, name, "Playlist name", masked = false) { gated ->
+                TvKeyboardGate(isTelevision, name, "Playlist name", modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = fieldHeight), masked = false) { gated ->
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = oneLine(it); viewModel.clearConnectionResult() },
@@ -287,7 +287,7 @@ fun AddSourceScreen(
                 )
                 }
                 if (kind == SourceKind.XTREAM) {
-                    TvKeyboardGate(isTelevision, username, "Username", masked = false) { gated ->
+                    TvKeyboardGate(isTelevision, username, "Username", modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = fieldHeight), masked = false) { gated ->
                     OutlinedTextField(
                         value = username,
                         onValueChange = { username = oneLine(it); viewModel.clearConnectionResult() },
@@ -298,7 +298,7 @@ fun AddSourceScreen(
                         modifier = gated,
                     )
                     }
-                    TvKeyboardGate(isTelevision, password, "Password", masked = true) { gated ->
+                    TvKeyboardGate(isTelevision, password, "Password", modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = fieldHeight), masked = true) { gated ->
                     OutlinedTextField(
                         value = password,
                         onValueChange = { password = oneLine(it); viewModel.clearConnectionResult() },
@@ -320,7 +320,7 @@ fun AddSourceScreen(
                     )
                     }
                 }
-                TvKeyboardGate(isTelevision, url, "Server URL", masked = false) { gated ->
+                TvKeyboardGate(isTelevision, url, "Server URL", modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = fieldHeight), masked = false) { gated ->
                 OutlinedTextField(
                     value = url,
                     onValueChange = { url = oneLine(it); viewModel.clearConnectionResult() },
@@ -337,7 +337,7 @@ fun AddSourceScreen(
                 )
                 }
                 if (kind == SourceKind.STALKER) {
-                    TvKeyboardGate(isTelevision, mac, "MAC address", masked = false) { gated ->
+                    TvKeyboardGate(isTelevision, mac, "MAC address", modifier = Modifier.fillMaxWidth(), masked = false) { gated ->
                     OutlinedTextField(
                         value = mac,
                         onValueChange = { mac = oneLine(it); viewModel.clearConnectionResult() },
@@ -433,7 +433,7 @@ fun AddSourceScreen(
                         color = Color.White)
                 }
                 if (showAdvanced) {
-                    TvKeyboardGate(isTelevision, epgUrl, "Optional EPG URL", masked = false) { gated ->
+                    TvKeyboardGate(isTelevision, epgUrl, "Optional EPG URL", modifier = Modifier.fillMaxWidth(), masked = false) { gated ->
                     OutlinedTextField(
                         value = epgUrl,
                         onValueChange = { epgUrl = oneLine(it); viewModel.clearConnectionResult() },
@@ -444,7 +444,7 @@ fun AddSourceScreen(
                         singleLine = true,
                     )
                     }
-                    TvKeyboardGate(isTelevision, userAgent, "User-Agent", masked = false) { gated ->
+                    TvKeyboardGate(isTelevision, userAgent, "User-Agent", modifier = Modifier.fillMaxWidth(), masked = false) { gated ->
                     OutlinedTextField(
                         value = userAgent,
                         onValueChange = { userAgent = oneLine(it); viewModel.clearConnectionResult() },

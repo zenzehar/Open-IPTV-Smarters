@@ -100,9 +100,8 @@ fun SearchScreen(
         vodViewModel.setVodSearchQuery(query)
     }
     val keyboard = LocalSoftwareKeyboardController.current
-    val isTelevision = remember(LocalContext.current) {
-        isRunningOnTelevision(LocalContext.current)
-    }
+    val context = LocalContext.current
+    val isTelevision = remember(context) { isRunningOnTelevision(context) }
     val density = LocalDensity.current
     val keyboardVisible = WindowInsets.ime.getBottom(density) > 0
     BackHandler { if (keyboardVisible) keyboard?.hide() else onBack() }
