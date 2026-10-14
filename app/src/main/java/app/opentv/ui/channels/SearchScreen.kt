@@ -64,6 +64,9 @@ import app.opentv.data.model.shownName
 import app.opentv.data.parser.displayTitle
 import app.opentv.ui.ChannelsViewModel
 import app.opentv.ui.VodViewModel
+import app.opentv.ui.TvKeyboardGate
+import app.opentv.isRunningOnTelevision
+import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -97,15 +100,18 @@ fun SearchScreen(
         vodViewModel.setVodSearchQuery(query)
     }
     val keyboard = LocalSoftwareKeyboardController.current
+    val isTelevision = remember(LocalContext.current) {
+        isRunningOnTelevision(LocalContext.current)
+    }
     val density = LocalDensity.current
     val keyboardVisible = WindowInsets.ime.getBottom(density) > 0
     BackHandler { if (keyboardVisible) keyboard?.hide() else onBack() }
 
     val fieldFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) {
+    LaunchedEffect(isTelevision) {
         delay(100)
         runCatching { fieldFocus.requestFocus() }
-        keyboard?.show()
+        if (!isTelevision) keyboard?.show()
     }
 
     Column(
@@ -119,15 +125,23 @@ fun SearchScreen(
         Spacer(Modifier.height(8.dp))
         // Android's installed, currently selected IME (Gboard, SwiftKey, TV keyboard, etc.)
         // is the ONLY keyboard. Never draw a second custom QWERTY on top of it.
-        OutlinedTextField(
+        TvKeyboardGate(
+            isTelevision = isTelevision,
             value = query,
-            onValueChange = { if (it.length <= 100) query = it },
-            label = { Text(stringResource(R.string.search_type_name)) },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
+            placeholder = "Search all titles",
             modifier = Modifier.fillMaxWidth().focusRequester(fieldFocus),
-        )
+        ) { fieldModifier ->
+            OutlinedTextField(
+                value = query,
+                onValueChange = { if (it.length <= 100) query = it },
+                label = { Text(stringResource(R.string.search_type_name)) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search,
+                    showKeyboardOnFocus = !isTelevision),
+                keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
+                modifier = fieldModifier,
+            )
+        }
         Spacer(Modifier.height(12.dp))
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when {

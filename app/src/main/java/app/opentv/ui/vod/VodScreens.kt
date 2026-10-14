@@ -77,6 +77,7 @@ import app.opentv.data.model.Series
 import app.opentv.data.model.Source
 import app.opentv.data.parser.displayTitle
 import app.opentv.ui.VodViewModel
+import app.opentv.ui.TvKeyboardGate
 import app.opentv.ui.VodLoadPhase
 import coil.compose.AsyncImage
 import kotlinx.coroutines.launch
@@ -501,15 +502,23 @@ private fun VodCategorySidebar(
                 style = MaterialTheme.typography.titleSmall, maxLines = 1)
         }
         if (expanded) {
-            OutlinedTextField(
+            TvKeyboardGate(
+                isTelevision = isTelevision,
                 value = categorySearch,
-                onValueChange = { categorySearch = it },
-                singleLine = true,
-                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                placeholder = { Text("Search categories", maxLines = 1) },
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                placeholder = "Filter category names",
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
-            )
+            ) { fieldModifier ->
+                OutlinedTextField(
+                    value = categorySearch,
+                    onValueChange = { categorySearch = it },
+                    singleLine = true,
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                    placeholder = { Text("Search categories", maxLines = 1) },
+                    keyboardOptions = KeyboardOptions(
+                        imeAction = ImeAction.Search, showKeyboardOnFocus = !isTelevision),
+                    modifier = fieldModifier,
+                )
+            }
         }
         LazyColumn(
             modifier = Modifier.fillMaxWidth().weight(1f),
