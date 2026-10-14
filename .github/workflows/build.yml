@@ -5,6 +5,22 @@ on:
     branches: [main, 'feature/**']
   pull_request:
   workflow_dispatch:
+    inputs:
+      live_provider_qa:
+        description: 'Run PRIVATE provider contract checks (protected secrets required)'
+        required: true
+        type: boolean
+        default: false
+      allow_insecure_http:
+        description: 'I accept sending credentials without encryption over HTTP'
+        required: true
+        type: boolean
+        default: false
+      probe_one_media_stream:
+        description: 'Optionally request at most 8 KiB from one VOD stream'
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -16,6 +32,9 @@ concurrency:
 jobs:
   build:
     name: Test and assemble
+    # Private provider testing runs in a separate protected job: no credentials
+    # are ever passed into PR builds, APK release steps or emulator artifacts.
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.live_provider_qa != true }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -198,4 +217,55 @@ jobs:
             emulator-screenshots/
             emulator-fixture.log
             emulator-quality/
+          if-no-files-found: ignore
+
+  private-live-provider-qa:
+    name: Private live-provider contract tests
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.live_provider_qa == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    # Configure protected environment + its secrets in Settings > Environments.
+    # Not run by push or PR; can require manual reviewer approval.
+    environment: live-provider-qa
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Validate private provider and TLS policy
+        env:
+          KOKY_PROVIDER_URL: ${{ secrets.KOKY_PROVIDER_URL }}
+          KOKY_PROVIDER_USERNAME: ${{ secrets.KOKY_PROVIDER_USERNAME }}
+          KOKY_PROVIDER_PASSWORD: ${{ secrets.KOKY_PROVIDER_PASSWORD }}
+          KOKY_ALLOW_HTTP: ${{ inputs.allow_insecure_http }}
+          KOKY_PROBE_MEDIA: ${{ inputs.probe_one_media_stream }}
+        run: |
+          set +x
+          python3 scripts/live-provider-qa.py
+
+      - name: Run actual Koky TV Xtream client against protected provider
+        env:
+          KOKY_PROVIDER_URL: ${{ secrets.KOKY_PROVIDER_URL }}
+          KOKY_PROVIDER_USERNAME: ${{ secrets.KOKY_PROVIDER_USERNAME }}
+          KOKY_PROVIDER_PASSWORD: ${{ secrets.KOKY_PROVIDER_PASSWORD }}
+          KOKY_ALLOW_HTTP: ${{ inputs.allow_insecure_http }}
+        run: |
+          set +x
+          ./gradlew :app:testQaUnitTest --tests 'app.opentv.RealProviderContractTest' --stacktrace --console=plain
+
+      - name: Upload sanitized test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: private-provider-sanitized-results
+          path: live-provider-qa-summary.json
           if-no-files-found: ignore
