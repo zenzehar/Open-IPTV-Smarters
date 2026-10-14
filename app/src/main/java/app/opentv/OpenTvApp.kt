@@ -11,6 +11,7 @@ import app.opentv.core.LocaleUtils
 import app.opentv.core.ServiceLocator
 import app.opentv.data.repo.CatalogRepository
 import app.opentv.data.work.SyncWorker
+import app.opentv.data.work.AutoProviderQaWorker
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
@@ -62,6 +63,9 @@ class OpenTvApp : Application(), ImageLoaderFactory {
         val graph = ServiceLocator.get(this)
         SyncWorker.schedule(this)
         SyncWorker.refreshDueAtStartup(this)
+        // Use the already-saved Xtream profiles; never ship or ask for credentials.
+        // Runs after startup and daily without interrupting foreground video playback.
+        AutoProviderQaWorker.schedule(this)
         app.opentv.data.work.NasAutoSyncWorker.schedule(this, graph.settings.nasAutoSync.value)
 
         // When the normaliser has moved on since the catalogue was last processed, re-clean

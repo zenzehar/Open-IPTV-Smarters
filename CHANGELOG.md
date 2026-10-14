@@ -1,5 +1,14 @@
 # Changelog
 
+## QA worker: autonomous read-only diagnostics on Android hardware
+
+- Schedule private on-device Xtream provider diagnostics 90 seconds after launch and roughly every 24 hours using existing saved source logins, no credentials added to source or GitHub workflow inputs.
+- Test account authentication, Live/Movie/Series category metadata, a cached series' episode metadata and a capped same-provider-host HTTP Range request for one cached movie. Range must return HTTP 206, not just 200.
+- Do not download full catalogues, start background playback, disrupt watching, export request URLs, log credentials or modify user profiles/history.
+- Store fixed-label PASS/FAIL summaries on-device and show the latest aggregate report in About.
+- An HTTP Range pass is not a demonstration that Android TV decoder seeking works; hardware playback regressions remain open.
+
+
 ## 0.12.20 — VLC playback regression triage and Android TV/phone smoke checks
 
 - Remove the 25-second forced Media3-to-LibVLC switch on slow startup buffering. Only known unsupported codecs/containers and explicit user choice activate VLC.
