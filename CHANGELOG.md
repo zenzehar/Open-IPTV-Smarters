@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.21 — Autonomous provider diagnostics on devices with saved accounts
+
+- Background read-only health checks start automatically after launch and repeat approximately daily; no GitHub secrets, user actions or source-code credentials are needed when the Xtream profile already exists on this installation.
+- Report login, category and cached-episode metadata checks plus a bounded same-host movie HTTP Range response. Results and individual statuses are visible in Settings → About.
+- Report only fixed PASS/FAIL and skipped statuses, never source names, endpoints, account information or response bodies. No automatic background decoding or interruption of live playback.
+- Add unit tests for due-time policy. Real decoder seeking, provider playback and remote exit still require genuine on-device verification.
+
+
 ## QA worker: autonomous read-only diagnostics on Android hardware
 
 - Schedule private on-device Xtream provider diagnostics 90 seconds after launch and roughly every 24 hours using existing saved source logins, no credentials added to source or GitHub workflow inputs.

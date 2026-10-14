@@ -168,6 +168,30 @@ class AutoProviderQaWorker(context: Context, params: WorkerParameters) :
             )
         }
 
+        /** Fixed-schema PASS/FAIL details only; never displays source names, URLs, or credentials. */
+        fun lastDetails(context: Context): String {
+            val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString(LAST_REPORT, null) ?: return "No provider checks have finished yet."
+            return try {
+                val rows = JSONObject(raw).getJSONArray("checks")
+                buildString {
+                    for (i in 0 until rows.length()) {
+                        if (isNotEmpty()) append("\n")
+                        append("Provider ").append(i + 1).append(": ")
+                        val checks = rows.getJSONObject(i).getJSONObject("checks")
+                        val keys = listOf("authentication", "live_categories",
+                            "movie_categories", "series_categories", "episodes",
+                            "movie_http_range", "other_tests")
+                        append(keys.filter { checks.has(it) }.joinToString(" | ") { key ->
+                            "$key: ${checks.optString(key)}"
+                        })
+                    }
+                }
+            } catch (_: Exception) {
+                "No diagnostic details available"
+            }
+        }
+
         fun lastSummary(context: Context): String {
             val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .getString(LAST_REPORT, null) ?: return "Awaiting first automatic provider check"

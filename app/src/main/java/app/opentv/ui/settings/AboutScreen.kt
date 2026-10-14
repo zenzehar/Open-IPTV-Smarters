@@ -120,6 +120,12 @@ fun AboutScreen(onBack: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
+                AutoProviderQaWorker.lastDetails(context),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
                 "Runs automatically after startup and approximately every 24 hours " +
                     "for configured Xtream sources. Checks login, categories, episodes " +
                     "and a small same-host Movie HTTP range. Doesn't alter playback or " +
