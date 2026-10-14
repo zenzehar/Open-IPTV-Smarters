@@ -121,7 +121,7 @@ fun MoviesScreen(
         if (hasSources) viewModel.ensureVodLoaded()
         viewModel.loadHomeFeeds()
     }
-    var browseCategory by remember { mutableStateOf<String?>(null) }
+    var browseCategory by remember { mutableStateOf<String?>(ALL_CATEGORY) }
     val hasContent = resume.isNotEmpty() || recommended.isNotEmpty() ||
         recentlyAdded.isNotEmpty() || genreRows.isNotEmpty()
     val onCategory: (String) -> Unit = { id ->
@@ -129,7 +129,7 @@ fun MoviesScreen(
         viewModel.selectMovieCategory(if (isSpecialVodCategory(id)) null else id)
     }
     val onAll: () -> Unit = {
-        browseCategory = null
+        browseCategory = ALL_CATEGORY
         viewModel.selectMovieCategory(null)
     }
 
@@ -151,8 +151,8 @@ fun MoviesScreen(
         if (sources.size > 1) ProviderChips(
             sources = sources,
             selected = selectedSource,
-            onSelectAll = { browseCategory = null; viewModel.selectVodSource(null) },
-            onSelectSource = { id -> browseCategory = null; viewModel.selectVodSource(id) },
+            onSelectAll = { browseCategory = ALL_CATEGORY; viewModel.selectVodSource(null) },
+            onSelectSource = { id -> browseCategory = ALL_CATEGORY; viewModel.selectVodSource(id) },
         )
         Box(Modifier.weight(1f).fillMaxWidth()) {
             VodBrowserFrame(
@@ -173,7 +173,9 @@ fun MoviesScreen(
                     browseCategory == CONTINUE_WATCHING_CATEGORY -> ContinueWatchingGrid(resume, onResume, openResumeDetails, isTelevision)
                     browseCategory == FAVOURITES_CATEGORY -> MovieCategoryGrid(scopedMovies.filter { it.favourite }, viewModel, onOpenMovie)
                     browseCategory == RECENTLY_ADDED_CATEGORY -> MovieCategoryGrid(recentlyAdded, viewModel, onOpenMovie)
-                    browseCategory != null -> MovieCategoryGrid(categoryMovies.filter { selectedSource == null || it.sourceId == selectedSource }, viewModel, onOpenMovie)
+                    browseCategory == ALL_CATEGORY -> MovieCategoryGrid(scopedMovies, viewModel, onOpenMovie)
+                    browseCategory != null && browseCategory != DISCOVER_CATEGORY ->
+                        MovieCategoryGrid(categoryMovies.filter { selectedSource == null || it.sourceId == selectedSource }, viewModel, onOpenMovie)
                     !hasContent -> when {
                         loadState.phase == VodLoadPhase.LOADING || isSyncing -> LoadingVod(stringResource(R.string.vod_loading_movies))
                         scopedMovies.isNotEmpty() -> MovieCategoryGrid(scopedMovies, viewModel, onOpenMovie)
@@ -239,14 +241,14 @@ fun SeriesScreen(
         if (hasSources) viewModel.ensureVodLoaded()
         viewModel.loadHomeFeeds()
     }
-    var browseCategory by remember { mutableStateOf<String?>(null) }
+    var browseCategory by remember { mutableStateOf<String?>(ALL_CATEGORY) }
     val hasContent = resume.isNotEmpty() || recentlyAdded.isNotEmpty() || genreRows.isNotEmpty()
     val onCategory: (String) -> Unit = { id ->
         browseCategory = id
         viewModel.selectSeriesCategory(if (isSpecialVodCategory(id)) null else id)
     }
     val onAll: () -> Unit = {
-        browseCategory = null
+        browseCategory = ALL_CATEGORY
         viewModel.selectSeriesCategory(null)
     }
 
@@ -268,8 +270,8 @@ fun SeriesScreen(
         if (sources.size > 1) ProviderChips(
             sources = sources,
             selected = selectedSource,
-            onSelectAll = { browseCategory = null; viewModel.selectVodSource(null) },
-            onSelectSource = { id -> browseCategory = null; viewModel.selectVodSource(id) },
+            onSelectAll = { browseCategory = ALL_CATEGORY; viewModel.selectVodSource(null) },
+            onSelectSource = { id -> browseCategory = ALL_CATEGORY; viewModel.selectVodSource(id) },
         )
         Box(Modifier.weight(1f).fillMaxWidth()) {
             VodBrowserFrame(
@@ -290,7 +292,9 @@ fun SeriesScreen(
                     browseCategory == CONTINUE_WATCHING_CATEGORY -> ContinueWatchingGrid(resume, onResume, openResumeDetails, isTelevision)
                     browseCategory == FAVOURITES_CATEGORY -> SeriesCategoryGrid(scopedSeries.filter { it.favourite }, onOpenSeries)
                     browseCategory == RECENTLY_ADDED_CATEGORY -> SeriesCategoryGrid(recentlyAdded, onOpenSeries)
-                    browseCategory != null -> SeriesCategoryGrid(categorySeries.filter { selectedSource == null || it.sourceId == selectedSource }, onOpenSeries)
+                    browseCategory == ALL_CATEGORY -> SeriesCategoryGrid(scopedSeries, onOpenSeries)
+                    browseCategory != null && browseCategory != DISCOVER_CATEGORY ->
+                        SeriesCategoryGrid(categorySeries.filter { selectedSource == null || it.sourceId == selectedSource }, onOpenSeries)
                     !hasContent -> when {
                         loadState.phase == VodLoadPhase.LOADING || isSyncing -> LoadingVod(stringResource(R.string.vod_loading_shows))
                         scopedSeries.isNotEmpty() -> SeriesCategoryGrid(scopedSeries, onOpenSeries)
@@ -321,11 +325,14 @@ private const val CONTINUE_WATCHING_CATEGORY = "__myiptv_continue_watching__"
 private const val FAVOURITES_CATEGORY = "__myiptv_favourites__"
 private const val RECENTLY_ADDED_CATEGORY = "__myiptv_recently_added__"
 private const val ALL_CATEGORY = "__myiptv_all__"
+private const val DISCOVER_CATEGORY = "__myiptv_discover__"
 
 private fun isSpecialVodCategory(id: String): Boolean = id == CONTINUE_WATCHING_CATEGORY ||
-    id == FAVOURITES_CATEGORY || id == RECENTLY_ADDED_CATEGORY
+    id == FAVOURITES_CATEGORY || id == RECENTLY_ADDED_CATEGORY ||
+    id == ALL_CATEGORY || id == DISCOVER_CATEGORY
 
 private fun vodSections() = listOf(
+    DISCOVER_CATEGORY to "Discover",
     FAVOURITES_CATEGORY to "Favourites",
     CONTINUE_WATCHING_CATEGORY to "Continue Watching",
     RECENTLY_ADDED_CATEGORY to "Recently Added",
@@ -510,7 +517,8 @@ private fun VodCategorySidebar(
         ) {
             if (categorySearch.isBlank() || "all".contains(categorySearch.trim(), true)) {
                 item(key = "all") {
-                    VodCategoryRow("ALL", selected == null, expanded, counts[ALL_CATEGORY], chooseHome)
+                    VodCategoryRow("ALL", selected == null || selected == ALL_CATEGORY,
+                        expanded, counts[ALL_CATEGORY], chooseHome)
                 }
             }
             items(matching, key = { it.first }) { (id, label) ->
@@ -902,7 +910,7 @@ private fun CategoryChips(
                 modifier = Modifier.padding(end = 4.dp),
             )
         }
-        item(key = "all") { Chip(stringResource(R.string.vod_all), selected == null, onSelectHome) }
+        item(key = "all") { Chip(stringResource(R.string.vod_all), selected == null || selected == ALL_CATEGORY, onSelectHome) }
         items(entries, key = { it.first }) { (id, name) ->
             Chip(name, selected == id) { onSelectCategory(id) }
         }
