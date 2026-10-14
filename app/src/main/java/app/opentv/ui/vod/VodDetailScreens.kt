@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -347,10 +348,22 @@ fun SeriesDetailScreen(
         else if (selectedSeason !in seasons) selectedSeason = seasons.keys.firstOrNull() ?: Int.MIN_VALUE
     }
     val showingSeason = selectedSeason.takeIf { it in seasons } ?: seasons.keys.firstOrNull()
+    val episodeListState = rememberLazyListState()
+    val lastEpisodeFocus = remember(seriesId) { FocusRequester() }
+    LaunchedEffect(lastEpisodeId, showingSeason, episodes) {
+        val selected = showingSeason?.let(seasons::get).orEmpty()
+        val episodeIndex = selected.indexOfFirst { it.id == lastEpisodeId }
+        if (episodeIndex >= 0) {
+            // Header, synopsis and season selector are three preceding LazyColumn items.
+            episodeListState.scrollToItem(episodeIndex + 3)
+            delay(100)
+            runCatching { lastEpisodeFocus.requestFocus() }
+        }
+    }
 
     Column(Modifier.fillMaxSize()) {
         DetailBackBar(onBack = onBack, label = "Back to series")
-        LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
+        LazyColumn(Modifier.fillMaxWidth().weight(1f), state = episodeListState) {
         item(key = "header") {
             DetailBackdrop(title = s.displayTitle, backdropUrl = s.backdropUrl, posterUrl = s.posterUrl, meta = seriesMeta(s)) {
                 DetailButton(
@@ -406,7 +419,11 @@ fun SeriesDetailScreen(
             }
             val showing = showingSeason?.let { seasons[it] }.orEmpty()
             items(showing, key = { it.id }) { ep ->
-                EpisodeRow(ep, highlighted = ep.id == lastEpisodeId) { key, url, title ->
+                EpisodeRow(
+                    ep,
+                    highlighted = ep.id == lastEpisodeId,
+                    focusRequester = lastEpisodeFocus.takeIf { ep.id == lastEpisodeId },
+                ) { key, url, title ->
                     EpisodeReturnTracker.record(ep)
                     selectedSeason = ep.season
                     onPlayEpisode(key, url, title)
@@ -800,6 +817,7 @@ private fun DetailButton(
 private fun EpisodeRow(
     ep: Episode,
     highlighted: Boolean,
+    focusRequester: FocusRequester? = null,
     onPlay: (mediaKey: String, url: String, title: String) -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -807,6 +825,7 @@ private fun EpisodeRow(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 24.dp, vertical = 3.dp)
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .onFocusChanged { focused = it.isFocused }
             .clip(RoundedCornerShape(8.dp))
             .background(
