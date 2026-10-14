@@ -55,6 +55,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import app.opentv.core.AppSettings
 import app.opentv.core.ServiceLocator
 import app.opentv.data.parser.displayTitle
@@ -234,6 +236,7 @@ object Routes {
 @Composable
 private fun OpenTvApp(isTelevision: Boolean) {
     val navController = rememberNavController()
+    val navigationScope = rememberCoroutineScope()
     val sourcesViewModel: SourcesViewModel = viewModel()
     val vodViewModel: VodViewModel = viewModel()
     val profilesViewModel: ProfilesViewModel = viewModel()
@@ -566,12 +569,40 @@ private fun OpenTvApp(isTelevision: Boolean) {
             composable(Routes.VOD_PLAYER) { entry ->
                 fun arg(name: String) = entry.arguments?.getString(name)
                     ?.let { java.net.URLDecoder.decode(it, "UTF-8") }.orEmpty()
+                var leavingPlayer by remember(entry.id) { mutableStateOf(false) }
+                fun returnToSeriesOrPrevious(episode: app.opentv.data.model.Episode?) {
+                    if (leavingPlayer) return
+                    leavingPlayer = true
+                    if (episode == null) {
+                        navController.popBackStack()
+                        return
+                    }
+                    EpisodeReturnTracker.record(episode)
+                    // A series detail entry already on the stack must be reused, not duplicated.
+                    if (navController.popBackStack(Routes.SERIES_DETAIL, false)) return
+                    navController.popBackStack()
+                    navigationScope.launch {
+                        val series = ServiceLocator.get(bootContext).catalogRepository
+                            .seriesByProviderKey(episode.sourceId, episode.seriesId)
+                        if (series != null) navController.navigate(Routes.seriesDetail(series.id))
+                    }
+                }
                 VodPlayerScreen(
                     mediaKey = arg("key"),
                     streamUrl = arg("url"),
                     title = arg("title"),
                     userAgent = arg("ua").ifEmpty { "OpenTV/0.1 (Android)" },
-                    onBack = { navController.popBackStack() },
+                    onBack = {
+                        val key = arg("key")
+                        val epId = key.takeIf { it.startsWith("ep:") }
+                            ?.substringAfter("ep:")?.toLongOrNull()
+                        if (epId == null) returnToSeriesOrPrevious(null)
+                        else navigationScope.launch {
+                            val ep = ServiceLocator.get(bootContext).catalogRepository.episode(epId)
+                            returnToSeriesOrPrevious(ep)
+                        }
+                    },
+                    onEpisodes = { episode -> returnToSeriesOrPrevious(episode) },
                     onNextEpisode = { episode ->
                         EpisodeReturnTracker.record(episode)
                         // Replace the active episode in navigation, don't grow the backstack

@@ -36,6 +36,9 @@ import androidx.compose.foundation.focusable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.FastForward
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -107,6 +110,7 @@ fun VlcVodFallback(
     autoplayNext: Boolean = false,
     onAutoplayChange: (Boolean) -> Unit = {},
     onNextEpisode: () -> Unit = {},
+    onEpisodes: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val graph = remember { ServiceLocator.get(context) }
@@ -119,6 +123,8 @@ fun VlcVodFallback(
     var positionMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
     var playing by remember { mutableStateOf(false) }
+    var playbackSpeed by remember(mediaKey) { mutableStateOf(1.0f) }
+    var aspectRatio by remember(mediaKey) { mutableStateOf<String?>(null) }
     var buffering by remember { mutableStateOf(true) }
     var startedVideo by remember(mediaKey, streamUrl) { mutableStateOf(false) }
     var showStartupSpinner by remember(mediaKey, streamUrl) { mutableStateOf(false) }
@@ -274,7 +280,7 @@ fun VlcVodFallback(
                             if (!startedVideo) buffering = true
                         }
                         MediaPlayer.Event.EncounteredError -> {
-                            errorText = "VLC could not decode this stream. Check provider access or try an external player."
+                            errorText = "VLC could not play this stream. It may be a provider, network, or codec issue."
                             buffering = false
                         }
                         MediaPlayer.Event.EndReached -> {
@@ -403,7 +409,19 @@ fun VlcVodFallback(
                     style = MaterialTheme.typography.titleMedium)
                 Text(errorText.orEmpty().take(250), color = Color.White.copy(alpha = 0.85f),
                     style = MaterialTheme.typography.bodySmall, maxLines = 5)
-                Button(onClick = ::openExternal) { Text("Open in another player", maxLines = 1) }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(onClick = {
+                        errorText = null
+                        buffering = true
+                        runCatching { player.stop(); player.play() }.onFailure {
+                            errorText = "VLC retry failed."
+                            buffering = false
+                        }
+                    }) { Text("Retry VLC") }
+                    Button(onClick = ::openExternal) {
+                        Text("External player", maxLines = 1)
+                    }
+                }
             }
         }
         if (controlsVisible) {
@@ -503,6 +521,34 @@ fun VlcVodFallback(
                         stepSeek(VodSeekPolicy.SHORT_STEP_MS)
                     }) {
                         Icon(Icons.Filled.FastForward, contentDescription = "Forward 10 seconds", tint = Color.White)
+                    }
+                    if (mediaKey.startsWith("ep:")) {
+                        IconButton(onClick = onEpisodes) {
+                            Icon(Icons.Filled.List, contentDescription = "Episodes", tint = Color.White)
+                        }
+                    }
+                    IconButton(onClick = {
+                        aspectRatio = when (aspectRatio) {
+                            null -> "16:9"
+                            "16:9" -> "4:3"
+                            else -> null
+                        }
+                        runCatching { player.setAspectRatio(aspectRatio) }
+                        revealControls()
+                    }) {
+                        Icon(Icons.Filled.AspectRatio, contentDescription = "Aspect ratio", tint = Color.White)
+                    }
+                    IconButton(onClick = {
+                        playbackSpeed = when (playbackSpeed) {
+                            1f -> 1.25f
+                            1.25f -> 1.5f
+                            1.5f -> 2f
+                            else -> 1f
+                        }
+                        runCatching { player.setRate(playbackSpeed) }
+                        revealControls()
+                    }) {
+                        Icon(Icons.Filled.Speed, contentDescription = "Speed ${playbackSpeed}×", tint = Color.White)
                     }
                     if (nextEpisode != null) {
                         IconButton(onClick = { goNextOnce() }) {

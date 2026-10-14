@@ -42,6 +42,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Audiotrack
+import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.FastForward
@@ -96,6 +99,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.AspectRatioFrameLayout
 import app.opentv.R
 import app.opentv.core.ServiceLocator
 import app.opentv.data.model.Episode
@@ -129,6 +133,7 @@ fun VodPlayerScreen(
     userAgent: String,
     onBack: () -> Unit,
     onNextEpisode: (Episode) -> Unit = {},
+    onEpisodes: (Episode) -> Unit = {},
 ) {
     val context = LocalContext.current
     val view = LocalView.current
@@ -136,6 +141,11 @@ fun VodPlayerScreen(
     val settings = remember { graph.settings }
     val autoplayNext by settings.autoplayNextEpisode.collectAsState()
     var nextEpisode by remember(mediaKey) { mutableStateOf<Episode?>(null) }
+    var currentEpisode by remember(mediaKey) { mutableStateOf<Episode?>(null) }
+    var aspectMode by remember(mediaKey) {
+        androidx.compose.runtime.mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT)
+    }
+    var playbackSpeed by remember(mediaKey) { mutableFloatStateOf(1.0f) }
     var media3Ended by remember(mediaKey) { mutableStateOf(false) }
     var completionHandled by remember(mediaKey) { mutableStateOf(false) }
     var advanced by remember(mediaKey) { mutableStateOf(false) }
@@ -143,6 +153,7 @@ fun VodPlayerScreen(
         val id = mediaKey.takeIf { it.startsWith("ep:") }?.substringAfter("ep:")?.toLongOrNull()
             ?: return@LaunchedEffect
         val episode = graph.catalogRepository.episode(id) ?: return@LaunchedEffect
+        currentEpisode = episode
         val episodes = graph.catalogRepository.observeEpisodes(episode.sourceId, episode.seriesId).first()
         nextEpisode = findNextEpisode(episodes, id)
     }
@@ -429,6 +440,7 @@ fun VodPlayerScreen(
                 autoplayNext = autoplayNext,
                 onAutoplayChange = settings::setAutoplayNextEpisode,
                 onNextEpisode = { advance() },
+                onEpisodes = { currentEpisode?.let(onEpisodes) },
             )
         } else {
         AndroidView(
@@ -437,6 +449,7 @@ fun VodPlayerScreen(
                 PlayerView(ctx).apply {
                     player = controller.player
                     useController = false
+                    resizeMode = aspectMode
                     subtitleView?.setUserDefaultStyle()
                     subtitleView?.setUserDefaultTextSize()
                     layoutParams = ViewGroup.LayoutParams(
@@ -445,6 +458,7 @@ fun VodPlayerScreen(
                     )
                 }
             },
+            update = { playerView -> playerView.resizeMode = aspectMode },
         )
 
         AnimatedVisibility(
@@ -622,7 +636,37 @@ fun VodPlayerScreen(
                     VodChip(Icons.Filled.FastForward, "+10s") {
                         seekRelative(10_000L); interaction++
                     }
-                    Spacer(Modifier.width(20.dp))
+                    Spacer(Modifier.width(16.dp))
+                    if (currentEpisode != null) {
+                        VodChip(Icons.Filled.List, "Episodes") {
+                            currentEpisode?.let(onEpisodes)
+                        }
+                        Spacer(Modifier.width(10.dp))
+                    }
+                    VodChip(Icons.Filled.AspectRatio, when (aspectMode) {
+                        AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Zoom"
+                        AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Fill"
+                        else -> "Fit"
+                    }) {
+                        aspectMode = when (aspectMode) {
+                            AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                            AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                            else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        }
+                        interaction++
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    VodChip(Icons.Filled.Speed, "${playbackSpeed}×") {
+                        playbackSpeed = when (playbackSpeed) {
+                            1f -> 1.25f
+                            1.25f -> 1.5f
+                            1.5f -> 2f
+                            else -> 1f
+                        }
+                        controller.player.setPlaybackSpeed(playbackSpeed)
+                        interaction++
+                    }
+                    Spacer(Modifier.width(10.dp))
                     VodChip(Icons.Filled.ClosedCaption, stringResource(R.string.player_subtitles)) {
                         vodPanel = if (vodPanel == VodPanel.SUBTITLES) VodPanel.NONE else VodPanel.SUBTITLES
                         interaction++
