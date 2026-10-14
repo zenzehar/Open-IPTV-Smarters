@@ -82,6 +82,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import app.opentv.core.AppSettings
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.opentv.R
@@ -895,6 +896,7 @@ internal fun PosterCard(
     val scale by animateFloatAsState(if (focused) 1.06f else 1f, label = "posterScale")
     Column(
         modifier
+            .testTag("poster:$title")
             .width(posterSize.cardDp.dp)
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .onFocusChanged { focused = it.isFocused }
@@ -1006,7 +1008,7 @@ internal fun ContinueWatchingRow(
 /** Portrait series/movie art, with a clear episode identifier and persisted progress. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ResumeCard(
+internal fun ResumeCard(
     item: VodViewModel.ResumeItem,
     onFocus: () -> Unit = {},
     onOpenDetails: () -> Unit,
@@ -1062,6 +1064,7 @@ private fun ResumeCard(
     val scale by animateFloatAsState(if (focused) 1.04f else 1f, label = "resumeScale")
     Column(
         Modifier
+            .testTag("continue:${item.mediaKey}")
             .width(154.dp)
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .onFocusChanged {
